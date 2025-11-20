@@ -36,17 +36,17 @@ object TableDetector {
         vertical.setTo(Scalar(0.0))
 
         // Horizontal lines
-        val horizontalsize = (thresh.cols() / 15)
+        val lineThickness = 1.0 // approximate line thickness in pixels
+        val lineLength = 30.0
+        val horizontalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineThickness,lineLength))
 
-        val horizontalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(horizontalsize.toDouble(), 1.0))
         Imgproc.erode(thresh, horizontal, horizontalStructure)
         Imgproc.dilate(horizontal, horizontal, horizontalStructure)
         Log.d("DEBUG", ">> horizontal after erode/dilate = ${horizontal.rows()} x ${horizontal.cols()}")
         Log.d("DEBUG", "horizontal nonZero = ${Core.countNonZero(horizontal)}")
 
         // Vertical lines
-        val verticalsize = (thresh.rows() / 15)
-        val verticalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(1.0, verticalsize.toDouble()))
+        val verticalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineLength, lineThickness))
         Imgproc.erode(thresh, vertical, verticalStructure)
         Imgproc.dilate(vertical, vertical, verticalStructure)
         Log.d("DEBUG", ">> vertical after erode/dilate = ${vertical.rows()} x ${vertical.cols()}")
@@ -61,7 +61,7 @@ object TableDetector {
         // Find contours (each contour ~ a cell)
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = Mat()
-        Imgproc.findContours(mask, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+        Imgproc.findContours(mask, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE)
 
         val cells = mutableListOf<Rect>()
         for (contour in contours) {

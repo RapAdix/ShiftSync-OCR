@@ -93,8 +93,8 @@ class MainActivity : ComponentActivity() {
                             TableDetector.drawCellBoxes(originalBitmap, result.cells)
                         }
 
-//                        displayedBitmap = boxed
-                        displayedBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(grayMat)}
+                        displayedBitmap = boxed
+//                        displayedBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(grayMat)}
 
                         // 4. OCR each cell
                         val texts = extractTextFromCells(result.cells, originalBitmap)
