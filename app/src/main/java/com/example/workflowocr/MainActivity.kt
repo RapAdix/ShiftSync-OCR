@@ -46,51 +46,85 @@ class MainActivity : ComponentActivity() {
         } else {
             Log.i("OpenCV", "OpenCV loaded successfully")
         }
-        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.test_image)
-
-        // Run detection + OCR off UI thread
-        scope.launch {
-            val grayMat = withContext(Dispatchers.Default) { TableDetector.bitmapToGrayMat(originalBitmap) }
-            val detectedCells = withContext(Dispatchers.Default) { TableDetector.detectTableCells(grayMat) }
-
-            // For display: convert gray mat back to bitmap
-            val displayBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(grayMat) }
-
-            // Run OCR on cells (do not block main thread)
-            val cellTexts = withContext(Dispatchers.IO) {
-                extractTextFromCells(detectedCells, originalBitmap) // make this suspend-friendly (see below)
-            }
-
-            // log results on main thread
-            for ((index, text) in cellTexts.withIndex()) {
-                Log.d("TABLE_CELL", "Cell $index: $text")
-            }
-
-            // update UI via setContent or a state variable...
-        }
+        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.table_sample1)
 
         setContent {
-//            MaterialTheme {
-//                Surface(modifier = Modifier.fillMaxSize()) {
-//                    OCRFromGalleryScreen()
-//                }
-//            }
-            var grayBitmap by remember { mutableStateOf(testBitmap) }
+            var displayedBitmap by remember { mutableStateOf(originalBitmap) }
+            var threshBitmap by remember { mutableStateOf<Bitmap?>(null) }
+            var maskBitmap by remember { mutableStateOf<Bitmap?>(null) }
+            var logText by remember { mutableStateOf("") }
 
-            Column(modifier = Modifier.padding(16.dp)) {
+            val scope = rememberCoroutineScope()
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+
                 Button(onClick = {
-                    grayBitmap = TableDetector.convertBitmapToGray(testBitmap)
+                    scope.launch {
+
+                        // 1. Convert to grayscale Mat
+                        val grayMat = withContext(Dispatchers.Default) {
+                            TableDetector.bitmapToGrayMat(originalBitmap)
+                        }
+
+                        // 2. Detect cells
+                        val result = withContext(Dispatchers.Default) {
+                            TableDetector.detectTableCells(grayMat)
+                        }
+
+                        Log.d("DEBUG", "grayMat = ${grayMat.rows()} x ${grayMat.cols()}")
+                        Log.d("DEBUG", "thresh  = ${result.thresh.rows()} x ${result.thresh.cols()}")
+                        Log.d("DEBUG", "mask    = ${result.mask.rows()} x ${result.mask.cols()}")
+                        Log.d("DEBUG", "cells detected = ${result.cells.size}")
+
+                        threshBitmap = withContext(Dispatchers.Default) {
+                            TableDetector.matToBitmap(result.thresh)
+                        }
+
+                         maskBitmap = withContext(Dispatchers.Default) {
+                            TableDetector.matToBitmap(result.mask)
+                        }
+
+                        // 3. Draw rectangles on the bitmap
+                        val boxed = withContext(Dispatchers.Default) {
+                            TableDetector.drawCellBoxes(originalBitmap, result.cells)
+                        }
+
+//                        displayedBitmap = boxed
+                        displayedBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(grayMat)}
+
+                        // 4. OCR each cell
+                        val texts = extractTextFromCells(result.cells, originalBitmap)
+
+                        var builder = ""
+                        texts.forEachIndexed { i, t ->
+                            builder += "Cell $i: $t\n"
+                            Log.d("CELL_OCR", "Cell $i: $t")
+                        }
+                        logText = builder
+                    }
                 }) {
-                    Text("Convert to Grayscale (OpenCV)")
+                    Text("Run Table Detection + OCR")
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Image(
-                    bitmap = grayBitmap.asImageBitmap(),
-                    contentDescription = "OpenCV Test Image",
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Image(bitmap = displayedBitmap.asImageBitmap(), contentDescription = null,)
+                threshBitmap?.let {
+                    Image(bitmap = it.asImageBitmap(), contentDescription = "thresh")
+                }
+
+                maskBitmap?.let {
+                    Image(bitmap = it.asImageBitmap(), contentDescription = "mask")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text("OCR log:")
+                Text(logText)
             }
         }
     }
