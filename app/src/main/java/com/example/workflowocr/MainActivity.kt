@@ -8,31 +8,48 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.google.android.gms.tasks.Task
-import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.text.Text
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.opencv.core.Rect
 
 class MainActivity : ComponentActivity() {
@@ -46,7 +63,7 @@ class MainActivity : ComponentActivity() {
         } else {
             Log.i("OpenCV", "OpenCV loaded successfully")
         }
-        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.table_sample1)
+        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.table_sample1_1)
 
         setContent {
             var displayedBitmap by remember { mutableStateOf(originalBitmap) }
@@ -56,75 +73,93 @@ class MainActivity : ComponentActivity() {
 
             val scope = rememberCoroutineScope()
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = Color(0xFFB71C1C) // Ciemna czerwień (Material Red 900)
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Button(onClick = {
+                        scope.launch {
 
-                Button(onClick = {
-                    scope.launch {
+                            // 1. Convert to grayscale Mat
+                            val grayMat = withContext(Dispatchers.Default) {
+                                TableDetector.bitmapToGrayMat(originalBitmap)
+                            }
 
-                        // 1. Convert to grayscale Mat
-                        val grayMat = withContext(Dispatchers.Default) {
-                            TableDetector.bitmapToGrayMat(originalBitmap)
-                        }
+                            val deskewMat = withContext(Dispatchers.Default) {
+                                TableDetector.deskewGrayMat(grayMat) ?: grayMat
+                            }
 
-                        // 2. Detect cells
-                        val result = withContext(Dispatchers.Default) {
-                            TableDetector.detectTableCells(grayMat)
-                        }
+                            // 2. Detect cells
+                            val result = withContext(Dispatchers.Default) {
+                                TableDetector.detectTableCells(grayMat)
+                            }
 
-                        Log.d("DEBUG", "grayMat = ${grayMat.rows()} x ${grayMat.cols()}")
-                        Log.d("DEBUG", "thresh  = ${result.thresh.rows()} x ${result.thresh.cols()}")
-                        Log.d("DEBUG", "mask    = ${result.mask.rows()} x ${result.mask.cols()}")
-                        Log.d("DEBUG", "cells detected = ${result.cells.size}")
+                            Log.d("DEBUG", "grayMat = ${grayMat.rows()} x ${grayMat.cols()}")
+                            Log.d(
+                                "DEBUG",
+                                "thresh  = ${result.thresh.rows()} x ${result.thresh.cols()}"
+                            )
+                            Log.d(
+                                "DEBUG",
+                                "mask    = ${result.mask.rows()} x ${result.mask.cols()}"
+                            )
+                            Log.d(
+                                "DEBUG",
+                                "cells detected = ${result.cells.size} x ${result.cells[0].size}"
+                            )
 
-                        threshBitmap = withContext(Dispatchers.Default) {
-                            TableDetector.matToBitmap(result.thresh)
-                        }
+                            threshBitmap = withContext(Dispatchers.Default) {
+                                TableDetector.matToBitmap(result.thresh)
+                            }
 
-                         maskBitmap = withContext(Dispatchers.Default) {
-                            TableDetector.matToBitmap(result.mask)
-                        }
+                            maskBitmap = withContext(Dispatchers.Default) {
+                                TableDetector.matToBitmap(result.mask)
+                            }
 
-                        // 3. Draw rectangles on the bitmap
-                        val boxed = withContext(Dispatchers.Default) {
-                            TableDetector.drawCellBoxes(originalBitmap, result.cells)
-                        }
+                            // 3. Draw rectangles on the bitmap
+                            val boxed = withContext(Dispatchers.Default) {
+                                TableDetector.drawCells(grayMat, result.cells)
+                            }
 
-                        displayedBitmap = boxed
+                            displayedBitmap = TableDetector.matToBitmap(boxed)
 //                        displayedBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(grayMat)}
 
-                        // 4. OCR each cell
-                        val texts = extractTextFromCells(result.cells, originalBitmap)
-
-                        var builder = ""
-                        texts.forEachIndexed { i, t ->
-                            builder += "Cell $i: $t\n"
-                            Log.d("CELL_OCR", "Cell $i: $t")
+//                        // 4. OCR each cell
+//                        val texts = extractTextFromCells(result.cells, originalBitmap)
+//
+//                        var builder = ""
+//                        texts.forEachIndexed { i, t ->
+//                            builder += "Cell $i: $t\n"
+//                            Log.d("CELL_OCR", "Cell $i: $t")
+//                        }
+//                        logText = builder
                         }
-                        logText = builder
+                    }) {
+                        Text("Run Table Detection + OCR")
                     }
-                }) {
-                    Text("Run Table Detection + OCR")
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Image(bitmap = displayedBitmap.asImageBitmap(), contentDescription = null,)
+                    threshBitmap?.let {
+                        Image(bitmap = it.asImageBitmap(), contentDescription = "thresh")
+                    }
+
+                    maskBitmap?.let {
+                        Image(bitmap = it.asImageBitmap(), contentDescription = "mask")
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text("OCR log:")
+                    Text(logText)
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Image(bitmap = displayedBitmap.asImageBitmap(), contentDescription = null,)
-                threshBitmap?.let {
-                    Image(bitmap = it.asImageBitmap(), contentDescription = "thresh")
-                }
-
-                maskBitmap?.let {
-                    Image(bitmap = it.asImageBitmap(), contentDescription = "mask")
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text("OCR log:")
-                Text(logText)
             }
         }
     }
