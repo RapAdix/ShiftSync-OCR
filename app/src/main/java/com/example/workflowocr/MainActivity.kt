@@ -86,18 +86,27 @@ class MainActivity : ComponentActivity() {
                     Button(onClick = {
                         scope.launch {
 
-                            // 1. Convert to grayscale Mat
+                            // Convert to grayscale Mat
                             val grayMat = withContext(Dispatchers.Default) {
                                 TableDetector.bitmapToGrayMat(originalBitmap)
                             }
 
-                            val deskewMat = withContext(Dispatchers.Default) {
+                            var deskewMat = withContext(Dispatchers.Default) {
                                 TableDetector.deskewGrayMat(grayMat) ?: grayMat
                             }
 
-                            // 2. Detect cells
-                            val result = withContext(Dispatchers.Default) {
-                                TableDetector.detectTableCells(grayMat)
+                            // Detect cells
+                            var result = withContext(Dispatchers.Default) {
+                                TableDetector.detectTableCells(deskewMat)
+                            }
+
+                            if (result.cells.isNotEmpty()) {
+                                val rotated = TableDetector.fixOrientation(deskewMat, result.cells)
+                                if (rotated != deskewMat) { // If rotation actually happened
+                                    deskewMat = rotated
+                                    // Re-run once to get a clean, properly indexed grid
+                                    result = TableDetector.detectTableCells(deskewMat)
+                                }
                             }
 
                             Log.d("DEBUG", "grayMat = ${grayMat.rows()} x ${grayMat.cols()}")
@@ -124,7 +133,7 @@ class MainActivity : ComponentActivity() {
 
                             // 3. Draw rectangles on the bitmap
                             val boxed = withContext(Dispatchers.Default) {
-                                TableDetector.drawCells(grayMat, result.cells)
+                                TableDetector.drawCells(deskewMat, result.cells)
                             }
 
                             displayedBitmap = TableDetector.matToBitmap(boxed)

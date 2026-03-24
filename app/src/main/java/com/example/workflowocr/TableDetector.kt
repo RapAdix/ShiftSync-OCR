@@ -29,7 +29,7 @@ object TableDetector {
     )
 
     // Input: a grayscale Mat
-    // Output: List of Rects representing detected cells
+    // Output: Array of rectangles representing detected cells
     fun detectTableCells(gray: Mat): TableDetectionResult {
 
         val thresh = Mat()
@@ -66,7 +66,7 @@ object TableDetector {
         Log.d("DEBUG", ">> vertical after erode/dilate = ${vertical.rows()} x ${vertical.cols()}")
         Log.d("DEBUG", "vertical nonZero = ${Core.countNonZero(vertical)}")
 
-        val cells = findRefinedCorners(horizontal, vertical, gray)
+        val cells = findRefinedCorners(horizontal, vertical)
 
         // Combine horizontal and vertical lines to get table mask
         val mask = Mat()
@@ -88,10 +88,7 @@ object TableDetector {
      * Detects table corners by combining global projections with local intersections
      * to filter out noise (like pen strokes).
      */
-    fun findRefinedCorners(horizontal: Mat, vertical: Mat, deskewed: Mat): Array<Array<TableCell>> {
-        val rows = deskewed.rows()
-        val cols = deskewed.cols()
-
+    fun findRefinedCorners(horizontal: Mat, vertical: Mat): Array<Array<TableCell>> {
         // Get Global Projections to find "Line Belts"
         val rowSums = Mat()
         val colSums = Mat()
@@ -276,33 +273,25 @@ object TableDetector {
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = Mat()
         Imgproc.findContours(thresh, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
-        // 1. Find the largest contour (the table boundary)
+        // Find the largest contour (the table boundary)
         val largestContour = contours.maxByOrNull { Imgproc.contourArea(it) }
 
         if (largestContour != null) {
-            // 2. Convert MatOfPoint to MatOfPoint2f for minAreaRect
+            // Convert MatOfPoint to MatOfPoint2f for minAreaRect
             val contour2f = MatOfPoint2f(*largestContour.toArray())
 
-            // 3. Get the rotated bounding box
+            // Get the rotated bounding box
             val rotatedRect = Imgproc.minAreaRect(contour2f)
 
-            // 4. Calculate the correction angle
+            // Normalize to nearest axis (0, 90, 180, 270)
             var angle = rotatedRect.angle
+            while (angle > 45) angle -= 90
+            while (angle < -45) angle += 90
 
-            /*
-             * In OpenCV 4.5+, angle is in (0, 90].
-             * We need to determine if the rectangle is "laying" on its side.
-             */
-            if (rotatedRect.size.width < rotatedRect.size.height) {
-                angle += 90.0
-            }
-
-            // 5. Perform the Rotation (Deskew)
-            val center = rotatedRect.center
-            val rotationMatrix = Imgproc.getRotationMatrix2D(center, angle, 1.0)
-
+            // Rotate just to align with axes
+            val rotationMatrix = Imgproc.getRotationMatrix2D(rotatedRect.center, angle, 1.0)
             val deskewed = Mat()
-            Imgproc.warpAffine(thresh, deskewed, rotationMatrix, thresh.size(), Imgproc.INTER_CUBIC)
+            Imgproc.warpAffine(gray, deskewed, rotationMatrix, gray.size(), Imgproc.INTER_CUBIC)
 
             thresh.release()
             hierarchy.release()
@@ -314,6 +303,34 @@ object TableDetector {
         Log.d("ERROR", "Deskewing the image failed")
         return null
     }
+
+    fun fixOrientation(gray: Mat, cells: Array<Array<TableCell>>): Mat {
+        if (cells.isEmpty() || cells[0].isEmpty()) return gray
+
+        val avgW = (cells[0].last().topRight.x - cells[0][0].topLeft.x) / cells[0].size
+        val avgH = (cells.last()[0].bottomLeft.y - cells[0][0].topLeft.y) / cells.size
+
+        val rotated = Mat()
+        if (avgH > avgW) { // If cells are taller than wider, the table is likely rotated 90 deg
+            // First row should be wider than the last one so check which direction to rotate.
+            if (cells[0][0].topRight.x - cells[0][0].topLeft.x >
+                cells[0].last().topRight.x - cells[0].last().topLeft.x) {
+                Core.rotate(gray, rotated, Core.ROTATE_90_CLOCKWISE)
+                Log.d("DEBUG", "Table rotated 90 deg Clockwise based on cell proportions (W:$avgW < H:$avgH)")
+            } else {
+                Core.rotate(gray, rotated, Core.ROTATE_90_COUNTERCLOCKWISE)
+                Log.d("DEBUG", "Table rotated 90 deg CounterClockwise based on cell proportions (W:$avgW < H:$avgH)")
+            }
+        }
+        else if (cells[0][0].bottomLeft.y - cells[0][0].topLeft.y <
+            cells.last()[0].bottomLeft.y - cells.last()[0].topLeft.y) {
+            // The table is upside down. First row should be wider. Rotating.
+            Core.rotate(gray, rotated, Core.ROTATE_180)
+            Log.d("DEBUG", "Table rotated 180 deg (W:$avgW > H:$avgH)")
+        }
+        return rotated
+    }
+
 
     /** Convert an Android Bitmap -> OpenCV grayscale Mat */
     fun bitmapToGrayMat(bitmap: Bitmap): Mat {
