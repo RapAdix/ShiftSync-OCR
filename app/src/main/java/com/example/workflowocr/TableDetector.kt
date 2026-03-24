@@ -74,7 +74,11 @@ object TableDetector {
         Log.d("DEBUG", ">> mask size = ${mask.rows()} x ${mask.cols()}")
         Log.d("DEBUG", "mask nonZero = ${Core.countNonZero(mask)}")
 
-        //TODO should I clean?
+        horizontal.release()
+        vertical.release()
+
+        horizontalStructure.release()
+        verticalStructure.release()
 
         // Sort cells by row, then column
         return TableDetectionResult(

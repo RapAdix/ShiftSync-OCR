@@ -86,30 +86,28 @@ class MainActivity : ComponentActivity() {
                     Button(onClick = {
                         scope.launch {
 
-                            // Convert to grayscale Mat
-                            val grayMat = withContext(Dispatchers.Default) {
-                                TableDetector.bitmapToGrayMat(originalBitmap)
-                            }
+                            val (deskewMat, result) = withContext(Dispatchers.Default) {
+                                // Convert to grayscale Mat
+                                val grayMat = TableDetector.bitmapToGrayMat(originalBitmap)
 
-                            var deskewMat = withContext(Dispatchers.Default) {
-                                TableDetector.deskewGrayMat(grayMat) ?: grayMat
-                            }
+                                var deskewMat = TableDetector.deskewGrayMat(grayMat) ?: grayMat
 
-                            // Detect cells
-                            var result = withContext(Dispatchers.Default) {
-                                TableDetector.detectTableCells(deskewMat)
-                            }
+                                // Detect cells
+                                var result = TableDetector.detectTableCells(deskewMat)
 
-                            if (result.cells.isNotEmpty()) {
-                                val rotated = TableDetector.fixOrientation(deskewMat, result.cells)
-                                if (rotated != deskewMat) { // If rotation actually happened
-                                    deskewMat = rotated
-                                    // Re-run once to get a clean, properly indexed grid
-                                    result = TableDetector.detectTableCells(deskewMat)
+                                if (result.cells.isNotEmpty()) {
+                                    val rotated =
+                                        TableDetector.fixOrientation(deskewMat, result.cells)
+                                    if (rotated != deskewMat) { // If rotation actually happened
+                                        deskewMat = rotated
+                                        // Re-run once to get a clean, properly indexed grid
+                                        result = TableDetector.detectTableCells(deskewMat)
+                                    }
                                 }
+                                Pair(deskewMat, result)
                             }
 
-                            Log.d("DEBUG", "grayMat = ${grayMat.rows()} x ${grayMat.cols()}")
+                            Log.d("DEBUG", "deskewMat = ${deskewMat.rows()} x ${deskewMat.cols()}")
                             Log.d(
                                 "DEBUG",
                                 "thresh  = ${result.thresh.rows()} x ${result.thresh.cols()}"
@@ -136,8 +134,7 @@ class MainActivity : ComponentActivity() {
                                 TableDetector.drawCells(deskewMat, result.cells)
                             }
 
-                            displayedBitmap = TableDetector.matToBitmap(boxed)
-//                        displayedBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(grayMat)}
+                            displayedBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(boxed)}
 
 //                        // 4. OCR each cell
 //                        val texts = extractTextFromCells(result.cells, originalBitmap)
