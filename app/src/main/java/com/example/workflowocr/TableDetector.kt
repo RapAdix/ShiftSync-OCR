@@ -315,6 +315,7 @@ object TableDetector {
         val avgH = (cells.last()[0].bottomLeft.y - cells[0][0].topLeft.y) / cells.size
 
         val rotated = Mat()
+        var rotationPerformed = false
         if (avgH > avgW) { // If cells are taller than wider, the table is likely rotated 90 deg
             // First row should be wider than the last one so check which direction to rotate.
             if (cells[0][0].topRight.x - cells[0][0].topLeft.x >
@@ -325,14 +326,21 @@ object TableDetector {
                 Core.rotate(gray, rotated, Core.ROTATE_90_COUNTERCLOCKWISE)
                 Log.d("DEBUG", "Table rotated 90 deg CounterClockwise based on cell proportions (W:$avgW < H:$avgH)")
             }
+            rotationPerformed = true
         }
         else if (cells[0][0].bottomLeft.y - cells[0][0].topLeft.y <
-            cells.last()[0].bottomLeft.y - cells.last()[0].topLeft.y) {
+                cells.last()[0].bottomLeft.y - cells.last()[0].topLeft.y) {
             // The table is upside down. First row should be wider. Rotating.
             Core.rotate(gray, rotated, Core.ROTATE_180)
             Log.d("DEBUG", "Table rotated 180 deg (W:$avgW > H:$avgH)")
+            rotationPerformed = true
         }
-        return rotated
+        return if (rotationPerformed) {
+            rotated
+        } else {
+            rotated.release()
+            gray
+        }
     }
 
 

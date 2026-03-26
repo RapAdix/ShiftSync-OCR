@@ -98,7 +98,8 @@ class MainActivity : ComponentActivity() {
                                 if (result.cells.isNotEmpty()) {
                                     val rotated =
                                         TableDetector.fixOrientation(deskewMat, result.cells)
-                                    if (rotated != deskewMat) { // If rotation actually happened
+                                    if (rotated !== deskewMat) { // If rotation actually happened
+                                        deskewMat.release()
                                         deskewMat = rotated
                                         // Re-run once to get a clean, properly indexed grid
                                         result = TableDetector.detectTableCells(deskewMat)
@@ -129,22 +130,28 @@ class MainActivity : ComponentActivity() {
                                 TableDetector.matToBitmap(result.mask)
                             }
 
-                            // 3. Draw rectangles on the bitmap
+                            // Draw rectangles on the bitmap
                             val boxed = withContext(Dispatchers.Default) {
                                 TableDetector.drawCells(deskewMat, result.cells)
                             }
 
                             displayedBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(boxed)}
 
-//                        // 4. OCR each cell
-//                        val texts = extractTextFromCells(result.cells, originalBitmap)
-//
-//                        var builder = ""
-//                        texts.forEachIndexed { i, t ->
-//                            builder += "Cell $i: $t\n"
-//                            Log.d("CELL_OCR", "Cell $i: $t")
-//                        }
-//                        logText = builder
+                            // OCR each cell
+                            val textGrid: Array<Array<String>> = extractTextFromCells(result.cells, originalBitmap)
+
+                            val builder = StringBuilder()
+                            textGrid.forEachIndexed { r, row ->
+                                builder.append("Row $r: ")
+                                row.forEachIndexed { c, text ->
+                                    val cleanText = text.replace("\n", " ")
+                                    builder.append("[$cleanText] ")
+                                    Log.d("CELL_OCR", "Cell [$r][$c]: $text")
+                                }
+                                builder.append("\n")
+                            }
+
+                            logText = builder.toString()
                         }
                     }) {
                         Text("Run Table Detection + OCR")
@@ -175,32 +182,48 @@ class MainActivity : ComponentActivity() {
         scope.cancel()
     }
 
+    fun getRectForCell(cell: TableDetector.TableCell) : Rect{
+        val cellW = (Math.abs(cell.topRight.x - cell.topLeft.x) +
+                Math.abs(cell.bottomRight.x - cell.bottomLeft.x)) / 2.0
+        val cellH = (Math.abs(cell.bottomLeft.y - cell.topLeft.y) +
+                Math.abs(cell.bottomRight.y - cell.topRight.y)) / 2.0
+        return Rect(
+            cell.topLeft.x.toInt(),
+            cell.topLeft.y.toInt(),
+            cellW.toInt(),
+            cellH.toInt()
+        )
+    }
+
     suspend fun extractTextFromCells(
-        cells: List<Rect>,
+        cells: Array<Array<TableDetector.TableCell>>,
         originalBitmap: Bitmap
-    ): List<String> = withContext(Dispatchers.IO) {
+    ): Array<Array<String>> = withContext(Dispatchers.IO) {
 
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        val results = mutableListOf<String>()
+        val results = Array<Array<String>>(cells.size) {Array<String>(cells[0].size) {""} }
 
-        for (rect in cells) {
-            try {
-                val cellBitmap = Bitmap.createBitmap(
-                    originalBitmap,
-                    rect.x, rect.y, rect.width, rect.height
-                )
+        for (row in 0 until cells.size) {
+            for (col in 0 until cells[0].size) {
+                val rect = getRectForCell(cells[row][col])
+                try {
+                    val cellBitmap = Bitmap.createBitmap(
+                        originalBitmap,
+                        rect.x, rect.y, rect.width, rect.height
+                    )
 
-                val inputImage = InputImage.fromBitmap(cellBitmap, 0)
+                    val inputImage = InputImage.fromBitmap(cellBitmap, 0)
 
-                val text = suspendCancellableCoroutine<String> { cont ->
-                    recognizer.process(inputImage)
-                        .addOnSuccessListener { cont.resume(it.text) {} }
-                        .addOnFailureListener { e -> cont.resume("ERROR: ${e.message}") {} }
+                    val text = suspendCancellableCoroutine<String> { cont ->
+                        recognizer.process(inputImage)
+                            .addOnSuccessListener { cont.resume(it.text) {} }
+                            .addOnFailureListener { e -> cont.resume("ERROR: ${e.message}") {} }
+                    }
+
+                    results[row][col] = text
+                } catch (e: Exception) {
+                    results[row][col]="EXCEPTION: ${e.message}"
                 }
-
-                results.add(text)
-            } catch (e: Exception) {
-                results.add("EXCEPTION: ${e.message}")
             }
         }
 
