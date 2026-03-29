@@ -25,7 +25,8 @@ object TableDetector {
     data class TableDetectionResult(
         val cells: Array<Array<TableCell>>,
         val thresh: Mat,
-        val mask: Mat
+        val mask: Mat,
+        val lines: Mat
     )
 
     // Input: a grayscale Mat
@@ -49,11 +50,11 @@ object TableDetector {
         horizontal.setTo(Scalar(0.0))
         vertical.setTo(Scalar(0.0))
 
-        // Horizontal lines
         val lineThickness = 1.0 // approximate line thickness in pixels
         val lineLength = 30.0
-        val horizontalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineLength, lineThickness))
 
+        // Horizontal lines
+        val horizontalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineLength, lineThickness))
         Imgproc.erode(thresh, horizontal, horizontalStructure)
         Imgproc.dilate(horizontal, horizontal, horizontalStructure)
 //        Imgproc.morphologyEx(horizontal, horizontal, Imgproc.MORPH_CLOSE, horizontalStructure)
@@ -81,7 +82,18 @@ object TableDetector {
 
         structure.release()
 
-        val cells = findRefinedCorners(horizontal, vertical)
+        val (cells, linesDrawing) = findRefinedCorners(horizontal, vertical)
+        val linesOverlayImage = gray.clone()
+        if (linesOverlayImage.channels() == 1) {
+            Imgproc.cvtColor(linesOverlayImage, linesOverlayImage, Imgproc.COLOR_GRAY2RGB)
+        }
+        val linesMask = Mat()
+        Imgproc.cvtColor(linesDrawing, linesMask, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.threshold(linesMask, linesMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
+        linesDrawing.copyTo(linesOverlayImage, linesMask)
+
+        linesDrawing.release()
+        linesMask.release()
 
         // Combine horizontal and vertical lines to get table mask
         val mask = Mat()
@@ -99,7 +111,8 @@ object TableDetector {
         return TableDetectionResult(
             cells,
             thresh,
-            mask
+            mask,
+            linesOverlayImage
         )
     }
 
@@ -107,7 +120,7 @@ object TableDetector {
      * Detects table corners by combining global projections with local intersections
      * to filter out noise (like pen strokes).
      */
-    fun findRefinedCorners(horizontal: Mat, vertical: Mat): Array<Array<TableCell>> {
+    fun findRefinedCorners(horizontal: Mat, vertical: Mat): Pair<Array<Array<TableCell>>, Mat> {
         // Get Global Projections to find "Line Belts"
         val rowSums = Mat()
         val colSums = Mat()
@@ -117,14 +130,30 @@ object TableDetector {
         // Determine Thresholds (3x Average)
         val avgRow = Core.mean(rowSums).`val`[0]
         val avgCol = Core.mean(colSums).`val`[0]
-        val rowThresh = avgRow * 4.0
-        val colThresh = avgCol * 4.0
+        val rowThresh = avgRow * 1.5
+        val colThresh = avgCol * 1.5
         Log.d("DEBUG", "avgRow = $avgRow")
         Log.d("DEBUG", "avgCol = $avgCol")
 
         // Identify Candidate X and Y positions (Line Belts)
         val validYBelts = getBeltCenters(rowSums, rowThresh, true)
         val validXBelts = getBeltCenters(colSums, colThresh, false)
+
+        val linesDebugMat = Mat.zeros(horizontal.size(), CvType.CV_8UC3)
+
+        // 2. horizontal on RED
+        for (y in validYBelts) {
+            val pt1 = Point(0.0, y.toDouble())
+            val pt2 = Point(horizontal.cols().toDouble(), y.toDouble())
+            Imgproc.line(linesDebugMat, pt1, pt2, Scalar(0.0, 0.0, 255.0), 2)
+        }
+
+        // vertical BLUE
+        for (x in validXBelts) {
+            val pt1 = Point(x.toDouble(), 0.0)
+            val pt2 = Point(x.toDouble(), horizontal.rows().toDouble())
+            Imgproc.line(linesDebugMat, pt1, pt2, Scalar(255.0, 0.0, 0.0), 2)
+        }
 
         val rowEdgeCount = validYBelts.size
         val colEdgeCount = validXBelts.size
@@ -198,7 +227,7 @@ object TableDetector {
         colSums.release()
         intersections.release()
 
-        return cells
+        return Pair(cells, linesDebugMat)
     }
 
     fun getBeltCenters(sums: Mat, threshold: Double, isRow: Boolean): List<Int> {
@@ -246,7 +275,12 @@ object TableDetector {
         val filteredXIndices = validXBelts.indices.filter { c ->
             var count = 0
             for (r in 0 until rowCount) {
-                if (grid[r][c] != null) count++
+                if (grid[r][c] != null) {
+                    count++
+                }
+                else {
+                    Log.d("DEBUG", "Missing intersection in row:$r col:$c   for col $c pixel:${validXBelts[c]}")
+                }
             }
             count >= minRequiredPointsX
         }
@@ -255,7 +289,10 @@ object TableDetector {
         val filteredYIndices = validYBelts.indices.filter { r ->
             var count = 0
             for (c in 0 until colCount) {
-                if (grid[r][c] != null) count++
+                if (grid[r][c] != null) {
+                    count++
+                    Log.d("DEBUG", "Missing intersection in row:$r col:$c   for row $r  pixel:${validYBelts[r]}")
+                }
             }
             count >= minRequiredPointsY
         }

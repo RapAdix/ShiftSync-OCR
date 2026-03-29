@@ -63,12 +63,13 @@ class MainActivity : ComponentActivity() {
         } else {
             Log.i("OpenCV", "OpenCV loaded successfully")
         }
-        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.table_sample1_1)
+        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_1)
 
         setContent {
             var displayedBitmap by remember { mutableStateOf(originalBitmap) }
             var threshBitmap by remember { mutableStateOf<Bitmap?>(null) }
             var maskBitmap by remember { mutableStateOf<Bitmap?>(null) }
+            var linesBitmap by remember { mutableStateOf<Bitmap?>(null) }
             var logText by remember { mutableStateOf("") }
 
             val scope = rememberCoroutineScope()
@@ -88,6 +89,7 @@ class MainActivity : ComponentActivity() {
 
                             val (deskewMat, result) = withContext(Dispatchers.Default) {
                                 // Convert to grayscale Mat
+                                //TODO Add filtering out pen colors. time change detection can be detected as marks around the middle.
                                 val grayMat = TableDetector.bitmapToGrayMat(originalBitmap)
 
                                 var deskewMat = TableDetector.deskewGrayMat(grayMat) ?: grayMat
@@ -136,6 +138,7 @@ class MainActivity : ComponentActivity() {
                             }
 
                             displayedBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(boxed)}
+                            linesBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(result.lines)}
 
                             // OCR each cell
                             val textGrid: Array<Array<String>> = extractTextFromCells(result.cells, originalBitmap)
@@ -166,6 +169,10 @@ class MainActivity : ComponentActivity() {
 
                     maskBitmap?.let {
                         Image(bitmap = it.asImageBitmap(), contentDescription = "mask")
+                    }
+
+                    linesBitmap?.let {
+                        Image(bitmap = it.asImageBitmap(), contentDescription = "linesDebug")
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
