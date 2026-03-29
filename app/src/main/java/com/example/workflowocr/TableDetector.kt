@@ -56,15 +56,30 @@ object TableDetector {
 
         Imgproc.erode(thresh, horizontal, horizontalStructure)
         Imgproc.dilate(horizontal, horizontal, horizontalStructure)
-        Log.d("DEBUG", ">> horizontal after erode/dilate = ${horizontal.rows()} x ${horizontal.cols()}")
-        Log.d("DEBUG", "horizontal nonZero = ${Core.countNonZero(horizontal)}")
+//        Imgproc.morphologyEx(horizontal, horizontal, Imgproc.MORPH_CLOSE, horizontalStructure)
 
         // Vertical lines
         val verticalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineThickness, lineLength))
         Imgproc.erode(thresh, vertical, verticalStructure)
         Imgproc.dilate(vertical, vertical, verticalStructure)
-        Log.d("DEBUG", ">> vertical after erode/dilate = ${vertical.rows()} x ${vertical.cols()}")
-        Log.d("DEBUG", "vertical nonZero = ${Core.countNonZero(vertical)}")
+//        Imgproc.morphologyEx(vertical, vertical, Imgproc.MORPH_CLOSE, verticalStructure)
+
+        // Now close small gaps created at the intersection of lines by threshold
+        val structure = Mat()
+        Core.bitwise_or(horizontal, vertical, structure)
+        val closelineLength = lineLength / 2
+        val closeHorizontalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closelineLength, lineThickness))
+        val closeVerticalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineThickness, closelineLength))
+        Imgproc.morphologyEx(structure, structure, Imgproc.MORPH_CLOSE, closeVerticalStructure)
+        Imgproc.morphologyEx(structure, structure, Imgproc.MORPH_CLOSE, closeHorizontalStructure)
+
+        // Detect lines again
+        Imgproc.erode(structure, horizontal, horizontalStructure)
+        Imgproc.dilate(horizontal, horizontal, horizontalStructure)
+        Imgproc.erode(structure, vertical, verticalStructure)
+        Imgproc.dilate(vertical, vertical, verticalStructure)
+
+        structure.release()
 
         val cells = findRefinedCorners(horizontal, vertical)
 
