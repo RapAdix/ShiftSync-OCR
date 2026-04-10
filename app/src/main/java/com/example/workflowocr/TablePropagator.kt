@@ -1,57 +1,50 @@
 package com.example.workflowocr
+
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
 import org.opencv.core.Rect
 import org.opencv.imgproc.Imgproc
+import kotlin.math.abs
 
 class TablePropagator(
-    private val rowCount: Int,
-    private val colCount: Int,
-    private val searchWindowSize: Int = 25
+    private val expectedRows: Int,
+    private val expectedCols: Int,
+    private val searchWindowSize: Int = 30
 ) {
 
-    fun propagateGrid(
+    fun propagateRobustGrid(
         intersections: Mat,
-        validXBelts: List<Int>,
-        validYBelts: List<Int>
-    ): Array<Array<Point?>> {
-        val grid = Array(rowCount) { arrayOfNulls<Point>(colCount) }
-        val imgCenter = Point(intersections.cols() / 2.0, intersections.rows() / 2.0)
+        rawXBelts: List<Int>,
+        rawYBelts: List<Int>
+    ): Array<Array<Point>> {
+        val validX = filterBeltsByDensity(intersections, rawXBelts, isHorizontal = false)
+        val validY = filterBeltsByStructure(intersections, rawYBelts)
 
-        // 1. Find the Seed (Closest to center)
-        val midR = rowCount / 2
-        val midC = colCount / 2
+        val grid = Array(expectedRows) { arrayOfNulls<Point>(expectedCols) }
 
-        // Find actual intersection near the "ideal" middle belt crossing
-        val seedPoint = findLocalIntersection(
-            intersections,
-            Point(validXBelts[midC].toDouble(), validYBelts[midR].toDouble())
-        ) ?: Point(validXBelts[midC].toDouble(), validYBelts[midR].toDouble())
+        val midR = expectedRows / 2
+        val midC = expectedCols / 2
 
-        grid[midR][midC] = seedPoint
+        val idealSeed = Point(validX[midC].toDouble(), validY[midR].toDouble())
+        val actualSeed = findLocalIntersection(intersections, idealSeed) ?: idealSeed
+        grid[midR][midC] = actualSeed
 
-        // 2. Propagate in 4 directions
-        // We use a queue-like approach or simple loops starting from center
+        // Propagate horizontally from center
+        propagateLine(grid, intersections, midR, midC, 0, 1, validX)  // Right
+        propagateLine(grid, intersections, midR, midC, 0, -1, validX) // Left
 
-        // Propagate the middle row first (Left and Right)
-        propagateLine(grid, intersections, midR, midC, 0, 1, validXBelts)  // Right
-        propagateLine(grid, intersections, midR, midC, 0, -1, validXBelts) // Left
-
-        // Now propagate every column Up and Down from the middle row
-        for (c in 0 until colCount) {
+        // Propagate vertically for every column
+        for (c in 0 until expectedCols) {
             if (grid[midR][c] != null) {
-                propagateLine(grid, intersections, midR, c, 1, 0, validYBelts)  // Down
-                propagateLine(grid, intersections, midR, c, -1, 0, validYBelts) // Up
+                propagateLine(grid, intersections, midR, c, 1, 0, validY)  // Down
+                propagateLine(grid, intersections, midR, c, -1, 0, validY) // Up
             }
         }
 
-        return grid
+        return grid as Array<Array<Point>>
     }
 
-    /**
-     * Propagates from a starting point in a specific direction (dr, dc)
-     */
     private fun propagateLine(
         grid: Array<Array<Point?>>,
         intersections: Mat,
@@ -68,9 +61,9 @@ class TablePropagator(
             val nextR = currR + dr
             val nextC = currC + dc
 
-            if (nextR !in 0 until rowCount || nextC !in 0 until colCount) break
+            // Corrected: Use expectedRows and expectedCols
+            if (nextR !in 0 until expectedRows || nextC !in 0 until expectedCols) break
             if (grid[nextR][nextC] != null) {
-                // Already found, move to next
                 currR = nextR
                 currC = nextC
                 continue
@@ -78,17 +71,14 @@ class TablePropagator(
 
             val prevPoint = grid[currR][currC]!!
 
-            // Prediction Logic:
-            // If we have 2 points already, use their local distance (slope/width)
-            // Otherwise, use the distance between global belts as a fallback
-            val prediction = if (currR - dr in 0 until rowCount && currC - dc in 0 until colCount && grid[currR - dr][currC - dc] != null) {
+            // Prediction Logic
+            val prediction = if (currR - dr in 0 until expectedRows && currC - dc in 0 until expectedCols && grid[currR - dr][currC - dc] != null) {
                 val p0 = grid[currR - dr][currC - dc]!!
                 Point(
                     prevPoint.x + (prevPoint.x - p0.x),
                     prevPoint.y + (prevPoint.y - p0.y)
                 )
             } else {
-                // Fallback to global belt spacing
                 if (dc != 0) {
                     val beltDist = belts[nextC] - belts[currC]
                     Point(prevPoint.x + beltDist, prevPoint.y)
@@ -98,11 +88,7 @@ class TablePropagator(
                 }
             }
 
-            // Search in local ROI
             val found = findLocalIntersection(intersections, prediction)
-
-            // If not found, we "trust" the prediction but mark it as less reliable
-            // Or stop propagation if the image is too noisy
             grid[nextR][nextC] = found ?: prediction
 
             currR = nextR
@@ -115,10 +101,7 @@ class TablePropagator(
         val y = target.y.toInt()
         val half = searchWindowSize / 2
 
-        // Boundary check
-        if (x - half < 0 || y - half < 0 || x + half >= intersections.cols() || y + half >= intersections.rows()) {
-            return null
-        }
+        if (x - half < 0 || y - half < 0 || x + half >= intersections.cols() || y + half >= intersections.rows()) return null
 
         val roiRect = Rect(x - half, y - half, searchWindowSize, searchWindowSize)
         val roi = intersections.submat(roiRect)
@@ -126,24 +109,67 @@ class TablePropagator(
         val contours = mutableListOf<MatOfPoint>()
         Imgproc.findContours(roi, contours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
 
-        var bestPoint: Point? = null
-        var maxArea = -1.0
+        val validContours = contours.filter {
+            val rect = Imgproc.boundingRect(it)
+            val aspect = rect.width.toDouble() / rect.height.toDouble()
+            aspect in 0.2..5.0 && Imgproc.contourArea(it) > 5.0
+        }
 
-        for (contour in contours) {
-            val area = Imgproc.contourArea(contour)
-            if (area > maxArea) {
-                val moments = Imgproc.moments(contour)
-                if (moments.m00 > 0) {
-                    val cx = moments.m10 / moments.m00
-                    val cy = moments.m01 / moments.m00
-                    // Convert ROI coordinates back to global
-                    bestPoint = Point(cx + roiRect.x, cy + roiRect.y)
-                    maxArea = area
-                }
-            }
+        val bestContour = validContours.maxByOrNull { Imgproc.contourArea(it) }
+        var result: Point? = null
+        if (bestContour != null) {
+            val moments = Imgproc.moments(bestContour)
+            result = Point(moments.m10 / moments.m00 + roiRect.x, moments.m01 / moments.m00 + roiRect.y)
         }
 
         roi.release()
-        return bestPoint
+        return result
+    }
+
+    private fun filterBeltsByStructure(intersections: Mat, belts: List<Int>): List<Int> {
+        if (belts.size <= expectedRows) return belts
+        val gaps = mutableListOf<Int>()
+        for (i in 0 until belts.size - 1) gaps.add(belts[i+1] - belts[i])
+
+        var bestStartIndex = 0
+        var maxScore = -1.0
+        for (i in 0..belts.size - expectedRows) {
+            val candidateGaps = gaps.subList(i, i + expectedRows - 1)
+            val topRowGap = candidateGaps[0]
+            val otherGaps = candidateGaps.drop(1)
+            val avgOther = if (otherGaps.isNotEmpty()) otherGaps.average() else topRowGap.toDouble()
+            val consistency = otherGaps.sumOf { abs(it - avgOther) }
+            val score = topRowGap / (consistency + 1.0)
+            if (score > maxScore) {
+                maxScore = score
+                bestStartIndex = i
+            }
+        }
+        return belts.subList(bestStartIndex, bestStartIndex + expectedRows)
+    }
+
+    private fun filterBeltsByDensity(intersections: Mat, belts: List<Int>, isHorizontal: Boolean): List<Int> {
+        val targetCount = if (isHorizontal) expectedRows else expectedCols
+        if (belts.size <= targetCount) return belts
+
+        val scores = belts.map { pos ->
+            var count = 0
+            if (isHorizontal) {
+                if (pos in 0 until intersections.rows()) {
+                    for (x in 0 until intersections.cols()) if (intersections.get(pos, x)[0] > 0) count++
+                }
+            } else {
+                if (pos in 0 until intersections.cols()) {
+                    for (y in 0 until intersections.rows()) if (intersections.get(y, pos)[0] > 0) count++
+                }
+            }
+            count
+        }
+
+        return belts.zip(scores)
+            .sortedByDescending { it.second }
+            .take(targetCount)
+            .map { it.first }
+            .sorted()
     }
 }
