@@ -209,7 +209,9 @@ object TableDetector {
             }
         }
 
-        val finalGrid = filterUnrealBelts(grid, validXBelts, validYBelts)
+        val propagator = TablePropagator(validYBelts.size, validXBelts.size)
+        val finalGrid = propagator.propagateGrid(intersections, validXBelts, validYBelts)
+//        val finalGrid = filterUnrealBelts(grid, validXBelts, validYBelts)
 
         val cells = Array(finalGrid.size - 1) { r ->
             Array(finalGrid[0].size - 1) { c ->
