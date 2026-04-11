@@ -97,16 +97,16 @@ class MainActivity : ComponentActivity() {
                                 // Detect cells
                                 var result = TableDetector.detectTableCells(deskewMat)
 
-                                if (result.cells.isNotEmpty()) {
-                                    val rotated =
-                                        TableDetector.fixOrientation(deskewMat, result.cells)
-                                    if (rotated !== deskewMat) { // If rotation actually happened
-                                        deskewMat.release()
-                                        deskewMat = rotated
-                                        // Re-run once to get a clean, properly indexed grid
-                                        result = TableDetector.detectTableCells(deskewMat)
-                                    }
-                                }
+//                                if (result.cells.isNotEmpty()) {
+//                                    val rotated =
+//                                        TableDetector.fixOrientation(deskewMat, result.cells)
+//                                    if (rotated !== deskewMat) { // If rotation actually happened
+//                                        deskewMat.release()
+//                                        deskewMat = rotated
+//                                        // Re-run once to get a clean, properly indexed grid
+//                                        result = TableDetector.detectTableCells(deskewMat)
+//                                    }
+//                                }
                                 Pair(deskewMat, result)
                             }
 

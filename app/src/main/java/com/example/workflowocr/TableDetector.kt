@@ -12,6 +12,7 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import kotlin.math.abs
 
 object TableDetector {
 
@@ -136,30 +137,27 @@ object TableDetector {
         Log.d("DEBUG", "avgCol = $avgCol")
 
         // Identify Candidate X and Y positions (Line Belts)
-        val validYBelts = getBeltCenters(rowSums, rowThresh, true)
-        val validXBelts = getBeltCenters(colSums, colThresh, false)
+        val rawYBelts = getBeltCenters(rowSums, rowThresh, true)
+        val rawXBelts = getBeltCenters(colSums, colThresh, false)
 
         val linesDebugMat = Mat.zeros(horizontal.size(), CvType.CV_8UC3)
 
         // 2. horizontal on RED
-        for (y in validYBelts) {
+        for (y in rawYBelts) {
             val pt1 = Point(0.0, y.toDouble())
             val pt2 = Point(horizontal.cols().toDouble(), y.toDouble())
             Imgproc.line(linesDebugMat, pt1, pt2, Scalar(0.0, 0.0, 255.0), 2)
         }
 
         // vertical BLUE
-        for (x in validXBelts) {
+        for (x in rawXBelts) {
             val pt1 = Point(x.toDouble(), 0.0)
             val pt2 = Point(x.toDouble(), horizontal.rows().toDouble())
             Imgproc.line(linesDebugMat, pt1, pt2, Scalar(255.0, 0.0, 0.0), 2)
         }
 
-        val rowEdgeCount = validYBelts.size
-        val colEdgeCount = validXBelts.size
-
-        Log.d("DEBUG", "counted $rowEdgeCount rows")
-        Log.d("DEBUG", "counted $colEdgeCount cols")
+        Log.d("DEBUG", "counted ${rawYBelts.size} potential rows")
+        Log.d("DEBUG", "counted ${rawXBelts.size} potential cols")
 
         // Find Local Intersections (Actual crossings)
         val intersections = Mat()
@@ -167,6 +165,15 @@ object TableDetector {
 
         val jointContours = mutableListOf<MatOfPoint>()
         Imgproc.findContours(intersections, jointContours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
+
+        //Filter out
+        val expectedRows = 38 + 1
+        val expectedCols = 12 + 1
+        val validXBelts = filterBeltsByDensity(intersections, rawXBelts, expectedCols, isHorizontal = false) // this thing shouldnt take raw pixel in mat from intersections. rather use the contours or EVEN more use the numbers in grid because they used the contours before.
+        val validYBelts = filterBeltsByStructure(intersections, rawYBelts, expectedRows) // maybe algo that puts lines between numbers to fit my estimated size into the current one
+
+        val rowEdgeCount = validYBelts.size
+        val colEdgeCount = validXBelts.size
 
         // Create a 2D Array to store the best point for each intersection
         // Points are nullable because some intersections might be missing
@@ -209,10 +216,8 @@ object TableDetector {
             }
         }
 
-        val expectedRows = 38 + 1
-        val expectedCols = 12 + 1
-        val propagator = TablePropagator(expectedRows, expectedCols)
-        val finalGrid = propagator.propagateRobustGrid(intersections, validXBelts, validYBelts)
+        val propagator = TablePropagator()
+        val finalGrid = propagator.propagateRobustGrid(intersections, validXBelts, validYBelts, grid)
 //        val finalGrid = filterUnrealBelts(grid, validXBelts, validYBelts)
 
         val cells = Array(finalGrid.size - 1) { r ->
@@ -265,6 +270,52 @@ object TableDetector {
         centers.add(group[group.size / 2])
 
         return centers
+    }
+
+    private fun filterBeltsByStructure(intersections: Mat, belts: List<Int>, expectedRows: Int): List<Int> {
+        if (belts.size <= expectedRows) return belts
+        val gaps = mutableListOf<Int>()
+        for (i in 0 until belts.size - 1) gaps.add(belts[i+1] - belts[i])
+
+        var bestStartIndex = 0
+        var maxScore = -1.0
+        for (i in 0..belts.size - expectedRows) {
+            val candidateGaps = gaps.subList(i, i + expectedRows - 1)
+            val topRowGap = candidateGaps[0]
+            val otherGaps = candidateGaps.drop(1)
+            val avgOther = if (otherGaps.isNotEmpty()) otherGaps.average() else topRowGap.toDouble()
+            val consistency = otherGaps.sumOf { abs(it - avgOther) }
+            val score = topRowGap / (consistency + 1.0)
+            if (score > maxScore) {
+                maxScore = score
+                bestStartIndex = i
+            }
+        }
+        return belts.subList(bestStartIndex, bestStartIndex + expectedRows)
+    }
+
+    private fun filterBeltsByDensity(intersections: Mat, belts: List<Int>, targetCount: Int, isHorizontal: Boolean): List<Int> {
+        if (belts.size <= targetCount) return belts
+
+        val scores = belts.map { pos ->
+            var count = 0
+            if (isHorizontal) {
+                if (pos in 0 until intersections.rows()) {
+                    for (x in 0 until intersections.cols()) if (intersections.get(pos, x)[0] > 0) count++
+                }
+            } else {
+                if (pos in 0 until intersections.cols()) {
+                    for (y in 0 until intersections.rows()) if (intersections.get(y, pos)[0] > 0) count++
+                }
+            }
+            count
+        }
+
+        return belts.zip(scores)
+            .sortedByDescending { it.second }
+            .take(targetCount)
+            .map { it.first }
+            .sorted()
     }
 
     //Filter out falsely detected lines which didn't make any crossing on the actual table.

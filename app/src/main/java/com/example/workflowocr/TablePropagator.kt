@@ -5,23 +5,21 @@ import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
 import org.opencv.core.Rect
 import org.opencv.imgproc.Imgproc
-import kotlin.math.abs
 
 class TablePropagator(
-    private val expectedRows: Int,
-    private val expectedCols: Int,
     private val searchWindowSize: Int = 30
 ) {
+    private var expectedRows: Int = 0
+    private var expectedCols: Int = 0
 
     fun propagateRobustGrid(
         intersections: Mat,
-        rawXBelts: List<Int>,
-        rawYBelts: List<Int>
+        validX: List<Int>,
+        validY: List<Int>,
+        grid: Array<Array<Point?>>
     ): Array<Array<Point>> {
-        val validX = filterBeltsByDensity(intersections, rawXBelts, isHorizontal = false)
-        val validY = filterBeltsByStructure(intersections, rawYBelts)
-
-        val grid = Array(expectedRows) { arrayOfNulls<Point>(expectedCols) }
+        expectedRows = validY.size
+        expectedCols = validX.size
 
         val midR = expectedRows / 2
         val midC = expectedCols / 2
@@ -124,52 +122,5 @@ class TablePropagator(
 
         roi.release()
         return result
-    }
-
-    private fun filterBeltsByStructure(intersections: Mat, belts: List<Int>): List<Int> {
-        if (belts.size <= expectedRows) return belts
-        val gaps = mutableListOf<Int>()
-        for (i in 0 until belts.size - 1) gaps.add(belts[i+1] - belts[i])
-
-        var bestStartIndex = 0
-        var maxScore = -1.0
-        for (i in 0..belts.size - expectedRows) {
-            val candidateGaps = gaps.subList(i, i + expectedRows - 1)
-            val topRowGap = candidateGaps[0]
-            val otherGaps = candidateGaps.drop(1)
-            val avgOther = if (otherGaps.isNotEmpty()) otherGaps.average() else topRowGap.toDouble()
-            val consistency = otherGaps.sumOf { abs(it - avgOther) }
-            val score = topRowGap / (consistency + 1.0)
-            if (score > maxScore) {
-                maxScore = score
-                bestStartIndex = i
-            }
-        }
-        return belts.subList(bestStartIndex, bestStartIndex + expectedRows)
-    }
-
-    private fun filterBeltsByDensity(intersections: Mat, belts: List<Int>, isHorizontal: Boolean): List<Int> {
-        val targetCount = if (isHorizontal) expectedRows else expectedCols
-        if (belts.size <= targetCount) return belts
-
-        val scores = belts.map { pos ->
-            var count = 0
-            if (isHorizontal) {
-                if (pos in 0 until intersections.rows()) {
-                    for (x in 0 until intersections.cols()) if (intersections.get(pos, x)[0] > 0) count++
-                }
-            } else {
-                if (pos in 0 until intersections.cols()) {
-                    for (y in 0 until intersections.rows()) if (intersections.get(y, pos)[0] > 0) count++
-                }
-            }
-            count
-        }
-
-        return belts.zip(scores)
-            .sortedByDescending { it.second }
-            .take(targetCount)
-            .map { it.first }
-            .sorted()
     }
 }
