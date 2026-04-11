@@ -34,7 +34,7 @@ class TablePropagator(
 
         // Propagate vertically for every column
         for (c in 0 until expectedCols) {
-            if (grid[midR][c] != null) {
+            if (grid[midR][c] != null) { // TODO fix propagation to make first row bigger
                 propagateLine(grid, intersections, midR, c, 1, 0, validY)  // Down
                 propagateLine(grid, intersections, midR, c, -1, 0, validY) // Up
             }

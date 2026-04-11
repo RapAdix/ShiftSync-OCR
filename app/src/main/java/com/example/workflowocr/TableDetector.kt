@@ -137,6 +137,7 @@ object TableDetector {
         Log.d("DEBUG", "avgCol = $avgCol")
 
         // Identify Candidate X and Y positions (Line Belts)
+        // rawYBelts[0] has Y pixel position of the horizontal table line.
         val rawYBelts = getBeltCenters(rowSums, rowThresh, true)
         val rawXBelts = getBeltCenters(colSums, colThresh, false)
 
@@ -165,68 +166,28 @@ object TableDetector {
 
         val jointContours = mutableListOf<MatOfPoint>()
         Imgproc.findContours(intersections, jointContours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
+        val rawGrid = gridFromClosestIntersections(jointContours, rawXBelts, rawYBelts)
 
-        //Filter out
+        //Filter out fake belts(paper edges, pencil strokes..)
         val expectedRows = 38 + 1
         val expectedCols = 12 + 1
-        val validXBelts = filterBeltsByDensity(intersections, rawXBelts, expectedCols, isHorizontal = false) // this thing shouldnt take raw pixel in mat from intersections. rather use the contours or EVEN more use the numbers in grid because they used the contours before.
+        val validXBelts = filterBeltsByDensity(rawGrid, rawXBelts, expectedCols, isHorizontal = false)
         val validYBelts = filterBeltsByStructure(intersections, rawYBelts, expectedRows) // maybe algo that puts lines between numbers to fit my estimated size into the current one
 
-        val rowEdgeCount = validYBelts.size
-        val colEdgeCount = validXBelts.size
-
-        // Create a 2D Array to store the best point for each intersection
-        // Points are nullable because some intersections might be missing
-        val grid = Array(rowEdgeCount) { arrayOfNulls<Point>(colEdgeCount) }
-
-        // Tolerance for perspective/noise
-        val tolerance = 15.0
-
-        for (contour in jointContours) {
-            val moments = Imgproc.moments(contour)
-            if (moments.m00 > 0) {
-                val cx = moments.m10 / moments.m00
-                val cy = moments.m01 / moments.m00
-
-                // Find the closest index and check if it's within tolerance
-                val rowIndex = validYBelts.indices
-                    .minByOrNull { Math.abs(validYBelts[it] - cy) }
-                    ?.takeIf { Math.abs(validYBelts[it] - cy) < tolerance } ?: -1
-
-                val colIndex = validXBelts.indices
-                    .minByOrNull { Math.abs(validXBelts[it] - cx) }
-                    ?.takeIf { Math.abs(validXBelts[it] - cx) < tolerance } ?: -1
-
-                if (rowIndex != -1 && colIndex != -1) {
-                    val point = Point(cx, cy)
-                    val currentBest = grid[rowIndex][colIndex]
-
-                    if (currentBest == null) {
-                        grid[rowIndex][colIndex] = point
-                    } else {
-                        // Compare distances to the ideal "Global Belt" intersection
-                        val distNew = Math.hypot(cx - validXBelts[colIndex], cy - validYBelts[rowIndex])
-                        val distOld = Math.hypot(currentBest.x - validXBelts[colIndex], currentBest.y - validYBelts[rowIndex])
-
-                        if (distNew < distOld) {
-                            grid[rowIndex][colIndex] = point
-                        }
-                    }
-                }
-            }
-        }
+        // Put it again through grid creation because we removed fake belts
+        val cleanedGrid = gridFromClosestIntersections(jointContours, validXBelts, validYBelts)
 
         val propagator = TablePropagator()
-        val finalGrid = propagator.propagateRobustGrid(intersections, validXBelts, validYBelts, grid)
+        val propagatedGrid = propagator.propagateRobustGrid(intersections, validXBelts, validYBelts, cleanedGrid)
 //        val finalGrid = filterUnrealBelts(grid, validXBelts, validYBelts)
 
-        val cells = Array(finalGrid.size - 1) { r ->
-            Array(finalGrid[0].size - 1) { c ->
+        val cells = Array(propagatedGrid.size - 1) { r ->
+            Array(propagatedGrid[0].size - 1) { c ->
                 TableCell(
-                    topLeft = finalGrid[r][c],
-                    topRight = finalGrid[r][c + 1],
-                    bottomLeft = finalGrid[r + 1][c],
-                    bottomRight = finalGrid[r + 1][c + 1]
+                    topLeft = propagatedGrid[r][c],
+                    topRight = propagatedGrid[r][c + 1],
+                    bottomLeft = propagatedGrid[r + 1][c],
+                    bottomRight = propagatedGrid[r + 1][c + 1]
                 )
             }
         }
@@ -272,6 +233,57 @@ object TableDetector {
         return centers
     }
 
+    private fun gridFromClosestIntersections(
+        jointContours: List<MatOfPoint>,
+        validXBelts: List<Int>,
+        validYBelts: List<Int>,
+    ): Array<Array<Point?>> {
+        val rowEdgeCount = validYBelts.size
+        val colEdgeCount = validXBelts.size
+
+        // Create a 2D Array to store the best point for each intersection
+        // Points are nullable because some intersections might be missing
+        val grid = Array(rowEdgeCount) { arrayOfNulls<Point>(colEdgeCount) }
+
+        // Tolerance for perspective/noise
+        val tolerance = 15.0
+
+        for (contour in jointContours) {
+            val moments = Imgproc.moments(contour)
+            if (moments.m00 > 0) {
+                val cx = moments.m10 / moments.m00
+                val cy = moments.m01 / moments.m00
+
+                // Find the closest index and check if it's within tolerance
+                val rowIndex = validYBelts.indices
+                    .minByOrNull { Math.abs(validYBelts[it] - cy) }
+                    ?.takeIf { Math.abs(validYBelts[it] - cy) < tolerance } ?: -1
+
+                val colIndex = validXBelts.indices
+                    .minByOrNull { Math.abs(validXBelts[it] - cx) }
+                    ?.takeIf { Math.abs(validXBelts[it] - cx) < tolerance } ?: -1
+
+                if (rowIndex != -1 && colIndex != -1) {
+                    val point = Point(cx, cy)
+                    val currentBest = grid[rowIndex][colIndex]
+
+                    if (currentBest == null) {
+                        grid[rowIndex][colIndex] = point
+                    } else {
+                        // Compare distances to the ideal "Global Belt" intersection
+                        val distNew = Math.hypot(cx - validXBelts[colIndex], cy - validYBelts[rowIndex])
+                        val distOld = Math.hypot(currentBest.x - validXBelts[colIndex], currentBest.y - validYBelts[rowIndex])
+
+                        if (distNew < distOld) {
+                            grid[rowIndex][colIndex] = point
+                        }
+                    }
+                }
+            }
+        }
+        return grid
+    }
+
     private fun filterBeltsByStructure(intersections: Mat, belts: List<Int>, expectedRows: Int): List<Int> {
         if (belts.size <= expectedRows) return belts
         val gaps = mutableListOf<Int>()
@@ -294,21 +306,27 @@ object TableDetector {
         return belts.subList(bestStartIndex, bestStartIndex + expectedRows)
     }
 
-    private fun filterBeltsByDensity(intersections: Mat, belts: List<Int>, targetCount: Int, isHorizontal: Boolean): List<Int> {
+    private fun filterBeltsByDensity(
+        grid: Array<Array<Point?>>,
+        belts: List<Int>,
+        targetCount: Int, // TODO if -1 then use class' 0.5 threshold
+        isHorizontal: Boolean
+    ): List<Int> {
         if (belts.size <= targetCount) return belts
 
-        val scores = belts.map { pos ->
-            var count = 0
+        val scores = belts.indices.map { index ->
+            var validIntersectionCount = 0
+
             if (isHorizontal) {
-                if (pos in 0 until intersections.rows()) {
-                    for (x in 0 until intersections.cols()) if (intersections.get(pos, x)[0] > 0) count++
+                for (col in grid[index].indices) {
+                    if (grid[index][col] != null) validIntersectionCount++
                 }
-            } else {
-                if (pos in 0 until intersections.cols()) {
-                    for (y in 0 until intersections.rows()) if (intersections.get(y, pos)[0] > 0) count++
+            } else { // XBelts[0] has X pixel position of first table vertical line
+                for (row in grid.indices) {
+                    if (grid[row][index] != null) validIntersectionCount++
                 }
             }
-            count
+            validIntersectionCount
         }
 
         return belts.zip(scores)
