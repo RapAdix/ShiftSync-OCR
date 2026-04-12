@@ -36,7 +36,7 @@ object TableDetector {
 
     private val expectedRows = 38
     private val expectedCols = 12
-    private val headerRowHeightMultiplier = 3 // ratio of height between header_row / normal_row
+    private val headerRowHeightMultiplier = 3 // ratio of height between header_row / normal_row  // TODO put correct constant
 
     private val expectedYBelts = expectedRows + 1
     private val expectedXBelts = expectedCols + 1
@@ -205,14 +205,12 @@ object TableDetector {
             Log.d("DEBUG", "Warning: Couldn't detect top header row during propagation")
             validYBelts
         }
-//        val validYBelts = filterBeltsByStructure(intersections, rawYBelts, expectedRows) // maybe algo that puts lines between numbers to fit my estimated size into the current one
 
         // Put it again through grid creation because we removed fake belts
         val cleanedGrid = gridFromClosestIntersections(jointContours, validXBelts, propagatedYBelts)
 
         val propagator = TablePropagator()
         val propagatedGrid = propagator.propagateRobustGrid(intersections, validXBelts, propagatedYBelts, cleanedGrid)
-//        val finalGrid = filterUnrealBelts(grid, validXBelts, validYBelts)
 
         val cells = Array(propagatedGrid.size - 1) { r ->
             Array(propagatedGrid[0].size - 1) { c ->
@@ -343,7 +341,7 @@ object TableDetector {
             )
 
         val propagatedBelts = mutableListOf<Int>()
-        val tallRowHeight = rowHeight * headerRowHeightMultiplier // TODO put correct constant
+        val tallRowHeight = rowHeight * headerRowHeightMultiplier
 
         // ---- Adding rows before ----
         if (gaps[0] < tallRowHeight - detectionErrorMargin) { // first row is missing
@@ -479,59 +477,6 @@ object TableDetector {
                 .sorted()
         }
 
-    }
-
-    //Filter out falsely detected lines which didn't make any crossing on the actual table.
-    fun filterUnrealBelts(grid: Array<Array<Point?>>, validXBelts: List<Int>, validYBelts: List<Int>) : Array<Array<Point>> {
-        val rowCount = grid.size
-        val colCount = grid[0].size
-        // Threshold: at least 50% of intersections must exist to consider the line as real
-        val minRequiredPointsX = rowCount * 0.5
-        val minRequiredPointsY = colCount * 0.5
-
-        // Identify which X Belts (columns) are valid
-        val filteredXIndices = validXBelts.indices.filter { c ->
-            var count = 0
-            for (r in 0 until rowCount) {
-                if (grid[r][c] != null) {
-                    count++
-                }
-                else {
-                    Log.d("DEBUG", "Missing intersection in row:$r col:$c   for col $c pixel:${validXBelts[c]}")
-                }
-            }
-            count >= minRequiredPointsX
-        }
-
-        // Identify which Y Belts (rows) are valid
-        val filteredYIndices = validYBelts.indices.filter { r ->
-            var count = 0
-            for (c in 0 until colCount) {
-                if (grid[r][c] != null) {
-                    count++
-                    Log.d("DEBUG", "Missing intersection in row:$r col:$c   for row $r  pixel:${validYBelts[r]}")
-                }
-            }
-            count >= minRequiredPointsY
-        }
-
-        //Create a new filtered grid based only on valid belts
-        val filteredRowCount = filteredYIndices.size
-        val filteredColCount = filteredXIndices.size
-
-        var nullCounter = 0
-        val finalGrid = Array(filteredRowCount) { r ->
-            Array(filteredColCount) { c ->
-                val oldR = filteredYIndices[r]
-                val oldC = filteredXIndices[c]
-
-                if (grid[oldR][oldC] == null) nullCounter++
-                // If still null, use the mathematical intersection (Global Belt)
-                grid[oldR][oldC] ?: Point(validXBelts[oldC].toDouble(), validYBelts[oldR].toDouble())
-            }
-        }
-        Log.d("DEBUG", "counted $nullCounter missing table line crossings")
-        return finalGrid
     }
 
     fun deskewGrayMat(gray: Mat) : Mat? {
