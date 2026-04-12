@@ -30,6 +30,8 @@ object TableDetector {
         val lines: Mat
     )
 
+    private val minRequiredIntersectionsCoeff : Double = 0.5
+
     // Input: a grayscale Mat
     // Output: Array of rectangles representing detected cells
     fun detectTableCells(gray: Mat): TableDetectionResult {
@@ -309,7 +311,7 @@ object TableDetector {
     private fun filterBeltsByDensity(
         grid: Array<Array<Point?>>,
         belts: List<Int>,
-        targetCount: Int, // TODO if -1 then use class' 0.5 threshold
+        targetCount: Int,
         isHorizontal: Boolean
     ): List<Int> {
         if (belts.size <= targetCount) return belts
@@ -328,12 +330,25 @@ object TableDetector {
             }
             validIntersectionCount
         }
+        val beltScorePairs = belts.zip(scores)
 
-        return belts.zip(scores)
-            .sortedByDescending { it.second }
-            .take(targetCount)
-            .map { it.first }
-            .sorted()
+        if (targetCount != -1) {
+            return beltScorePairs
+                .sortedByDescending { it.second }
+                .take(targetCount)
+                .map { it.first }
+                .sorted()
+        } else {
+            // Calculate threshold based on grid dimensions
+            val maxPoints = if (isHorizontal) (grid.firstOrNull()?.size ?: 0) else grid.size
+            val minRequiredPoints = maxPoints * minRequiredIntersectionsCoeff
+
+            return beltScorePairs
+                .filter { it.second >= minRequiredPoints }
+                .map { it.first }
+                .sorted()
+        }
+
     }
 
     //Filter out falsely detected lines which didn't make any crossing on the actual table.
