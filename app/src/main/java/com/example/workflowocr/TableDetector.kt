@@ -45,6 +45,17 @@ object TableDetector {
     // Output: Array of rectangles representing detected cells
     fun detectTableCells(gray: Mat): TableDetectionResult {
 
+        // 1. Create a mask of the "Paper" area,
+        // // Background is pure black (0) after rotation
+        val validMask = Mat()
+        Imgproc.threshold(gray, validMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
+
+        // Erode the mask to "shrink" the valid area away from the edges
+        // This ensures that after rotation the high-contrast transition at the image edge is ignored.
+        val maskErosionSize = 6.0 // px
+        val maskElement = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(maskErosionSize, maskErosionSize))
+        Imgproc.erode(validMask, validMask, maskElement)
+
         val thresh = Mat()
         // Apply adaptive threshold to get binary image
         Imgproc.adaptiveThreshold(
@@ -55,6 +66,12 @@ object TableDetector {
         )
         Log.d("DEBUG", ">> thresh size = ${thresh.rows()} x ${thresh.cols()}")
         Log.d("DEBUG", "thresh nonZero = ${Core.countNonZero(thresh)}")
+
+        Core.bitwise_and(thresh, validMask, thresh)
+
+        // Cleanup mask
+        validMask.release()
+        maskElement.release()
 
         // Detect horizontal and vertical lines separately
         val horizontal = Mat(thresh.size(), CvType.CV_8UC1)
