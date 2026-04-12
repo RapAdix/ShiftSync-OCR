@@ -30,7 +30,16 @@ object TableDetector {
         val lines: Mat
     )
 
+    class MissingTopRowException(message: String) : Exception(message)
+
     private val minRequiredIntersectionsCoeff : Double = 0.5
+
+    private val expectedRows = 38
+    private val expectedCols = 12
+    private val headerRowHeightMultiplier = 3 // ratio of height between header_row / normal_row
+
+    private val expectedYBelts = expectedRows + 1
+    private val expectedXBelts = expectedCols + 1
 
     // Input: a grayscale Mat
     // Output: Array of rectangles representing detected cells
@@ -68,7 +77,7 @@ object TableDetector {
         Imgproc.dilate(vertical, vertical, verticalStructure)
 //        Imgproc.morphologyEx(vertical, vertical, Imgproc.MORPH_CLOSE, verticalStructure)
 
-        // Now close small gaps created at the intersection of lines by threshold
+        // Now close small gaps created at the intersection of lines by threshold // TODO I think it creates false text/pen intersections with table lines
         val structure = Mat()
         Core.bitwise_or(horizontal, vertical, structure)
         val closelineLength = lineLength / 2
@@ -171,16 +180,21 @@ object TableDetector {
         val rawGrid = gridFromClosestIntersections(jointContours, rawXBelts, rawYBelts)
 
         //Filter out fake belts(paper edges, pencil strokes..)
-        val expectedRows = 38 + 1
-        val expectedCols = 12 + 1
-        val validXBelts = filterBeltsByDensity(rawGrid, rawXBelts, expectedCols, isHorizontal = false)
-        val validYBelts = filterBeltsByStructure(intersections, rawYBelts, expectedRows) // maybe algo that puts lines between numbers to fit my estimated size into the current one
+        val validXBelts = filterBeltsByDensity(rawGrid, rawXBelts, expectedXBelts, isHorizontal = false)
+        val validYBelts = filterBeltsByDensity(rawGrid, rawYBelts, -1, isHorizontal = true)
+        val propagatedYBelts = try {
+            propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, expectedYBelts)
+        } catch (e: MissingTopRowException) {
+            Log.d("DEBUG", "Warning: Couldn't detect top header row during propagation")
+            validYBelts
+        }
+//        val validYBelts = filterBeltsByStructure(intersections, rawYBelts, expectedRows) // maybe algo that puts lines between numbers to fit my estimated size into the current one
 
         // Put it again through grid creation because we removed fake belts
-        val cleanedGrid = gridFromClosestIntersections(jointContours, validXBelts, validYBelts)
+        val cleanedGrid = gridFromClosestIntersections(jointContours, validXBelts, propagatedYBelts)
 
         val propagator = TablePropagator()
-        val propagatedGrid = propagator.propagateRobustGrid(intersections, validXBelts, validYBelts, cleanedGrid)
+        val propagatedGrid = propagator.propagateRobustGrid(intersections, validXBelts, propagatedYBelts, cleanedGrid)
 //        val finalGrid = filterUnrealBelts(grid, validXBelts, validYBelts)
 
         val cells = Array(propagatedGrid.size - 1) { r ->
@@ -286,27 +300,126 @@ object TableDetector {
         return grid
     }
 
-    private fun filterBeltsByStructure(intersections: Mat, belts: List<Int>, expectedRows: Int): List<Int> {
-        if (belts.size <= expectedRows) return belts
+    // Assumes that the image is properly fully rotated
+    private fun propagateHorizontalBeltsByStructure(
+        rawYBelts: List<Int>,
+        validYBelts: List<Int>,
+        expectedRows: Int
+    ): List<Int> {
+        val detectionErrorMargin = 10 // px of difference between rows height is considered sane
         val gaps = mutableListOf<Int>()
-        for (i in 0 until belts.size - 1) gaps.add(belts[i+1] - belts[i])
+        for (i in 0 until validYBelts.size - 1) gaps.add(validYBelts[i+1] - validYBelts[i])
 
-        var bestStartIndex = 0
-        var maxScore = -1.0
-        for (i in 0..belts.size - expectedRows) {
-            val candidateGaps = gaps.subList(i, i + expectedRows - 1)
-            val topRowGap = candidateGaps[0]
-            val otherGaps = candidateGaps.drop(1)
-            val avgOther = if (otherGaps.isNotEmpty()) otherGaps.average() else topRowGap.toDouble()
-            val consistency = otherGaps.sumOf { abs(it - avgOther) }
-            val score = topRowGap / (consistency + 1.0)
-            if (score > maxScore) {
-                maxScore = score
-                bestStartIndex = i
+        // For each gap, count how many other gaps are within tolerance 'detectionErrorMargin' pixels
+        // The gap with the highest count is our "Mode"
+        val bestGap = gaps.maxByOrNull { g ->
+            gaps.count { abs(it - g) <= detectionErrorMargin }
+        } ?: gaps[0]
+
+        // To get a more precise value, average all gaps that fell into this cluster
+        val cluster = gaps.filter { Math.abs(it - bestGap) <= detectionErrorMargin }
+        val rowHeight = cluster.average().toInt()
+        if (cluster.size * 2 < gaps.size)
+            Log.d(
+                "DEBUG",
+                "Warning: Only ${cluster.size} rows has similar heights of $rowHeight +- $detectionErrorMargin out of all initially detected ${gaps.size} rows"
+            )
+
+        val propagatedBelts = mutableListOf<Int>()
+        val tallRowHeight = rowHeight * headerRowHeightMultiplier // TODO put correct constant
+
+        // ---- Adding rows before ----
+        if (gaps[0] < tallRowHeight - detectionErrorMargin) { // first row is missing
+            // We will add any possible normal size rows above of what was found
+            // Until we manage to add the Tall Header Row
+            var currentTop = validYBelts[0]
+            // Look for rows above until we find tall Header or reach limit
+            while (propagatedBelts.size < expectedRows) {
+
+                // Try to find a standard small row above the current top
+                val predictedSmall = currentTop - rowHeight
+                val rawSmall = rawYBelts
+                    .filter { Math.abs(it - predictedSmall) < detectionErrorMargin }
+                    .minByOrNull { Math.abs(it - predictedSmall) }
+
+                if (rawSmall != null) {
+                    // Found a small row! Add to beginning and update currentTop to keep climbing
+                    propagatedBelts.add(0, rawSmall)
+                    currentTop = rawSmall
+                    Log.d("DEBUG", "Found missing small row above validBelts, at $rawSmall")
+                } else {
+                    // No small row found in raw data try the Tall Top Row (the header).
+                    val predictedTall = currentTop - tallRowHeight
+                    val rawTall = rawYBelts
+                        .filter { Math.abs(it - predictedTall) < detectionErrorMargin }
+                        .minByOrNull { Math.abs(it - predictedTall) }
+
+                    if (rawTall != null) {
+                        propagatedBelts.add(0, rawTall)
+                        Log.d("DEBUG", "Found missing top header row at $rawTall")
+                    } else {
+                        throw MissingTopRowException("Couldn't detect Header row while climbing up from detected table part")
+                    }
+
+                    break // After adding header row we are at the absolute top of the table.
+                }
             }
+            propagatedBelts.add(validYBelts[0])
         }
-        return belts.subList(bestStartIndex, bestStartIndex + expectedRows)
+        val startIndex = if (propagatedBelts.isEmpty()) 1 else 0 // if first row was missing we start from 0
+
+        if (startIndex == 1)
+            propagatedBelts.add(validYBelts[0])
+
+        // ---- Adding rows between ----
+        // Now we add any missing rows in the between of what was found
+        propagatedBelts.add(validYBelts[startIndex]) // adding first anhor at the start
+        for (i in startIndex until gaps.size) {
+            val currentAnchor = validYBelts[i]
+            val nextAnchor = validYBelts[i+1]
+            val gapSize = nextAnchor - currentAnchor
+
+            // Determine how many rows are actually in this gap
+            val numRowsInGap = Math.round(gapSize.toDouble() / rowHeight).toInt()
+            if (numRowsInGap == 0)
+                Log.d("DEBUG", "Error: ${i}th detected gap is very small")
+
+            // If more than 1 row exists in this gap, fill the missing ones
+            if (numRowsInGap > 1) {
+                val predictedRowHeight = gapSize / numRowsInGap
+                for (j in 1 until numRowsInGap) {
+                    val predictedPos = currentAnchor + (j * predictedRowHeight)
+
+                    val rawBeltExists = rawYBelts.any { abs(it - predictedPos) < detectionErrorMargin }
+                    if (!rawBeltExists)
+                        Log.d("DEBUG", "${j}th raw belt between validBelts $i and ${i+1} not found")
+
+                    propagatedBelts.add(predictedPos)
+                }
+            }
+            propagatedBelts.add(nextAnchor)
+        }
+
+        // ---- Adding rows after ----
+        var currentBottom = propagatedBelts.last()
+        while (propagatedBelts.size < expectedRows) {
+            val predictedPos = currentBottom + rowHeight
+
+            // Try to find a raw belt at the bottom
+            val rawBelt = rawYBelts
+                .filter { Math.abs(it - predictedPos) < detectionErrorMargin }
+                .minByOrNull { Math.abs(it - predictedPos) }
+
+            val nextPos = rawBelt ?: predictedPos
+            propagatedBelts.add(nextPos)
+            currentBottom = nextPos
+
+            if (rowHeight <= 0) throw IllegalStateException("Horizontal row propagation couldn't determine rowHeight correctly")
+        }
+        return propagatedBelts
     }
+
+    private fun isRotated() {}
 
     private fun filterBeltsByDensity(
         grid: Array<Array<Point?>>,
