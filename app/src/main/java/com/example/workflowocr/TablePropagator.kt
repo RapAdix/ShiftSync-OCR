@@ -1,5 +1,6 @@
 package com.example.workflowocr
 
+import android.util.Log
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
@@ -23,6 +24,7 @@ class TablePropagator(
 
         val midR = expectedRows / 2
         val midC = expectedCols / 2
+        Log.d("DEBUG", "propagateRobustGrid beginning. grid[0][0]=${grid[0][0]} grid[0][-1]=${grid[0].last()}")
 
         val idealSeed = Point(validX[midC].toDouble(), validY[midR].toDouble())
         val actualSeed = findLocalIntersection(intersections, idealSeed) ?: idealSeed
@@ -32,6 +34,8 @@ class TablePropagator(
         propagateLine(grid, intersections, midR, midC, 0, 1, validX)  // Right
         propagateLine(grid, intersections, midR, midC, 0, -1, validX) // Left
 
+        Log.d("DEBUG", "propagateRobustGrid after one row propagation. grid[0][0]=${grid[0][0]} grid[0][-1]=${grid[0].last()}")
+
         // Propagate vertically for every column
         for (c in 0 until expectedCols) {
             if (grid[midR][c] != null) { // TODO fix propagation to make first row bigger
@@ -39,6 +43,7 @@ class TablePropagator(
                 propagateLine(grid, intersections, midR, c, -1, 0, validY) // Up
             }
         }
+        Log.d("DEBUG", "propagateRobustGrid at the end. grid[0][0]=${grid[0][0]} grid[0][-1]=${grid[0].last()}")
 
         return grid as Array<Array<Point>>
     }
@@ -59,7 +64,6 @@ class TablePropagator(
             val nextR = currR + dr
             val nextC = currC + dc
 
-            // Corrected: Use expectedRows and expectedCols
             if (nextR !in 0 until expectedRows || nextC !in 0 until expectedCols) break
             if (grid[nextR][nextC] != null) {
                 currR = nextR
@@ -69,23 +73,33 @@ class TablePropagator(
 
             val prevPoint = grid[currR][currC]!!
 
-            // Prediction Logic
+            // Get the "Ideal" distance from your tidy belts
+            val idealDist = if (dc != 0) belts[nextC] - belts[currC] else belts[nextR] - belts[currR]
+
             val prediction = if (currR - dr in 0 until expectedRows && currC - dc in 0 until expectedCols && grid[currR - dr][currC - dc] != null) {
+                // We have a previous segment to calculate local slope/skew
                 val p0 = grid[currR - dr][currC - dc]!!
+
+                // Calculate the local vector
+                val localDX = prevPoint.x - p0.x
+                val localDY = prevPoint.y - p0.y
+                val localDist = if (dc != 0) localDX else localDY
+
+                // SCALE the local vector by the ratio of the ideal belt gaps
+                // This handles the "Tall Header" perfectly!
+                val scale = if (Math.abs(localDist) > 0.1) idealDist.toDouble() / localDist else 1.0
+
                 Point(
-                    prevPoint.x + (prevPoint.x - p0.x),
-                    prevPoint.y + (prevPoint.y - p0.y)
+                    prevPoint.x + (localDX * scale),
+                    prevPoint.y + (localDY * scale)
                 )
             } else {
-                if (dc != 0) {
-                    val beltDist = belts[nextC] - belts[currC]
-                    Point(prevPoint.x + beltDist, prevPoint.y)
-                } else {
-                    val beltDist = belts[nextR] - belts[currR]
-                    Point(prevPoint.x, prevPoint.y + beltDist)
-                }
+                // Fallback: No local slope yet, just use belt distance
+                if (dc != 0) Point(prevPoint.x + idealDist, prevPoint.y)
+                else Point(prevPoint.x, prevPoint.y + idealDist)
             }
 
+            // Search for actual intersection near the scaled prediction
             val found = findLocalIntersection(intersections, prediction)
             grid[nextR][nextC] = found ?: prediction
 
