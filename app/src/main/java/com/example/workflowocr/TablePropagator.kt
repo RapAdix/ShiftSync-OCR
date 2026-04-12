@@ -38,7 +38,7 @@ class TablePropagator(
 
         // Propagate vertically for every column
         for (c in 0 until expectedCols) {
-            if (grid[midR][c] != null) { // TODO fix propagation to make first row bigger
+            if (grid[midR][c] != null) {
                 propagateLine(grid, intersections, midR, c, 1, 0, validY)  // Down
                 propagateLine(grid, intersections, midR, c, -1, 0, validY) // Up
             }
@@ -73,7 +73,7 @@ class TablePropagator(
 
             val prevPoint = grid[currR][currC]!!
 
-            // Get the "Ideal" distance from your tidy belts
+            // 1. Get the "Ideal" distance for the NEXT step and the PREVIOUS step from belts
             val idealDist = if (dc != 0) belts[nextC] - belts[currC] else belts[nextR] - belts[currR]
 
             val prediction = if (currR - dr in 0 until expectedRows && currC - dc in 0 until expectedCols && grid[currR - dr][currC - dc] != null) {
@@ -83,18 +83,23 @@ class TablePropagator(
                 // Calculate the local vector
                 val localDX = prevPoint.x - p0.x
                 val localDY = prevPoint.y - p0.y
-                val localDist = if (dc != 0) localDX else localDY
 
-                // SCALE the local vector by the ratio of the ideal belt gaps
-                // This handles the "Tall Header" perfectly!
-                val scale = if (Math.abs(localDist) > 0.1) idealDist.toDouble() / localDist else 1.0
+                // 2. Check if the model (belts) expects a size change here
+                val prevIdealDist = if (dc != 0) belts[currC] - belts[currC - dc] else belts[currR] - belts[currR - dr]
+                val expectedRatio = if (Math.abs(prevIdealDist.toDouble()) > 0.1) idealDist.toDouble() / prevIdealDist else 1.0
+
+                // 3. HYBRID DECISION:
+                // If the ratio is close to 1.0 (e.g., 0.85 to 1.15), the model thinks rows are equal.
+                // In this case, IGNORE the belt noise at the bottom and use Pure Momentum (scale = 1.0).
+                // If the ratio is large (e.g., 2.0 for Header), use the scale.
+                val scale = if (Math.abs(expectedRatio - 1.0) < 0.15) 1.0 else expectedRatio
 
                 Point(
                     prevPoint.x + (localDX * scale),
                     prevPoint.y + (localDY * scale)
                 )
             } else {
-                // Fallback: No local slope yet, just use belt distance
+                // Fallback for the very first step of propagation, Use belts
                 if (dc != 0) Point(prevPoint.x + idealDist, prevPoint.y)
                 else Point(prevPoint.x, prevPoint.y + idealDist)
             }
