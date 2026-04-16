@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,11 +23,25 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,7 +51,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -50,129 +64,222 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import org.opencv.core.Mat
 import org.opencv.core.Rect
 
+// Define the different "Planes" of your application
+enum class Screen {
+    SAMPLE_DETECTION,
+    GALLERY_OCR,
+    SETTINGS
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // OpenCV Initialization
         System.loadLibrary("opencv_java4")
         if (!org.opencv.android.OpenCVLoader.initDebug()) {
             Log.e("OpenCV", "Failed to load OpenCV")
-        } else {
-            Log.i("OpenCV", "OpenCV loaded successfully")
         }
+
         val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_1_180)
 
         setContent {
-            var displayedBitmap by remember { mutableStateOf(originalBitmap) }
-            var threshBitmap by remember { mutableStateOf<Bitmap?>(null) }
-            var maskBitmap by remember { mutableStateOf<Bitmap?>(null) }
-            var linesBitmap by remember { mutableStateOf<Bitmap?>(null) }
-            var logText by remember { mutableStateOf("") }
-
+            // 1. Navigation State
+            var currentScreen by remember { mutableStateOf(Screen.SAMPLE_DETECTION) }
+            val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
             val scope = rememberCoroutineScope()
 
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = Color(0xFFB71C1C)
+            // 2. The Navigation Drawer Wrapper
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    ModalDrawerSheet {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Table OCR App", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge)
+
+                        NavigationDrawerItem(
+                            label = { Text("Sample Detection") },
+                            selected = currentScreen == Screen.SAMPLE_DETECTION,
+                            onClick = {
+                                currentScreen = Screen.SAMPLE_DETECTION
+                                scope.launch { drawerState.close() }
+                            },
+                            icon = { Icon(Icons.Default.Build, contentDescription = null) }
+                        )
+                        NavigationDrawerItem(
+                            label = { Text("Gallery OCR") },
+                            selected = currentScreen == Screen.GALLERY_OCR,
+                            onClick = {
+                                currentScreen = Screen.GALLERY_OCR
+                                scope.launch { drawerState.close() }
+                            },
+                            icon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null) }
+                        )
+                    }
+                }
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Button(onClick = {
-                        scope.launch {
-
-                            val (deskewMat, result) = withContext(Dispatchers.Default) {
-                                // Convert to grayscale Mat
-                                //TODO Add filtering out pen colors. time change detection can be detected as marks around the middle.
-                                val grayMat = TableDetector.bitmapToGrayMat(originalBitmap)
-
-                                val deskewMat = TableDetector.deskewGrayMat(grayMat) ?: grayMat
-
-                                // Detect cells
-                                val result = TableDetector.detectTableCells(deskewMat)
-                                Pair(deskewMat, result)
-                            }
-
-                            Log.d("DEBUG", "deskewMat = ${deskewMat.rows()} x ${deskewMat.cols()}")
-                            Log.d(
-                                "DEBUG",
-                                "thresh  = ${result.thresh.rows()} x ${result.thresh.cols()}"
-                            )
-                            Log.d(
-                                "DEBUG",
-                                "mask    = ${result.mask.rows()} x ${result.mask.cols()}"
-                            )
-                            Log.d(
-                                "DEBUG",
-                                "cells detected = ${result.cells.size} x ${result.cells[0].size}"
-                            )
-
-                            threshBitmap = withContext(Dispatchers.Default) {
-                                TableDetector.matToBitmap(result.thresh)
-                            }
-
-                            maskBitmap = withContext(Dispatchers.Default) {
-                                TableDetector.matToBitmap(result.mask)
-                            }
-
-                            // Draw rectangles on the bitmap
-                            val boxed = withContext(Dispatchers.Default) {
-                                TableDetector.drawCells(deskewMat, result.cells)
-                            }
-
-                            displayedBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(boxed)}
-                            linesBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(result.lines)}
-
-                            // OCR each cell
-                            val textGrid: Array<Array<String>> = extractTextFromCells(
-                                result.cells,
-                                TableDetector.matToBitmap(deskewMat)
-                            )
-
-                            val builder = StringBuilder()
-                            textGrid.forEachIndexed { r, row ->
-                                builder.append("Row $r: ")
-                                row.forEachIndexed { c, text ->
-                                    val cleanText = text.replace("\n", " ")
-                                    builder.append("[$cleanText] ")
-                                    Log.d("CELL_OCR", "Cell [$r][$c]: $text")
+                // 3. The Main Screen Content Scaffolding
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = { Text(currentScreen.name.replace("_", " ")) },
+                            navigationIcon = {
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(Icons.Default.Menu, contentDescription = "Menu")
                                 }
-                                builder.append("\n")
                             }
-
-                            logText = builder.toString()
+                        )
+                    }
+                ) { paddingValues ->
+                    Box(modifier = Modifier.padding(paddingValues)) {
+                        // 4. Switch between "Main Planes"
+                        when (currentScreen) {
+                            Screen.SAMPLE_DETECTION -> {
+                                TableDetectionScreen(originalBitmap)
+                            }
+                            Screen.GALLERY_OCR -> {
+                                // Your OCRFromGalleryScreen() goes here
+                                Text("Gallery OCR Plane Coming Soon")
+                            }
+                            Screen.SETTINGS -> {
+                                Text("Settings Plane")
+                            }
                         }
-                    }) {
-                        Text("Run Table Detection + OCR")
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Image(bitmap = displayedBitmap.asImageBitmap(), contentDescription = null,)
-                    threshBitmap?.let {
-                        Image(bitmap = it.asImageBitmap(), contentDescription = "thresh")
-                    }
-
-                    maskBitmap?.let {
-                        Image(bitmap = it.asImageBitmap(), contentDescription = "mask")
-                    }
-
-                    linesBitmap?.let {
-                        Image(bitmap = it.asImageBitmap(), contentDescription = "linesDebug")
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text("OCR log:")
-                    Text(logText)
                 }
             }
+        }
+    }
+
+    /**
+     * Your original logic moved into a dedicated Composable "Plane"
+     */
+    @Composable
+    fun TableDetectionScreen(originalBitmap: Bitmap) {
+        var displayedBitmap by remember { mutableStateOf(originalBitmap) }
+        var threshBitmap by remember { mutableStateOf<Bitmap?>(null) }
+        var maskBitmap by remember { mutableStateOf<Bitmap?>(null) }
+        var linesBitmap by remember { mutableStateOf<Bitmap?>(null) }
+        var logText by remember { mutableStateOf("") }
+        val scope = rememberCoroutineScope()
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    scope.launch {
+                        val results = withContext(Dispatchers.Default) {
+                            // We will collect Mats here to ensure we release them all
+                            var grayMat: Mat? = null
+                            var boxedMat: Mat? = null
+                            var deskewMat: Mat? = null
+
+                            try {
+                                // TODO Add filtering out pen colors. time change detection can be detected as marks around the middle.
+                                // 1. Image Processing & Detection
+                                grayMat = TableDetector.bitmapToGrayMat(originalBitmap)
+
+                                // Note: deskewGrayMat should return a NEW Mat if it modifies it
+                                deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
+
+                                val detection = TableDetector.detectTableCells(deskewMat!!)
+
+                                // 2. Prepare Bitmaps for UI
+                                val threshBmp = TableDetector.matToBitmap(detection.thresh)
+                                val maskBmp = TableDetector.matToBitmap(detection.mask)
+                                val linesBmp = TableDetector.matToBitmap(detection.lines)
+                                // IMPORTANT: Release the internal Mats inside the Result object
+                                // These were created inside detectTableCells
+                                detection.thresh.release()
+                                detection.mask.release()
+                                detection.lines.release()
+
+                                // Draw the "Boxed" debug image
+                                boxedMat = TableDetector.drawCells(deskewMat!!, detection.cells)
+                                val boxedBmp = TableDetector.matToBitmap(boxedMat!!)
+
+                                // Convert deskewMat to bitmap now so we can release the Mat
+                                val deskewedBmp = TableDetector.matToBitmap(deskewMat!!)
+
+                                // Return everything as Bitmaps (Safe for JVM memory)
+                                object {
+                                    val boxed = boxedBmp
+                                    val cells = detection.cells
+                                    val deskewedBmp = deskewedBmp
+                                    val thresh = threshBmp
+                                    val mask = maskBmp
+                                    val lines = linesBmp
+                                }
+                            } finally {
+                                // Final Cleanup of local Mats
+                                grayMat?.release()
+                                boxedMat?.release()
+                                // Only release deskewMat if it's a different object than grayMat
+                                if (deskewMat != grayMat) {
+                                    deskewMat?.release()
+                                }
+                            }
+                        }
+
+                        // Update all UI state variables at once on the Main thread
+                        threshBitmap = results.thresh
+                        maskBitmap = results.mask
+                        linesBitmap = results.lines
+                        displayedBitmap = results.boxed
+
+                        logText = withContext(Dispatchers.Default) {
+                            // OCR (Text Extraction)
+                            val textGrid = extractTextFromCells(results.cells, results.deskewedBmp)
+
+                            // Build Log Text
+                            val logBuilder = StringBuilder()
+                            textGrid.forEachIndexed { r, row ->
+                                logBuilder.append("Row $r: ")
+                                row.forEach { text ->
+                                    logBuilder.append("[${text.replace("\n", " ")}] ")
+                                }
+                                logBuilder.append("\n")
+                            }
+                            logBuilder.toString()
+                        }
+                        Log.d("DEBUG", logText)
+                    }
+                }) {
+                Text("Run Table Detection + OCR")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // UI Previews
+            Image(bitmap = displayedBitmap.asImageBitmap(), contentDescription = "Result")
+
+            threshBitmap?.let {
+                Text("Adaptive Threshold", style = MaterialTheme.typography.labelSmall)
+                Image(bitmap = it.asImageBitmap(), contentDescription = "thresh")
+            }
+
+            maskBitmap?.let {
+                Text("Table Mask", style = MaterialTheme.typography.labelSmall)
+                Image(bitmap = it.asImageBitmap(), contentDescription = "mask")
+            }
+
+            linesBitmap?.let {
+                Image(bitmap = it.asImageBitmap(), contentDescription = "linesDebug")
+            }
+
+            Text("OCR log:", modifier = Modifier.padding(top = 16.dp))
+            Text(logText, style = MaterialTheme.typography.bodySmall)
         }
     }
 
