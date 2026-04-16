@@ -41,8 +41,10 @@ object TableDetector {
     private val expectedYBelts = expectedRows + 1
     private val expectedXBelts = expectedCols + 1
 
-    // Input: a grayscale Mat
-    // Output: Array of rectangles representing detected cells
+    /**
+     * Input: a grayscale Mat - rotates it if incorrect table orientation detected
+     * Output: Array of rectangles representing detected cells
+     */
     fun detectTableCells(gray: Mat): TableDetectionResult {
 
         // 1. Create a mask of the "Paper" area,
@@ -111,7 +113,15 @@ object TableDetector {
 
         structure.release()
 
-        val (cells, linesDrawing) = findRefinedCorners(horizontal, vertical)
+        val (cells, linesDrawing, rotations) = findRefinedCorners(horizontal, vertical)
+        // Rotate source based on what rotations were performed during table detection.
+        if (rotations % 4 != 0) {
+            rotateMatNSteps(gray, rotations)
+            rotateMatNSteps(thresh, rotations)
+            rotateMatNSteps(horizontal, rotations)
+            rotateMatNSteps(vertical, rotations)
+        }
+
         val linesOverlayImage = gray.clone()
         if (linesOverlayImage.channels() == 1) {
             Imgproc.cvtColor(linesOverlayImage, linesOverlayImage, Imgproc.COLOR_GRAY2RGB)
@@ -149,7 +159,7 @@ object TableDetector {
      * Detects table corners by combining global projections with local intersections
      * to filter out noise (like pen strokes).
      */
-    fun findRefinedCorners(horizontal: Mat, vertical: Mat): Pair<Array<Array<TableCell>>, Mat> {
+    fun findRefinedCorners(horizontal: Mat, vertical: Mat): Triple<Array<Array<TableCell>>, Mat, Int> {
         // Get Global Projections to find "Line Belts"
         val rowSums = Mat()
         val colSums = Mat()
@@ -166,8 +176,8 @@ object TableDetector {
 
         // Identify Candidate X and Y positions (Line Belts)
         // rawYBelts[0] has Y pixel position of the horizontal table line.
-        val rawYBelts = getBeltCenters(rowSums, rowThresh, true)
-        val rawXBelts = getBeltCenters(colSums, colThresh, false)
+        var rawYBelts = getBeltCenters(rowSums, rowThresh, true)
+        var rawXBelts = getBeltCenters(colSums, colThresh, false)
 
         val linesDebugMat = Mat.zeros(horizontal.size(), CvType.CV_8UC3)
 
@@ -192,22 +202,50 @@ object TableDetector {
         val intersections = Mat()
         Core.bitwise_and(horizontal, vertical, intersections)
 
-        val jointContours = mutableListOf<MatOfPoint>()
-        Imgproc.findContours(intersections, jointContours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
-        val rawGrid = gridFromClosestIntersections(jointContours, rawXBelts, rawYBelts)
+        var intersectionsList = listOfIntersections(intersections)
+        var rawGrid = gridFromClosestIntersections(intersectionsList, rawXBelts, rawYBelts)
 
-        //Filter out fake belts(paper edges, pencil strokes..)
-        val validXBelts = filterBeltsByDensity(rawGrid, rawXBelts, expectedXBelts, isHorizontal = false)
-        val validYBelts = filterBeltsByDensity(rawGrid, rawYBelts, -1, isHorizontal = true)
+        // First, orientation check
+        var rotations = 0 // we will pass the number of 90 degree counter-clockwise rotations up the call stack
+        // Filter out fake belts(paper edges, pencil strokes..)
+        val filteredXBelts = filterBeltsByDensity(rawGrid, rawXBelts, -1, isHorizontal = false)
+        val filteredYBelts = filterBeltsByDensity(rawGrid, rawYBelts, -1, isHorizontal = true)
+        if (isLayingOnSide(filteredXBelts, filteredYBelts)) {
+            Log.d("DEBUG", "Rotating 90 degrees.")
+            rotations++
+            val rotatedBelts = rotateBelts90(rawXBelts, rawYBelts, horizontal.cols())
+            rawXBelts = rotatedBelts.first
+            rawYBelts = rotatedBelts.second
+            intersectionsList = rotatePoints90(intersectionsList, horizontal.cols())
+            Core.rotate(intersections, intersections, Core.ROTATE_90_COUNTERCLOCKWISE) // needed in TablePropagator
+            rawGrid = gridFromClosestIntersections(intersectionsList, rawXBelts, rawYBelts)
+        }
+        var validXBelts = filterBeltsByDensity(rawGrid, rawXBelts, expectedXBelts, isHorizontal = false)
+        var validYBelts = filterBeltsByDensity(rawGrid, rawYBelts, -1, isHorizontal = true)
         val propagatedYBelts = try {
             propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, expectedYBelts)
         } catch (e: MissingTopRowException) {
-            Log.d("DEBUG", "Warning: Couldn't detect top header row during propagation")
-            validYBelts
+            Log.d("DEBUG", "Couldn't detect top header row during propagation. Rotating by 180 degrees.")
+            rotations += 2
+
+            val rotatedValid = rotateBelts180(validXBelts, validYBelts, horizontal.cols(), horizontal.rows())
+            validXBelts = rotatedValid.first
+            validYBelts = rotatedValid.second
+            val rotatedRaw = rotateBelts180(rawXBelts, rawYBelts, horizontal.cols(), horizontal.rows())
+            rawXBelts = rotatedRaw.first
+            rawYBelts = rotatedRaw.second
+            intersectionsList = rotatePoints180(intersectionsList, horizontal.cols(), horizontal.rows())
+            Core.rotate(intersections, intersections, Core.ROTATE_180) // needed in TablePropagator
+            try {
+                propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, expectedYBelts)
+            } catch (e: MissingTopRowException) {
+                Log.d("DEBUG", "Error: Couldn't detect top header row during propagation even after rotating!")
+                validYBelts
+            }
         }
 
         // Put it again through grid creation because we removed fake belts
-        val cleanedGrid = gridFromClosestIntersections(jointContours, validXBelts, propagatedYBelts)
+        val cleanedGrid = gridFromClosestIntersections(intersectionsList, validXBelts, propagatedYBelts)
 
         val propagator = TablePropagator()
         val propagatedGrid = propagator.propagateRobustGrid(intersections, validXBelts, propagatedYBelts, cleanedGrid)
@@ -228,7 +266,7 @@ object TableDetector {
         colSums.release()
         intersections.release()
 
-        return Pair(cells, linesDebugMat)
+        return Triple(cells, linesDebugMat, rotations)
     }
 
     fun getBeltCenters(sums: Mat, threshold: Double, isRow: Boolean): List<Int> {
@@ -264,8 +302,91 @@ object TableDetector {
         return centers
     }
 
+    private fun isLayingOnSide(xBelts: List<Int>, yBelts: List<Int>): Boolean {
+        if (xBelts.size < 2 || yBelts.size < 2) return false
+
+        // Calculate all gap sizes
+        val xGaps = xBelts.sorted().zipWithNext { a, b -> b - a }
+        val yGaps = yBelts.sorted().zipWithNext { a, b -> b - a }
+
+        // Use the Median instead of Average to be robust against:
+        // - The "One Tall Header Row"
+        // - Massive gaps from missing rows in the middle
+        // - Paper edge noise
+        val medianColWidth = xGaps.sorted()[xGaps.size / 2].toDouble()
+        val medianRowHeight = yGaps.sorted()[yGaps.size / 2].toDouble()
+
+        Log.d("DEBUG", "Orientation check: medianColWidth=$medianColWidth, medianRowHeight=$medianRowHeight")
+
+        // Usually, Column Width > Row Height in standard landscape cells.
+        // We use a small threshold (1.2) to ensure it's a clear rotation, not just a square cell.
+        return medianRowHeight > (medianColWidth * 1.2)
+    }
+
+    private fun rotateMatNSteps(mat: Mat, steps: Int) {
+        val count = steps % 4
+
+        val code = when (count) {
+            1 -> Core.ROTATE_90_COUNTERCLOCKWISE
+            2 -> Core.ROTATE_180
+            3 -> Core.ROTATE_90_CLOCKWISE
+            else -> -1
+        }
+        if (code != -1) {
+            Core.rotate(mat, mat, code)
+        }
+    }
+
+    /**
+     * Rotates belt coordinates 90 degrees Counter-Clockwise.
+     * newX = oldY
+     * newY = imageWidth - oldX
+     */
+    private fun rotateBelts90(xBelts: List<Int>, yBelts: List<Int>, imgWidth: Int): Pair<List<Int>, List<Int>> {
+        val newX = yBelts.sorted()
+        val newY = xBelts.map { imgWidth - it }.sorted()
+        return Pair(newX, newY)
+    }
+
+    /**
+     * Rotates belt coordinates 180 degrees.
+     * newX = imgWidth - oldX
+     * newY = imgHeight - oldY
+     */
+    private fun rotateBelts180(xBelts: List<Int>, yBelts: List<Int>, imgWidth: Int, imgHeight: Int): Pair<List<Int>, List<Int>> {
+        val newX = xBelts.map { imgWidth - it }.sorted()
+        val newY = yBelts.map { imgHeight - it }.sorted()
+        return Pair(newX, newY)
+    }
+
+    // Transforms points based on a 90-degree Counter-Clockwise rotation.
+    fun rotatePoints90(points: List<Point>, imgWidth: Int): List<Point> {
+        return points.map { Point(it.y, imgWidth.toDouble() - it.x) }
+    }
+
+    // Transforms points for a 180-degree rotation.
+    fun rotatePoints180(points: List<Point>, imgWidth: Int, imgHeight: Int): List<Point> {
+        return points.map { Point(imgWidth.toDouble() - it.x, imgHeight.toDouble() - it.y) }
+    }
+
+    private fun listOfIntersections(intersections: Mat): List<Point> {
+        val jointContours = mutableListOf<MatOfPoint>()
+        Imgproc.findContours(intersections, jointContours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
+
+        return jointContours.mapNotNull { contour ->
+            val moments = Imgproc.moments(contour)
+            if (moments.m00 > 0) {
+                val cx = moments.m10 / moments.m00
+                val cy = moments.m01 / moments.m00
+                Point(cx, cy)
+            } else {
+                null
+            }
+        }
+    }
+
     private fun gridFromClosestIntersections(
-        jointContours: List<MatOfPoint>,
+        intersections: List<Point>,
         validXBelts: List<Int>,
         validYBelts: List<Int>,
     ): Array<Array<Point?>> {
@@ -279,35 +400,31 @@ object TableDetector {
         // Tolerance for perspective/noise
         val tolerance = 15.0
 
-        for (contour in jointContours) {
-            val moments = Imgproc.moments(contour)
-            if (moments.m00 > 0) {
-                val cx = moments.m10 / moments.m00
-                val cy = moments.m01 / moments.m00
+        for (intersection in intersections) {
+            val cx = intersection.x
+            val cy = intersection.y
+            // Find the closest index and check if it's within tolerance
+            val rowIndex = validYBelts.indices
+                .minByOrNull { Math.abs(validYBelts[it] - cy) }
+                ?.takeIf { Math.abs(validYBelts[it] - cy) < tolerance } ?: -1
 
-                // Find the closest index and check if it's within tolerance
-                val rowIndex = validYBelts.indices
-                    .minByOrNull { Math.abs(validYBelts[it] - cy) }
-                    ?.takeIf { Math.abs(validYBelts[it] - cy) < tolerance } ?: -1
+            val colIndex = validXBelts.indices
+                .minByOrNull { Math.abs(validXBelts[it] - cx) }
+                ?.takeIf { Math.abs(validXBelts[it] - cx) < tolerance } ?: -1
 
-                val colIndex = validXBelts.indices
-                    .minByOrNull { Math.abs(validXBelts[it] - cx) }
-                    ?.takeIf { Math.abs(validXBelts[it] - cx) < tolerance } ?: -1
+            if (rowIndex != -1 && colIndex != -1) {
+                val point = Point(cx, cy)
+                val currentBest = grid[rowIndex][colIndex]
 
-                if (rowIndex != -1 && colIndex != -1) {
-                    val point = Point(cx, cy)
-                    val currentBest = grid[rowIndex][colIndex]
+                if (currentBest == null) {
+                    grid[rowIndex][colIndex] = point
+                } else {
+                    // Compare distances to the ideal "Global Belt" intersection
+                    val distNew = Math.hypot(cx - validXBelts[colIndex], cy - validYBelts[rowIndex])
+                    val distOld = Math.hypot(currentBest.x - validXBelts[colIndex], currentBest.y - validYBelts[rowIndex])
 
-                    if (currentBest == null) {
+                    if (distNew < distOld) {
                         grid[rowIndex][colIndex] = point
-                    } else {
-                        // Compare distances to the ideal "Global Belt" intersection
-                        val distNew = Math.hypot(cx - validXBelts[colIndex], cy - validYBelts[rowIndex])
-                        val distOld = Math.hypot(currentBest.x - validXBelts[colIndex], currentBest.y - validYBelts[rowIndex])
-
-                        if (distNew < distOld) {
-                            grid[rowIndex][colIndex] = point
-                        }
                     }
                 }
             }
@@ -434,8 +551,6 @@ object TableDetector {
         return propagatedBelts
     }
 
-    private fun isRotated() {}
-
     private fun filterBeltsByDensity(
         grid: Array<Array<Point?>>,
         belts: List<Int>,
@@ -522,42 +637,6 @@ object TableDetector {
         Log.d("ERROR", "Deskewing the image failed")
         return null
     }
-
-    fun fixOrientation(gray: Mat, cells: Array<Array<TableCell>>): Mat {
-        if (cells.isEmpty() || cells[0].isEmpty()) return gray
-
-        val avgW = (cells[0].last().topRight.x - cells[0][0].topLeft.x) / cells[0].size
-        val avgH = (cells.last()[0].bottomLeft.y - cells[0][0].topLeft.y) / cells.size
-
-        val rotated = Mat()
-        var rotationPerformed = false
-        if (avgH > avgW) { // If cells are taller than wider, the table is likely rotated 90 deg
-            // First row should be wider than the last one so check which direction to rotate.
-            if (cells[0][0].topRight.x - cells[0][0].topLeft.x >
-                cells[0].last().topRight.x - cells[0].last().topLeft.x) {
-                Core.rotate(gray, rotated, Core.ROTATE_90_CLOCKWISE)
-                Log.d("DEBUG", "Table rotated 90 deg Clockwise based on cell proportions (W:$avgW < H:$avgH)")
-            } else {
-                Core.rotate(gray, rotated, Core.ROTATE_90_COUNTERCLOCKWISE)
-                Log.d("DEBUG", "Table rotated 90 deg CounterClockwise based on cell proportions (W:$avgW < H:$avgH)")
-            }
-            rotationPerformed = true
-        }
-        else if (cells[0][0].bottomLeft.y - cells[0][0].topLeft.y <
-                cells.last()[0].bottomLeft.y - cells.last()[0].topLeft.y) {
-            // The table is upside down. First row should be wider. Rotating.
-            Core.rotate(gray, rotated, Core.ROTATE_180)
-            Log.d("DEBUG", "Table rotated 180 deg (W:$avgW > H:$avgH)")
-            rotationPerformed = true
-        }
-        return if (rotationPerformed) {
-            rotated
-        } else {
-            rotated.release()
-            gray
-        }
-    }
-
 
     /** Convert an Android Bitmap -> OpenCV grayscale Mat */
     fun bitmapToGrayMat(bitmap: Bitmap): Mat {
