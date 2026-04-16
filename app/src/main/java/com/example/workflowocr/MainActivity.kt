@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
         } else {
             Log.i("OpenCV", "OpenCV loaded successfully")
         }
-        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_1)
+        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_1_180)
 
         setContent {
             var displayedBitmap by remember { mutableStateOf(originalBitmap) }
@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
 
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                color = Color(0xFFB71C1C) // Ciemna czerwień (Material Red 900)
+                color = Color(0xFFB71C1C)
             ) {
                 Column(
                     modifier = Modifier
@@ -130,7 +130,10 @@ class MainActivity : ComponentActivity() {
                             linesBitmap = withContext(Dispatchers.Default) { TableDetector.matToBitmap(result.lines)}
 
                             // OCR each cell
-                            val textGrid: Array<Array<String>> = extractTextFromCells(result.cells, originalBitmap)
+                            val textGrid: Array<Array<String>> = extractTextFromCells(
+                                result.cells,
+                                TableDetector.matToBitmap(deskewMat)
+                            )
 
                             val builder = StringBuilder()
                             textGrid.forEachIndexed { r, row ->

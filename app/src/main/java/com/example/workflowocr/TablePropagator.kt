@@ -1,6 +1,5 @@
 package com.example.workflowocr
 
-import android.util.Log
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
@@ -24,7 +23,6 @@ class TablePropagator(
 
         val midR = expectedRows / 2
         val midC = expectedCols / 2
-        Log.d("DEBUG", "propagateRobustGrid beginning. grid[0][0]=${grid[0][0]} grid[0][-1]=${grid[0].last()}")
 
         val idealSeed = Point(validX[midC].toDouble(), validY[midR].toDouble())
         val actualSeed = findLocalIntersection(intersections, idealSeed) ?: idealSeed
@@ -34,8 +32,6 @@ class TablePropagator(
         propagateLine(grid, intersections, midR, midC, 0, 1, validX)  // Right
         propagateLine(grid, intersections, midR, midC, 0, -1, validX) // Left
 
-        Log.d("DEBUG", "propagateRobustGrid after one row propagation. grid[0][0]=${grid[0][0]} grid[0][-1]=${grid[0].last()}")
-
         // Propagate vertically for every column
         for (c in 0 until expectedCols) {
             if (grid[midR][c] != null) {
@@ -43,7 +39,6 @@ class TablePropagator(
                 propagateLine(grid, intersections, midR, c, -1, 0, validY) // Up
             }
         }
-        Log.d("DEBUG", "propagateRobustGrid at the end. grid[0][0]=${grid[0][0]} grid[0][-1]=${grid[0].last()}")
 
         return grid as Array<Array<Point>>
     }
