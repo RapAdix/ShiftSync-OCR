@@ -179,22 +179,6 @@ object TableDetector {
         var rawYBelts = getBeltCenters(rowSums, rowThresh, true)
         var rawXBelts = getBeltCenters(colSums, colThresh, false)
 
-        val linesDebugMat = Mat.zeros(horizontal.size(), CvType.CV_8UC3)
-
-        // 2. horizontal on RED
-        for (y in rawYBelts) {
-            val pt1 = Point(0.0, y.toDouble())
-            val pt2 = Point(horizontal.cols().toDouble(), y.toDouble())
-            Imgproc.line(linesDebugMat, pt1, pt2, Scalar(0.0, 0.0, 255.0), 2)
-        }
-
-        // vertical BLUE
-        for (x in rawXBelts) {
-            val pt1 = Point(x.toDouble(), 0.0)
-            val pt2 = Point(x.toDouble(), horizontal.rows().toDouble())
-            Imgproc.line(linesDebugMat, pt1, pt2, Scalar(255.0, 0.0, 0.0), 2)
-        }
-
         Log.d("DEBUG", "counted ${rawYBelts.size} potential rows")
         Log.d("DEBUG", "counted ${rawXBelts.size} potential cols")
 
@@ -259,6 +243,22 @@ object TableDetector {
                     bottomRight = propagatedGrid[r + 1][c + 1]
                 )
             }
+        }
+
+        val linesDebugMat = Mat.zeros(horizontal.size(), CvType.CV_8UC3)
+
+        // 2. horizontal on RED
+        for (y in rawYBelts) {
+            val pt1 = Point(0.0, y.toDouble())
+            val pt2 = Point(horizontal.cols().toDouble(), y.toDouble())
+            Imgproc.line(linesDebugMat, pt1, pt2, Scalar(0.0, 0.0, 255.0), 2)
+        }
+
+        // vertical BLUE
+        for (x in rawXBelts) {
+            val pt1 = Point(x.toDouble(), 0.0)
+            val pt2 = Point(x.toDouble(), horizontal.rows().toDouble())
+            Imgproc.line(linesDebugMat, pt1, pt2, Scalar(255.0, 0.0, 0.0), 2)
         }
 
         // Cleanup
