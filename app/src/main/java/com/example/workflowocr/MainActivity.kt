@@ -238,7 +238,7 @@ class MainActivity : ComponentActivity() {
 
                         logText = withContext(Dispatchers.Default) {
                             // OCR (Text Extraction)
-                            val rawTextGrid = TextProcessor.extractTextFromCells(results.cells, results.deskewedBmp)
+                            val rawTextGrid = TextProcessor.extractTextFromCells(results.cells, results.deskewedBmp, listOf(0, 2, 3))
                             val textGrid = TextProcessor.refineTableData(rawTextGrid)
 
                             // Build Log Text

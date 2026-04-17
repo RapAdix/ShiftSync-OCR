@@ -22,14 +22,16 @@ object TextProcessor {
 
     suspend fun extractTextFromCells(
         cells: Array<Array<TableDetector.TableCell>>,
-        originalBitmap: Bitmap
+        originalBitmap: Bitmap,
+        specificCols: List<Int>? = null
     ): Array<Array<String>> = withContext(Dispatchers.IO) {
 
         val results = Array<Array<String>>(cells.size) {Array<String>(cells[0].size) {""} }
         val matrix = Matrix().apply { postScale(2f, 2f) } // 2x Zoom
 
+        val cols = specificCols ?: cells[0].indices
         for (row in cells.indices) {
-            for (col in cells[0].indices) {
+            for (col in cols) {
                 val rect = getRectForCell(cells[row][col])
 
                 // 1. Inset to avoid table lines
@@ -123,21 +125,29 @@ object TextProcessor {
             .replace(".", ":") // Common for ':' to be seen as '.'
 
         // 3. Force format logic (example: 12:00)
-        val digitsOnly = cleaned.filter { it.isDigit() }
-        if (digitsOnly.length == 4)
-            return digitsOnly.take(2) + ":" + digitsOnly.substring(2)
+        val digits = cleaned.filter { it.isDigit() }
+        if (digits.length == 4) { // the time is always written as 07:05 so anything other than 4 digits is not time
+            val hh = digits.substring(0, 2).toInt()
+            val mm = digits.substring(2, 4).toInt()
+
+            if (hh in 0..23 && mm in 0..59) {
+                return "${digits.substring(0, 2)}:${digits.substring(2)}"
+            } else {
+                return "X"
+            }
+        }
 
         // Check if UW/UWP/UBP/W was written in this cell instead of the time
         val holidayLetters = "UWPM"
         if (cleaned.any { it.uppercaseChar() in holidayLetters })
             return "UW"
-        return cleaned
+        return "X"
     }
 
     private fun repairDecideDate(grid: Array<Array<String>>) {
-        val d1 = grid[0][2].substring(0, 6).filter { it.isDigit() }.take(4)
-        val d2 = grid[0][3].substring(0, 6).filter { it.isDigit() }.take(4)
-        val d3 = grid[0][4].substring(0, 6).filter { it.isDigit() }.take(4)
+        val d1 = grid[0][2].take( 6).filter { it.isDigit() }.take(4)
+        val d2 = grid[0][3].take( 6).filter { it.isDigit() }.take(4)
+        val d3 = grid[0][4].take( 6).filter { it.isDigit() }.take(4)
 
         val candidates = listOf(d1, d2, d3)
 
