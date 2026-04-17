@@ -62,10 +62,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.opencv.core.Mat
-import org.opencv.core.Rect
 
 // Define the different "Planes" of your application
 enum class Screen {
@@ -240,7 +238,8 @@ class MainActivity : ComponentActivity() {
 
                         logText = withContext(Dispatchers.Default) {
                             // OCR (Text Extraction)
-                            val textGrid = extractTextFromCells(results.cells, results.deskewedBmp)
+                            val rawTextGrid = TextProcessor.extractTextFromCells(results.cells, results.deskewedBmp)
+                            val textGrid = TextProcessor.refineTableData(rawTextGrid)
 
                             // Build Log Text
                             val logBuilder = StringBuilder()
@@ -286,55 +285,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         scope.cancel()
-    }
-
-    fun getRectForCell(cell: TableDetector.TableCell) : Rect{
-        val cellW = (Math.abs(cell.topRight.x - cell.topLeft.x) +
-                Math.abs(cell.bottomRight.x - cell.bottomLeft.x)) / 2.0
-        val cellH = (Math.abs(cell.bottomLeft.y - cell.topLeft.y) +
-                Math.abs(cell.bottomRight.y - cell.topRight.y)) / 2.0
-        return Rect(
-            cell.topLeft.x.toInt(),
-            cell.topLeft.y.toInt(),
-            cellW.toInt(),
-            cellH.toInt()
-        )
-    }
-
-    suspend fun extractTextFromCells(
-        cells: Array<Array<TableDetector.TableCell>>,
-        originalBitmap: Bitmap
-    ): Array<Array<String>> = withContext(Dispatchers.IO) {
-
-        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        val results = Array<Array<String>>(cells.size) {Array<String>(cells[0].size) {""} }
-
-        for (row in 0 until cells.size) {
-            for (col in 0 until cells[0].size) {
-                val rect = getRectForCell(cells[row][col])
-                try {
-                    val cellBitmap = Bitmap.createBitmap(
-                        originalBitmap,
-                        rect.x, rect.y, rect.width, rect.height
-                    )
-
-                    val inputImage = InputImage.fromBitmap(cellBitmap, 0)
-
-                    val text = suspendCancellableCoroutine<String> { cont ->
-                        recognizer.process(inputImage)
-                            .addOnSuccessListener { cont.resume(it.text) {} }
-                            .addOnFailureListener { e -> cont.resume("ERROR: ${e.message}") {} }
-                    }
-
-                    results[row][col] = text
-                } catch (e: Exception) {
-                    results[row][col]="EXCEPTION: ${e.message}"
-                }
-            }
-        }
-
-        recognizer.close()
-        return@withContext results
     }
 
 }
