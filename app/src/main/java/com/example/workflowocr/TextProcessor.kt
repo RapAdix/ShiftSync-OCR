@@ -14,8 +14,6 @@ import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
 object TextProcessor {
-    private val TIME_START_COL = 2
-    private val TIME_END_COL = 3
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     class CouldNotDetermineDateException(message: String) : Exception(message)

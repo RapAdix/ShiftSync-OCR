@@ -1,5 +1,6 @@
 package com.example.workflowocr
 
+import android.util.Log
 import com.example.workflowocr.TableDetector.TableCell
 import org.opencv.core.Core
 import org.opencv.core.CvType
@@ -8,9 +9,51 @@ import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Scalar
+import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 
 object CellAnalyzer {
+    data class CellsAnalysis (
+        val penCoverage: Array<Array<Double>>,
+        val startTimeCrossed: Array<Boolean>,
+        val endTimeCrossed: Array<Boolean>
+    )
+
+    fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>): CellsAnalysis {
+        val swollenThresh = Mat()
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
+        Imgproc.dilate(thresh, swollenThresh, kernel)
+        val penCoverage = detectPenStrokes(swollenThresh, cells, MODIFICATION_COLUMNS + listOf(2, 3))
+
+        val startTimeCrossed = Array(cells.size) {false}
+        for (row in cells.indices) {
+            val (isCrossed, _, _) = detectPenCrossing(swollenThresh, cells[row][TIME_START_COL])
+            startTimeCrossed[row] = isCrossed
+            if (isCrossed)
+                Log.d("DEBUG", "Row: $row, col: $TIME_START_COL has a crossing over time")
+        }
+        val endTimeCrossed = Array(cells.size) {false}
+        for (row in cells.indices) {
+            val (isCrossed, _, _) = detectPenCrossing(swollenThresh, cells[row][TIME_END_COL])
+            endTimeCrossed[row] = isCrossed
+            if (isCrossed)
+                Log.d("DEBUG", "Row: $row, col: $TIME_END_COL has a crossing over time")
+        }
+
+        swollenThresh.release()
+        kernel.release()
+        return CellsAnalysis(penCoverage, startTimeCrossed, endTimeCrossed)
+    }
+
+    fun detectPenStrokes(thresh: Mat, cells: Array<Array<TableCell>>, cols: List<Int> = MODIFICATION_COLUMNS): Array<Array<Double>> {
+        val penCoverage = Array(cells.size) {Array(cells[0].size) {0.0}}
+        for (col in cols) {
+            for (row in cells.indices) {
+                penCoverage[row][col] = detectPenWriting(thresh, cells[row][col])
+            }
+        }
+        return penCoverage
+    }
 
     /**
      * Detects pen marks by looking at "Internal Safety Windows" within a distorted cell.
@@ -59,11 +102,18 @@ object CellAnalyzer {
         Core.bitwise_and(thresh, mask, evidence)
         val inkPixelCount = Core.countNonZero(evidence)
 
+        // 4. Calculate the Area of the Quad
+        val topQuad2f = MatOfPoint2f(*topQuad)
+        val btmQuad2f = MatOfPoint2f(*bottomQuad)
+        val area = Imgproc.contourArea(topQuad2f) + Imgproc.contourArea(btmQuad2f)
+
         // Release temporary resources
         evidence.release()
         mask.release()
+        topQuad2f.release()
+        btmQuad2f.release()
 
-        val pixelDetectionThreshold = 7 // TODO calculate 1.5% of the cell area
+        val pixelDetectionThreshold = area * 0.015
         return Triple(inkPixelCount > pixelDetectionThreshold, topQuad, bottomQuad)
     }
 

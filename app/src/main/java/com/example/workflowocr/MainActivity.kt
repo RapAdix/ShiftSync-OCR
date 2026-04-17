@@ -203,6 +203,7 @@ class MainActivity : ComponentActivity() {
 
                                 // Draw the "Boxed" debug image
                                 boxedMat = TableDetector.drawCells(deskewMat!!, detection.cells)
+                                val cellsAnalysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells)
 
                                 val marginsDrawn = deskewMat.clone()
                                 if (marginsDrawn.channels() == 1) {
@@ -239,6 +240,7 @@ class MainActivity : ComponentActivity() {
                                 object {
                                     val boxed = boxedBmp
                                     val cells = detection.cells
+                                    val cellsAnalysis = cellsAnalysis
                                     val deskewedBmp = deskewedBmp
                                     val thresh = threshBmp
                                     val mask = maskBmp
