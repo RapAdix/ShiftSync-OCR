@@ -64,6 +64,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Scalar
+import org.opencv.imgproc.Imgproc
 
 // Define the different "Planes" of your application
 enum class Screen {
@@ -197,18 +200,34 @@ class MainActivity : ComponentActivity() {
                                 val threshBmp = TableDetector.matToBitmap(detection.thresh)
                                 val maskBmp = TableDetector.matToBitmap(detection.mask)
                                 val linesBmp = TableDetector.matToBitmap(detection.lines)
+
+                                // Draw the "Boxed" debug image
+                                boxedMat = TableDetector.drawCells(deskewMat!!, detection.cells)
+
+                                val marginsDrawn = deskewMat.clone()
+                                if (marginsDrawn.channels() == 1) {
+                                    Imgproc.cvtColor(marginsDrawn, marginsDrawn, Imgproc.COLOR_GRAY2RGB)
+                                }
+                                val red = Scalar(255.0, 0.0, 0.0)
+                                for (row in detection.cells) {
+                                    for (cell in row) {
+                                        val (isCrossed, pointsTop, pointsBtm) = TableDetector.detectPenCrossing(detection.thresh, cell)
+                                        Imgproc.polylines(marginsDrawn, listOf(MatOfPoint(*pointsTop)), true, red, 2)
+                                        Imgproc.polylines(marginsDrawn, listOf(MatOfPoint(*pointsBtm)), true, red, 2)
+                                    }
+                                }
+                                val marginsBmp = TableDetector.matToBitmap(marginsDrawn)
+                                marginsDrawn.release()
+                                val boxedBmp = TableDetector.matToBitmap(boxedMat!!)
+
+                                // Convert deskewMat to bitmap now so we can release the Mat
+                                val deskewedBmp = TableDetector.matToBitmap(deskewMat!!)
+
                                 // IMPORTANT: Release the internal Mats inside the Result object
                                 // These were created inside detectTableCells
                                 detection.thresh.release()
                                 detection.mask.release()
                                 detection.lines.release()
-
-                                // Draw the "Boxed" debug image
-                                boxedMat = TableDetector.drawCells(deskewMat!!, detection.cells)
-                                val boxedBmp = TableDetector.matToBitmap(boxedMat!!)
-
-                                // Convert deskewMat to bitmap now so we can release the Mat
-                                val deskewedBmp = TableDetector.matToBitmap(deskewMat!!)
 
                                 // Return everything as Bitmaps (Safe for JVM memory)
                                 object {
@@ -218,6 +237,7 @@ class MainActivity : ComponentActivity() {
                                     val thresh = threshBmp
                                     val mask = maskBmp
                                     val lines = linesBmp
+                                    val margins = marginsBmp
                                 }
                             } finally {
                                 // Final Cleanup of local Mats
@@ -232,7 +252,7 @@ class MainActivity : ComponentActivity() {
 
                         // Update all UI state variables at once on the Main thread
                         threshBitmap = results.thresh
-                        maskBitmap = results.mask
+                        maskBitmap = results.margins
                         linesBitmap = results.lines
                         displayedBitmap = results.boxed
 
