@@ -209,11 +209,17 @@ class MainActivity : ComponentActivity() {
                                     Imgproc.cvtColor(marginsDrawn, marginsDrawn, Imgproc.COLOR_GRAY2RGB)
                                 }
                                 val red = Scalar(255.0, 0.0, 0.0)
-                                for (row in detection.cells) {
-                                    for (cell in row) {
-                                        val (isCrossed, pointsTop, pointsBtm) = TableDetector.detectPenCrossing(detection.thresh, cell)
-                                        Imgproc.polylines(marginsDrawn, listOf(MatOfPoint(*pointsTop)), true, red, 2)
-                                        Imgproc.polylines(marginsDrawn, listOf(MatOfPoint(*pointsBtm)), true, red, 2)
+                                for (row in detection.cells.indices) {
+                                    for (col in listOf(2, 3)) {
+                                        val (isCrossed, pointsTop, pointsBtm) = CellAnalyzer.detectPenCrossing(detection.thresh, detection.cells[row][col])
+                                        if (isCrossed)
+                                            Log.d("DEBUG", "Row: $row, col: $col has a crossing over time")
+                                        val matTop = MatOfPoint(*pointsTop)
+                                        val matBtm = MatOfPoint(*pointsBtm)
+                                        Imgproc.polylines(marginsDrawn, listOf(matTop), true, red, 2)
+                                        Imgproc.polylines(marginsDrawn, listOf(matBtm), true, red, 2)
+                                        matTop.release()
+                                        matBtm.release()
                                     }
                                 }
                                 val marginsBmp = TableDetector.matToBitmap(marginsDrawn)
