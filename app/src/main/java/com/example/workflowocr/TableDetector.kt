@@ -25,6 +25,7 @@ object TableDetector {
 
     data class TableDetectionResult(
         val cells: Array<Array<TableCell>>,
+        val gray: Mat,
         val thresh: Mat,
         val mask: Mat,
         val lines: Mat
@@ -42,10 +43,13 @@ object TableDetector {
     private val expectedXBelts = expectedCols + 1
 
     /**
-     * Input: a grayscale Mat - rotates it if incorrect table orientation detected
-     * Output: Array of rectangles representing detected cells
+     * Input: a grayscale Mat
+     * Output:
+     * - Array of rectangles representing detected cells
+     * - grayscale Mat - rotated if incorrect table orientation detected
      */
-    fun detectTableCells(gray: Mat): TableDetectionResult {
+    fun detectTableCells(originalGray: Mat): TableDetectionResult {
+        val gray = originalGray.clone()
 
         // 1. Create a mask of the "Paper" area,
         // // Background is pure black (0) after rotation
@@ -149,6 +153,7 @@ object TableDetector {
         // Sort cells by row, then column
         return TableDetectionResult(
             cells,
+            gray,
             thresh,
             mask,
             linesOverlayImage

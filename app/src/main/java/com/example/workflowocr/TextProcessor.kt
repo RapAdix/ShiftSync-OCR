@@ -20,7 +20,7 @@ object TextProcessor {
 
     suspend fun extractTextFromCells(
         cells: Array<Array<TableDetector.TableCell>>,
-        originalBitmap: Bitmap,
+        bitmap: Bitmap,
         specificCols: List<Int>? = null
     ): Array<Array<String>> = withContext(Dispatchers.IO) {
 
@@ -34,13 +34,13 @@ object TextProcessor {
 
                 // 1. Inset to avoid table lines
                 val padding = 3
-                val x = (rect.x + padding).coerceIn(0, originalBitmap.width - 1)
-                val y = (rect.y + padding).coerceIn(0, originalBitmap.height - 1)
-                val w = (rect.width - 2 * padding).coerceIn(1, originalBitmap.width - x)
-                val h = (rect.height - 2 * padding).coerceIn(1, originalBitmap.height - y)
+                val x = (rect.x + padding).coerceIn(0, bitmap.width - 1)
+                val y = (rect.y + padding).coerceIn(0, bitmap.height - 1)
+                val w = (rect.width - 2 * padding).coerceIn(1, bitmap.width - x)
+                val h = (rect.height - 2 * padding).coerceIn(1, bitmap.height - y)
 
                 try {
-                    val cellBmp = Bitmap.createBitmap(originalBitmap, x, y, w, h)
+                    val cellBmp = Bitmap.createBitmap(bitmap, x, y, w, h)
 
                     // 2. Upscale for better recognition
                     val upscaled = Bitmap.createBitmap(cellBmp, 0, 0, cellBmp.width, cellBmp.height, matrix, true)
@@ -65,7 +65,6 @@ object TextProcessor {
             }
         }
 
-        recognizer.close()
         return@withContext results
     }
 

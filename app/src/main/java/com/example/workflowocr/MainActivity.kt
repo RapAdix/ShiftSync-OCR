@@ -13,44 +13,65 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -68,16 +89,29 @@ import org.opencv.core.MatOfPoint
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
-// Define the different "Planes" of your application
+// Define the different "Planes" of application
 enum class Screen {
-    SAMPLE_DETECTION,
-    GALLERY_OCR,
+    SCAN_HUB,         // The main entry point with "Scan" and "Results" buttons
+    TABLE_RESULTS,    // The interactive list of extracted rows
+    SAMPLE_DETECTION, // OpenCV debug view
     SETTINGS
 }
 
+// 2. Data Model
+data class ProcessorRow(
+    val id: String,
+    val name: String,
+    var startTime: String,
+    var finishTime: String
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
+
+    // Global scope and shared results state
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val snackbarHostState = SnackbarHostState()
+    private var lastExtractedRows = mutableStateListOf<ProcessorRow>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,65 +125,85 @@ class MainActivity : ComponentActivity() {
         val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_1_180)
 
         setContent {
-            // 1. Navigation State
-            var currentScreen by remember { mutableStateOf(Screen.SAMPLE_DETECTION) }
-            val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-            val scope = rememberCoroutineScope()
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                var currentScreen by remember { mutableStateOf(Screen.SCAN_HUB) } // Starts here now
+                val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+                val composeScope = rememberCoroutineScope()
 
-            // 2. The Navigation Drawer Wrapper
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                drawerContent = {
-                    ModalDrawerSheet {
-                        Spacer(Modifier.height(12.dp))
-                        Text("Table OCR App", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge)
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ModalDrawerSheet {
+                            Text("Extractor Hub", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge)
 
-                        NavigationDrawerItem(
-                            label = { Text("Sample Detection") },
-                            selected = currentScreen == Screen.SAMPLE_DETECTION,
-                            onClick = {
-                                currentScreen = Screen.SAMPLE_DETECTION
-                                scope.launch { drawerState.close() }
-                            },
-                            icon = { Icon(Icons.Default.Build, contentDescription = null) }
-                        )
-                        NavigationDrawerItem(
-                            label = { Text("Gallery OCR") },
-                            selected = currentScreen == Screen.GALLERY_OCR,
-                            onClick = {
-                                currentScreen = Screen.GALLERY_OCR
-                                scope.launch { drawerState.close() }
-                            },
-                            icon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null) }
-                        )
-                    }
-                }
-            ) {
-                // 3. The Main Screen Content Scaffolding
-                Scaffold(
-                    topBar = {
-                        TopAppBar(
-                            title = { Text(currentScreen.name.replace("_", " ")) },
-                            navigationIcon = {
-                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                    Icon(Icons.Default.Menu, contentDescription = "Menu")
+                            // Navigation items
+                            NavigationDrawerItem(
+                                label = { Text("Scan Hub") },
+                                selected = currentScreen == Screen.SCAN_HUB,
+                                onClick = { currentScreen = Screen.SCAN_HUB; composeScope.launch { drawerState.close() } },
+                                icon = { Icon(Icons.Default.Home, null) }
+                            )
+                            NavigationDrawerItem(
+                                label = { Text("Last Results") },
+                                selected = currentScreen == Screen.TABLE_RESULTS,
+                                onClick = { currentScreen = Screen.TABLE_RESULTS; composeScope.launch { drawerState.close() } },
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.List,
+                                        contentDescription = null
+                                    )
                                 }
-                            }
-                        )
+                            )
+                            NavigationDrawerItem(
+                                label = { Text("Settings (Hub)") },
+                                selected = currentScreen == Screen.SETTINGS,
+                                onClick = { currentScreen = Screen.SETTINGS; composeScope.launch { drawerState.close() } },
+                                icon = { Icon(Icons.Default.Settings, null) }
+                            )
+                            NavigationDrawerItem(
+                                label = { Text("Sample Detection") },
+                                selected = currentScreen == Screen.SAMPLE_DETECTION,
+                                onClick = { currentScreen = Screen.SAMPLE_DETECTION; composeScope.launch { drawerState.close() } },
+                                icon = { Icon(Icons.Default.Build, null) }
+                            )
+                        }
                     }
-                ) { paddingValues ->
-                    Box(modifier = Modifier.padding(paddingValues)) {
-                        // 4. Switch between "Main Planes"
-                        when (currentScreen) {
-                            Screen.SAMPLE_DETECTION -> {
-                                TableDetectionScreen(originalBitmap)
+                ) {
+                    Scaffold(
+                        topBar = {
+                            TopAppBar(
+                                title = { Text(currentScreen.name.replace("_", " ")) },
+                                navigationIcon = {
+                                    IconButton(onClick = { composeScope.launch { drawerState.open() } }) {
+                                        Icon(Icons.Default.Menu, contentDescription = "Menu")
+                                    }
+                                }
+                            )
+                        },
+                        snackbarHost = {
+                            SnackbarHost(hostState = snackbarHostState) { data ->
+                                Snackbar(
+                                    containerColor = Color(0xFF2E7D32), // Emerald Green
+                                    contentColor = Color.White,
+                                    snackbarData = data
+                                )
                             }
-                            Screen.GALLERY_OCR -> {
-                                // Your OCRFromGalleryScreen() goes here
-                                Text("Gallery OCR Plane Coming Soon")
-                            }
-                            Screen.SETTINGS -> {
-                                Text("Settings Plane")
+                        }
+                    ) { paddingValues ->
+                        Box(modifier = Modifier.padding(paddingValues)) {
+                            when (currentScreen) {
+                                Screen.SCAN_HUB -> ScanHubScreen(
+                                    onScanRequest = {
+                                        // This is the functional "Make Picture" trigger
+                                        executeFullExtractionFlow(originalBitmap) {
+                                            currentScreen = Screen.TABLE_RESULTS
+                                        }
+                                    },
+                                    onViewResults = { currentScreen = Screen.TABLE_RESULTS }
+                                )
+                                Screen.TABLE_RESULTS -> TableResultsScreen(lastExtractedRows)
+                                Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(originalBitmap)
+                                Screen.SETTINGS -> Text("Settings view")
                             }
                         }
                     }
@@ -159,10 +213,177 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Your original logic moved into a dedicated Composable "Plane"
+     * This is the "Full Flow" function:
+     * 1. Runs Fast Detection (Pre-OCR)
+     * 2. Shows UI Confirmation Dialog
+     * 3. Runs Heavy OCR in Background
+     * 4. Auto-Redirects on success
+     */
+    private fun executeFullExtractionFlow(bitmap: Bitmap, onFinished: () -> Unit) {
+        scope.launch {
+            val detection = withContext(Dispatchers.Default) {
+                // We will collect Mats here to ensure we release them all
+                var grayMat: Mat? = null
+                var deskewMat: Mat? = null
+
+                try {
+
+                    grayMat = TableDetector.bitmapToGrayMat(bitmap)
+
+                    // Note: deskewGrayMat should return a NEW Mat if it modifies it
+                    deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
+
+                    val detection = TableDetector.detectTableCells(deskewMat!!)
+
+                    detection
+                } finally {
+                    grayMat?.release()
+                    // Only release deskewMat if it's a different object than grayMat
+                    if (deskewMat != grayMat) {
+                        deskewMat?.release()
+                    }
+                }
+            }
+
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    message = "Table detection success! Extracting text...",
+                    duration = SnackbarDuration.Short
+                )
+            }
+
+            scope.launch {
+                val (table, analysis) = withContext(Dispatchers.IO) {
+                    val imageBitmap = TableDetector.matToBitmap(detection.gray)
+                    val rawTextGrid = TextProcessor.extractTextFromCells(detection.cells, imageBitmap, listOf(0, 1, 2, 3))
+                    val table = TextProcessor.refineTableData(rawTextGrid)
+                    val analysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells)
+                    Pair(table, analysis)
+                }
+
+                lastExtractedRows.clear()
+                for (row in table.indices) {
+                    lastExtractedRows.add(ProcessorRow("$row", table[row][0], table[row][2], table[row][3]))
+                }
+
+                detection.gray.release()
+                detection.thresh.release()
+                detection.mask.release()
+                detection.lines.release()
+                // Switch View Automatically
+                onFinished()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        scope.cancel()
+    }
+}
+
+// --- COMPOSE SCREENS ---
+
+@Composable
+fun ScanHubScreen(onScanRequest: () -> Unit, onViewResults: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Main Action: Make Picture / Scan
+        Button(
+            onClick = onScanRequest,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp),
+            contentPadding = PaddingValues(16.dp)
+        ) {
+            Icon(Icons.Default.CameraAlt, null, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text("SCAN NEW SHEET", style = MaterialTheme.typography.titleMedium)
+                Text("Run OpenCV + ML Kit", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        // Secondary Action: Review
+        OutlinedButton(
+            onClick = onViewResults,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(70.dp)
+        ) {
+            Text("REVIEW RECENT DATA")
+        }
+    }
+}
+
+@Composable
+fun TableResultsScreen(rows: List<ProcessorRow>) {
+    if (rows.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No data recorded. Use 'Scan' in settings.", color = Color.Gray)
+        }
+    } else {
+        LazyColumn(Modifier.fillMaxSize()) {
+            item {
+                Row(Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth()) {
+                    Text("ENTITY", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    Text("START", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.labelSmall)
+                    Text("FINISH", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            items(rows) { row ->
+                ListItem(
+                    headlineContent = { Text(row.name, maxLines = 1) },
+                    trailingContent = {
+                        Row {
+                            TimeBadge(row.startTime)
+                            Spacer(Modifier.width(8.dp))
+                            TimeBadge(row.finishTime)
+                        }
+                    },
+                    modifier = Modifier.clickable {
+                        // This is where you will open your Time Picker Dialog
+                        Log.d("UI", "Editing row: ${row.name}")
+                    }
+                )
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp, color = Color.Gray.copy(alpha = 0.3f))
+            }
+        }
+    }
+}
+
+@Composable
+fun TimeBadge(time: String) {
+    // Basic validation to highlight errors like 07:61 in red
+    val isError = time.isEmpty() || time.split(":").let { if(it.size == 2) it[1].toInt() > 59 else true }
+
+    Surface(
+        color = if (isError) Color.Red.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small,
+        border = if (isError) androidx.compose.foundation.BorderStroke(1.dp, Color.Red) else null
+    ) {
+        Text(
+            text = if (time.isEmpty()) "??:??" else time,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isError) Color.Red else Color.Unspecified
+        )
+    }
+}
+    /**
+     * Debug image showing for table detection
      */
     @Composable
-    fun TableDetectionScreen(originalBitmap: Bitmap) {
+    fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
         var displayedBitmap by remember { mutableStateOf(originalBitmap) }
         var threshBitmap by remember { mutableStateOf<Bitmap?>(null) }
         var maskBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -202,10 +423,10 @@ class MainActivity : ComponentActivity() {
                                 val linesBmp = TableDetector.matToBitmap(detection.lines)
 
                                 // Draw the "Boxed" debug image
-                                boxedMat = TableDetector.drawCells(deskewMat!!, detection.cells)
+                                boxedMat = TableDetector.drawCells(detection.gray, detection.cells)
                                 val cellsAnalysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells)
 
-                                val marginsDrawn = deskewMat.clone()
+                                val marginsDrawn = detection.gray.clone()
                                 if (marginsDrawn.channels() == 1) {
                                     Imgproc.cvtColor(marginsDrawn, marginsDrawn, Imgproc.COLOR_GRAY2RGB)
                                 }
@@ -228,13 +449,14 @@ class MainActivity : ComponentActivity() {
                                 val boxedBmp = TableDetector.matToBitmap(boxedMat!!)
 
                                 // Convert deskewMat to bitmap now so we can release the Mat
-                                val deskewedBmp = TableDetector.matToBitmap(deskewMat!!)
+                                val deskewedBmp = TableDetector.matToBitmap(detection.gray)
 
                                 // IMPORTANT: Release the internal Mats inside the Result object
                                 // These were created inside detectTableCells
                                 detection.thresh.release()
                                 detection.mask.release()
                                 detection.lines.release()
+                                detection.gray.release()
 
                                 // Return everything as Bitmaps (Safe for JVM memory)
                                 object {
@@ -310,12 +532,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        scope.cancel()
-    }
-
-}
 
 @Composable
 fun OCRFromGalleryScreen() {
