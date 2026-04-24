@@ -167,26 +167,43 @@ fun EditTimeDialog(
     onDismiss: () -> Unit,
     onSave: (startTime: String, finishTime: String) -> Unit
 ) {
-    // Local state for the pickers
-    var startH by remember { mutableStateOf(row.startTime.substringBefore(":", "08")) }
-    var startM by remember { mutableStateOf(row.startTime.substringAfter(":", "00")) }
-    var endH by remember { mutableStateOf(row.finishTime.substringBefore(":", "17")) }
-    var endM by remember { mutableStateOf(row.finishTime.substringAfter(":", "00")) }
+    var start by remember {
+        mutableStateOf(
+            round15(
+                parseTimeOrNull(row.startTime) ?: currentTimeMinutes()
+            )
+        )
+    }
+    var end by remember {
+        mutableStateOf(
+            round15(
+                parseTimeOrNull(row.finishTime) ?:
+                (parseTimeOrNull(row.startTime)?.let { it + 8 * 60 }
+                    ?: (currentTimeMinutes() + 8 * 60))
+            )
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Times: ${row.name}", style = MaterialTheme.typography.titleMedium) },
+        title = { Text("Edit Times: ${row.name}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    TimeColumn("START", startH, startM) { h, m -> startH = h; startM = m }
-                    VerticalDivider(modifier = Modifier.height(100.dp))
-                    TimeColumn("FINISH", endH, endM) { h, m -> endH = h; endM = m }
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                TimePicker15("START", start) { start = it }
+                VerticalDivider(modifier = Modifier.height(120.dp))
+                TimePicker15("FINISH", end) { end = it }
             }
         },
         confirmButton = {
-            Button(onClick = { onSave("$startH:$startM", "$endH:$endM") }) {
+            Button(onClick = {
+                onSave(
+                    minutesToTimeString(start),
+                    minutesToTimeString(end)
+                )
+            }) {
                 Text("Save")
             }
         },
@@ -197,37 +214,65 @@ fun EditTimeDialog(
 }
 
 @Composable
-fun TimeColumn(label: String, h: String, m: String, onUpdate: (String, String) -> Unit) {
+fun TimePicker15(
+    label: String,
+    value: Int,                // minutes (e.g. 480 = 08:00)
+    onChange: (Int) -> Unit
+) {
+    // Generate all times in 15-min steps
+    val times = remember {
+        (0..24 * 60 step 15).toList()
+    }
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            NumberPicker(value = h, range = 0..23) { onUpdate(it, m) }
-            Text(":", style = MaterialTheme.typography.titleLarge)
-            NumberPicker(value = m, range = 0..59, step = 5) { onUpdate(h, it) }
+
+        Box(
+            modifier = Modifier
+                .height(120.dp)
+                .width(80.dp)
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                items(times) { minutes ->
+                    val text = String.format("%02d:%02d", (minutes / 60) % 24, minutes % 60)
+                    val isSelected = minutes == value
+
+                    Text(
+                        text = text,
+                        modifier = Modifier
+                            .clickable { onChange(minutes) }
+                            .padding(vertical = 8.dp),
+                        style = if (isSelected)
+                            MaterialTheme.typography.titleLarge
+                        else
+                            MaterialTheme.typography.bodyMedium,
+                        color = if (isSelected)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            Color.Gray
+                    )
+                }
+            }
         }
     }
 }
 
-@Composable
-fun NumberPicker(value: String, range: IntRange, step: Int = 1, onValueChange: (String) -> Unit) {
-    val items = remember { range.filter { it % step == 0 }.map { it.toString().padStart(2, '0') } }
+fun minutesToTimeString(mins: Int): String {
+    val h = (mins / 60) % 24
+    val m = mins % 60
+    return String.format("%02d:%02d", h, m)
+}
 
-    // Simple scrollable list acting as a "Wheel"
-    Box(modifier = Modifier.height(120.dp).width(50.dp)) {
-        LazyColumn(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            items(items) { item ->
-                val isSelected = item == value
-                Text(
-                    text = item,
-                    modifier = Modifier
-                        .clickable { onValueChange(item) }
-                        .padding(vertical = 8.dp),
-                    style = if (isSelected) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyMedium,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray
-                )
-            }
-        }
-    }
+fun currentTimeMinutes(): Int {
+    val now = java.time.LocalTime.now()
+    return now.hour * 60 + now.minute
+}
+
+fun round15(mins: Int): Int {
+    return ((mins + 7) / 15) * 15
 }
 
 fun createSnippets(context: Context, bitmap: Bitmap, table: Array<Array<TableDetector.TableCell>>, date: String): Map<Int, Map<String, String?>>{
