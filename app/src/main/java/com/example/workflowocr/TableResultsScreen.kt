@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -29,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,9 +38,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import org.opencv.core.Point
@@ -186,7 +191,7 @@ fun EditTimeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Times: ${row.name}") },
+        title = { Text("${row.name}:") },
         text = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -219,9 +224,22 @@ fun TimePicker15(
     value: Int,                // minutes (e.g. 480 = 08:00)
     onChange: (Int) -> Unit
 ) {
-    // Generate all times in 15-min steps
     val times = remember {
-        (0..24 * 60 step 15).toList()
+        (0 until 24 * 60 step 15).toList()
+    }
+
+    val initialIndex = times.indexOf(value).coerceAtLeast(0)
+
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialIndex
+    )
+
+    LaunchedEffect(value) {
+        val index = times.indexOf(value)
+        if (index >= 0) {
+            if (index == 0) listState.animateScrollToItem(index)
+            else listState.animateScrollToItem(index - 1)
+        }
     }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -233,22 +251,48 @@ fun TimePicker15(
                 .width(80.dp)
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 items(times) { minutes ->
-                    val text = String.format("%02d:%02d", (minutes / 60) % 24, minutes % 60)
                     val isSelected = minutes == value
 
+                    val styledText = buildAnnotatedString {
+                        // HOUR
+                        withStyle(
+                            SpanStyle(
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                fontSize = if (isSelected)
+                                    MaterialTheme.typography.titleLarge.fontSize
+                                else
+                                    MaterialTheme.typography.bodyLarge.fontSize
+                            )
+                        ) {
+                            append(String.format("%02d", (minutes / 60) % 24))
+                        }
+
+                        append(":")
+
+                        // MINUTES
+                        withStyle(
+                            SpanStyle(
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = if (isSelected)
+                                    MaterialTheme.typography.titleMedium.fontSize
+                                else
+                                    MaterialTheme.typography.bodyMedium.fontSize
+                            )
+                        ) {
+                            append(String.format("%02d", minutes % 60))
+                        }
+                    }
+
                     Text(
-                        text = text,
+                        text = styledText,
                         modifier = Modifier
                             .clickable { onChange(minutes) }
                             .padding(vertical = 8.dp),
-                        style = if (isSelected)
-                            MaterialTheme.typography.titleLarge
-                        else
-                            MaterialTheme.typography.bodyMedium,
                         color = if (isSelected)
                             MaterialTheme.colorScheme.primary
                         else
