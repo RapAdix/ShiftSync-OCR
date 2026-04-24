@@ -275,18 +275,34 @@ class MainActivity : ComponentActivity() {
             }
 
             scope.launch {
-                val (table, analysis) = withContext(Dispatchers.IO) {
+                val (table, analysis, rowPaths) = withContext(Dispatchers.IO) {
                     val imageBitmap = TableDetector.matToBitmap(detection.gray)
                     val rawTextGrid = TextProcessor.extractTextFromCells(detection.cells, imageBitmap, listOf(0, 1, 2, 3))
                     val table = TextProcessor.refineTableData(rawTextGrid)
                     val analysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells)
-                    Pair(table, analysis)
+
+                    // Fallback snippets cut out from the table image
+                    val rowPaths = createSnippets(applicationContext, imageBitmap, detection.cells, table[0][3])
+
+                    Triple(table, analysis, rowPaths)
                 }
 
                 lastExtractedRows.clear()
                 for (row in table.indices) {
                     val id = "$row"
-                    lastExtractedRows[id] = ProcessorRow(id, table[row][0], table[row][2], table[row][3])
+                    val paths = rowPaths[row] ?: emptyMap()
+
+                    lastExtractedRows[id] = ProcessorRow(
+                        id = id,
+                        name = table[row][0],
+                        startTime = table[row][2],
+                        finishTime = table[row][3],
+                        // Linking the files we just created
+                        nameSnippetPath = paths["name"],
+                        startTimeSnippetPath = paths["start"],
+                        finishTimeSnippetPath = paths["finish"],
+                        modificationsSnippetPath = paths["mods"]
+                    )
                 }
 
                 detection.gray.release()
