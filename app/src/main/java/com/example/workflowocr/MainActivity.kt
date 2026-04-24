@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
@@ -87,6 +88,7 @@ import org.opencv.imgproc.Imgproc
 enum class Screen {
     SCAN_HUB,         // The main entry point with "Scan" and "Results" buttons
     TABLE_RESULTS,    // The interactive list of extracted rows
+    ATTENDANCE_COUNT, // How many people work at specific times
     SAMPLE_DETECTION, // OpenCV debug view
     SETTINGS
 }
@@ -95,6 +97,9 @@ val PaperWhite = Color(0xFFF5F5F0)
 val InkBlack = Color(0xFF1A1A1A)
 val MutedGrey = Color(0xFF8A8A85)
 val AccentOlive = Color(0xFF5A5A40)
+
+val WorkplaceOpeningTime: Int = 6  // Hour of opening
+val WorkplaceClosingTime: Int = 1 // Hour of closure
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
@@ -174,6 +179,12 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                             NavigationDrawerItem(
+                                label = { Text("Attendance Summary") },
+                                selected = currentScreen == Screen.ATTENDANCE_COUNT,
+                                onClick = { currentScreen = Screen.ATTENDANCE_COUNT; composeScope.launch { drawerState.close() } },
+                                icon = { Icon(Icons.Filled.Calculate, null) }
+                            )
+                            NavigationDrawerItem(
                                 label = { Text("Settings (Hub)") },
                                 selected = currentScreen == Screen.SETTINGS,
                                 onClick = { currentScreen = Screen.SETTINGS; composeScope.launch { drawerState.close() } },
@@ -224,6 +235,7 @@ class MainActivity : ComponentActivity() {
                                     rowsMap = lastExtractedRows,
                                     onRowClick = { id -> editingRowId = id }
                                 )
+                                Screen.ATTENDANCE_COUNT -> AttendanceSummaryScreen(lastExtractedRows)
                                 Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(originalBitmap)
                                 Screen.SETTINGS -> Text("Settings view")
                             }
