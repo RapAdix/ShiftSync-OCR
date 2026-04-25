@@ -239,9 +239,27 @@ fun EditTimeDialog(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TimePicker15("START", start) { start = it }
-                        VerticalDivider(modifier = Modifier.height(100.dp).padding(horizontal = 12.dp))
-                        TimePicker15("FINISH", end) { end = it }
+                        // Start Column
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            row.startTimeSnippetPath?.let { SnippetImage(it, height = 32.dp) }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TimePicker15("START", start) { start = it }
+                        }
+
+                        VerticalDivider(modifier = Modifier.height(110.dp).padding(horizontal = 12.dp))
+
+                        // Finish Column
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            row.finishTimeSnippetPath?.let { SnippetImage(it, height = 32.dp) }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TimePicker15("FINISH", end) { end = it }
+                        }
                     }
 
                     // --- BOTTOM: Modifications Snippet ---
@@ -250,7 +268,11 @@ fun EditTimeDialog(
                         HorizontalDivider(modifier = Modifier.alpha(0.1f))
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        Text("Detected Modifications:", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            "Detected Modifications:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Box(
@@ -258,10 +280,7 @@ fun EditTimeDialog(
                                 .fillMaxWidth()
                                 .horizontalScroll(rememberScrollState())
                         ) {
-                            SnippetImage(
-                                path = row.modificationsSnippetPath,
-                                height = 50.dp
-                            )
+                            SnippetImage(path = row.modificationsSnippetPath, height = 50.dp)
                         }
                     }
 
@@ -311,7 +330,7 @@ fun TimePicker15(
     }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
 
         Box(
             modifier = Modifier
