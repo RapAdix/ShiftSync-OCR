@@ -13,13 +13,13 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 
 object CellAnalyzer {
-    data class CellsAnalysis (
-        val penCoverage: Array<Array<Double>>,
-        val startTimeCrossed: Array<Boolean>,
-        val endTimeCrossed: Array<Boolean>
+    data class RowAnalysis (
+        val penCoverage: Array<Double>,
+        val startTimeCrossed: Boolean,
+        val endTimeCrossed: Boolean
     )
 
-    fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>): CellsAnalysis {
+    fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>): Array<RowAnalysis> {
         val swollenThresh = Mat()
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
         Imgproc.dilate(thresh, swollenThresh, kernel)
@@ -40,9 +40,16 @@ object CellAnalyzer {
                 Log.d("DEBUG", "Row: $row, col: $TIME_END_COL has a crossing over time")
         }
 
+        val analysis = penCoverage.mapIndexed { i, coverage ->
+            RowAnalysis(
+                penCoverage = coverage,
+                startTimeCrossed = startTimeCrossed[i],
+                endTimeCrossed = endTimeCrossed[i]
+                )
+        }.toTypedArray()
         swollenThresh.release()
         kernel.release()
-        return CellsAnalysis(penCoverage, startTimeCrossed, endTimeCrossed)
+        return analysis
     }
 
     fun detectPenStrokes(thresh: Mat, cells: Array<Array<TableCell>>, cols: List<Int> = MODIFICATION_COLUMNS): Array<Array<Double>> {

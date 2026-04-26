@@ -59,7 +59,6 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -107,11 +106,8 @@ class MainActivity : ComponentActivity() {
     // Global scope and shared results state
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val snackbarHostState = SnackbarHostState()
-    // Use snapshotStateMapOf for automatic UI updates when values in the map change
-    private val lastExtractedRows = mutableStateMapOf<String, ProcessorRow>()
 
-    // Track the "Edit" state
-    private var editingRowId by mutableStateOf<String?>(null)
+    private val tableViewModel = TableViewModel()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -139,20 +135,6 @@ class MainActivity : ComponentActivity() {
                 var currentScreen by remember { mutableStateOf(Screen.SCAN_HUB) } // Starts here now
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val composeScope = rememberCoroutineScope()
-
-                editingRowId?.let { id ->
-                    lastExtractedRows[id]?.let { row ->
-                        EditTimeDialog(
-                            row = row,
-                            onDismiss = { editingRowId = null },
-                            onSave = { start, end ->
-                                // Directly update the Map - UI will reflect this instantly
-                                lastExtractedRows[id] = row.copy(startTime = start, finishTime = end)
-                                editingRowId = null
-                            }
-                        )
-                    }
-                }
 
                 ModalNavigationDrawer(
                     drawerState = drawerState,
@@ -232,10 +214,9 @@ class MainActivity : ComponentActivity() {
                                     onViewResults = { currentScreen = Screen.TABLE_RESULTS }
                                 )
                                 Screen.TABLE_RESULTS -> TableResultsScreen(
-                                    rowsMap = lastExtractedRows,
-                                    onRowClick = { id -> editingRowId = id }
+                                    tableViewModel
                                 )
-                                Screen.ATTENDANCE_COUNT -> AttendanceSummaryScreen(lastExtractedRows)
+                                Screen.ATTENDANCE_COUNT -> AttendanceSummaryScreen(tableViewModel.extractedRows)
                                 Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(originalBitmap)
                                 Screen.SETTINGS -> Text("Settings view")
                             }
@@ -298,23 +279,43 @@ class MainActivity : ComponentActivity() {
 
                     Triple(table, analysis, rowPaths)
                 }
+                val date = table[0][3]
+                // TODO check if I have that date's table already saved somewhere and load it to lastExtractedRows
+                val page = "e_p1" // TODO edd choosing of the page (e-employee, m-manager, p1-page1)
+                // TODO sanity check - check if the number of rows match between this page and previously captured page. If no - display warning
 
-                lastExtractedRows.clear()
                 for (row in table.indices) {
-                    val id = "$row"
+                    val id = page + "_$row"
                     val paths = rowPaths[row] ?: emptyMap()
 
-                    lastExtractedRows[id] = ProcessorRow(
-                        id = id,
-                        name = table[row][0],
-                        startTime = table[row][2],
-                        finishTime = table[row][3],
-                        // Linking the files we just created
-                        nameSnippetPath = paths["name"],
-                        startTimeSnippetPath = paths["start"],
-                        finishTimeSnippetPath = paths["finish"],
-                        modificationsSnippetPath = paths["mods"]
-                    )
+                    val existingRow = tableViewModel.extractedRows[id]
+
+                    if (existingRow != null) {
+                        val startPath = rotateFile(existingRow.startTimeSnippetPath, paths["start"])
+                        val finishPath = rotateFile(existingRow.finishTimeSnippetPath, paths["finish"])
+                        val modificationPath = rotateFile(existingRow.newModificationsSnippetPath, paths["mods"])
+                        tableViewModel.extractedRows[id] = existingRow.copy(
+                            newAnalysis = analysis[row],
+                            startTimeSnippetPath = startPath,
+                            finishTimeSnippetPath = finishPath,
+                            newModificationsSnippetPath = modificationPath
+                        )
+                    } else {
+                        tableViewModel.extractedRows[id] = ProcessorRow(
+                            id = id,
+                            name = table[row][0],
+                            startTime = table[row][2],
+                            finishTime = table[row][3],
+                            confirmedAnalysis = null,
+                            newAnalysis = analysis[row],
+                            // Linking the files we just created
+                            nameSnippetPath = paths["name"],
+                            startTimeSnippetPath = paths["start"],
+                            finishTimeSnippetPath = paths["finish"],
+                            oldModificationsSnippetPath = paths["mods"],
+                            newModificationsSnippetPath = null
+                        )
+                    }
                 }
 
                 detection.gray.release()

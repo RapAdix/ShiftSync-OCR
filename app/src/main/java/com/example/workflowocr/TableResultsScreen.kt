@@ -33,7 +33,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +53,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.ViewModel
 import coil.compose.AsyncImage
 import org.opencv.core.Point
 import java.io.File
@@ -62,25 +65,86 @@ data class ProcessorRow(
     val name: String,
     var startTime: String,
     var finishTime: String,
+    val confirmedAnalysis: CellAnalyzer.RowAnalysis? = null,
+    val newAnalysis: CellAnalyzer.RowAnalysis? = null,
     val nameSnippetPath: String? = null,
     val startTimeSnippetPath: String? = null,
     val finishTimeSnippetPath: String? = null,
-    val modificationsSnippetPath: String? = null // the remaining part of the row
+    val oldModificationsSnippetPath: String? = null, // the remaining part of the row
+    val newModificationsSnippetPath: String? = null,
 )
 
+class TableViewModel : ViewModel() {
+    val extractedRows = mutableStateMapOf<String, ProcessorRow>()
+
+    // Track the "Edit" state
+    var editingRowId by mutableStateOf<String?>(null)
+        private set // Only the ViewModel can change the ID
+
+    fun startEditing(id: String) { editingRowId = id }
+    fun stopEditing() { editingRowId = null }
+    fun saveRow(id: String, start: String, end: String) {
+        val row = extractedRows[id] ?: return
+
+        // Handle removal of no longer needed file
+        val updatedOldModPath = rotateFile(
+            oldPath = row.oldModificationsSnippetPath,
+            newPath = row.newModificationsSnippetPath
+        )
+
+        // 2. Perform the update
+        extractedRows[id] = row.copy(
+            startTime = start,
+            finishTime = end,
+            confirmedAnalysis = row.newAnalysis,
+            newAnalysis = null,
+            oldModificationsSnippetPath = updatedOldModPath,
+            newModificationsSnippetPath = null
+        )
+        stopEditing()
+    }
+}
+
 @Composable
-fun TableResultsScreen(rowsMap: Map<String, ProcessorRow>, onRowClick: (String) -> Unit) {
-    if (rowsMap.isEmpty()) {
+fun TableResultsScreen(viewModel: TableViewModel) {
+    // The UI stays clean and just reacts to the ViewModel
+    viewModel.editingRowId?.let { id ->
+        val row = viewModel.extractedRows[id] ?: return@let
+        EditTimeDialog(
+            row = row,
+            onDismiss = { viewModel.stopEditing() },
+            onSave = { start, end ->
+                viewModel.saveRow(id, start, end)
+            }
+        )
+    }
+    if (viewModel.extractedRows.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No data recorded.", color = MutedGrey)
         }
     } else {
-        val rowsList = rowsMap.values.sortedBy { it.id.toIntOrNull() ?: 0 }
-
-        LazyColumn(modifier = Modifier.fillMaxSize().background(PaperWhite)) {
+        val rowsList by remember(viewModel.extractedRows) {
+            derivedStateOf {
+                viewModel.extractedRows.values
+                    .sortedWith(
+                        compareBy<ProcessorRow> { it.id.substringBeforeLast('_') }
+                            .thenBy { it.id.substringAfterLast('_').toIntOrNull() ?: 0 }
+                    )
+                    .filter {
+                        !hasHoliday(it) || // people without holiday
+                        currentlyHasWrittenModifications(it) || // people with modifications
+                        hasValidTimes(it) // people who have proper time inserted(maybe someone erased modifications with eraser)
+                    }
+            }
+        }
+        LazyColumn(modifier = Modifier
+            .fillMaxSize()
+            .background(PaperWhite)) {
             item {
                 Row(
-                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("ENTITY", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MutedGrey)
@@ -106,12 +170,8 @@ fun TableResultsScreen(rowsMap: Map<String, ProcessorRow>, onRowClick: (String) 
                         }
                     },
                     trailingContent = {
-                        // Logic check: only show badges if BOTH times are valid
-                        val timeAmbiguity = row.startTime.any { it in "XUW" } || row.finishTime.any { it in "XUW" }
-
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (!timeAmbiguity) {
-                                // SUCCESS: Text badges side-by-side
+                            if (!hasTimeCrossed(row)) { // Only show text time badges if BOTH times are valid
                                 TimeBadge(row.startTime)
                                 Spacer(Modifier.width(8.dp))
                                 TimeBadge(row.finishTime)
@@ -127,7 +187,7 @@ fun TableResultsScreen(rowsMap: Map<String, ProcessorRow>, onRowClick: (String) 
                             }
                         }
                     },
-                    modifier = Modifier.clickable { onRowClick(row.id) }
+                    modifier = Modifier.clickable { viewModel.startEditing(row.id) }
                 )
                 HorizontalDivider(
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -190,7 +250,7 @@ fun EditTimeDialog(
         )
     }
 
-    val hasModifications = row.modificationsSnippetPath != null // TODO check for the pencil percentage
+    val hasModifications = currentlyHasWrittenModifications(row)
 
     Dialog(
         onDismissRequest = { }, // Managed manually via scrim
@@ -249,7 +309,9 @@ fun EditTimeDialog(
                             TimePicker15("START", start) { start = it }
                         }
 
-                        VerticalDivider(modifier = Modifier.height(110.dp).padding(horizontal = 12.dp))
+                        VerticalDivider(modifier = Modifier
+                            .height(110.dp)
+                            .padding(horizontal = 12.dp))
 
                         // Finish Column
                         Column(
@@ -263,24 +325,45 @@ fun EditTimeDialog(
                     }
 
                     // --- BOTTOM: Modifications Snippet ---
-                    if (hasModifications && row.modificationsSnippetPath != null) {
+                    if (hasModifications) {
                         Spacer(modifier = Modifier.height(24.dp))
                         HorizontalDivider(modifier = Modifier.alpha(0.1f))
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
-                            "Detected Modifications:",
+                            "Detected Modifications" + if (row.newModificationsSnippetPath != null && row.oldModificationsSnippetPath != null) ", Before:" else ":",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                        ) {
-                            SnippetImage(path = row.modificationsSnippetPath, height = 50.dp)
+                        if (row.oldModificationsSnippetPath != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                            ) {
+                                SnippetImage(path = row.oldModificationsSnippetPath, height = 50.dp)
+                            }
+                        }
+
+                        if (row.oldModificationsSnippetPath != null && row.newModificationsSnippetPath != null) {
+                            Text(
+                                "After:",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        if (row.newModificationsSnippetPath != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                            ) {
+                                SnippetImage(path = row.newModificationsSnippetPath, height = 50.dp)
+                            }
                         }
                     }
 
@@ -406,6 +489,43 @@ fun round15(mins: Int): Int {
     return ((mins + 7) / 15) * 15
 }
 
+fun hasTimeCrossed(row: ProcessorRow): Boolean {
+    val analysis = row.newAnalysis?: row.confirmedAnalysis
+    if (analysis == null) return true // if analyzing failed we assume there were some modifications
+    return analysis.startTimeCrossed || analysis.endTimeCrossed
+}
+
+fun hasTimeRecentlyCrossed(row: ProcessorRow): Boolean {
+    if (row.newAnalysis == null) return false
+    if (row.confirmedAnalysis == null) return hasTimeCrossed(row)
+    return !row.confirmedAnalysis.startTimeCrossed && row.newAnalysis.startTimeCrossed ||
+           !row.confirmedAnalysis.endTimeCrossed && row.newAnalysis.endTimeCrossed
+}
+
+fun hasValidTimes(row: ProcessorRow): Boolean {
+    return parseTimeOrNull(row.startTime) != null && parseTimeOrNull(row.finishTime) != null
+}
+
+fun hasHoliday(row: ProcessorRow): Boolean {
+    return row.startTime.any { it in "UW" } || row.finishTime.any { it in "UW" }
+}
+
+fun currentlyHasWrittenModifications(row: ProcessorRow): Boolean {
+    val analysis = row.newAnalysis?: row.confirmedAnalysis
+    if (analysis == null) return true // if analyzing failed we assume there were some modifications
+    val emptinessThreshold = 0.05
+    return analysis.penCoverage[8] > emptinessThreshold || analysis.penCoverage[9] > emptinessThreshold
+}
+
+fun hasRecentlyWrittenModifications(row: ProcessorRow): Boolean {
+    if (row.confirmedAnalysis == null) return currentlyHasWrittenModifications(row)
+    if (row.newAnalysis == null) return false // because the other changes were already ocnfirmed so are NOT recent
+    val coverageDifferenceThreshold = 0.08
+    val columnsChanged =
+        MODIFICATION_COLUMNS.filter { row.newAnalysis.penCoverage[it] - row.confirmedAnalysis.penCoverage[it] > coverageDifferenceThreshold }
+    return columnsChanged.any()
+}
+
 fun createSnippets(context: Context, bitmap: Bitmap, table: Array<Array<TableDetector.TableCell>>, date: String): Map<Int, Map<String, String?>>{
     val rowPaths = mutableMapOf<Int, Map<String, String?>>() // TODO change map keys into strings
     val timestamp = System.currentTimeMillis()
@@ -521,6 +641,20 @@ fun saveSnippet(
         Log.e("CROP_DEBUG", "Save failed for $fileName: ${e.message}", e)
         null
     }
+}
+
+/**
+ * Deletes the file at [oldPath] if it exists, and returns [newPath]
+ * to be shifted into the old slot.
+ */
+fun rotateFile(oldPath: String?, newPath: String?): String? {
+    if (!oldPath.isNullOrEmpty() && oldPath != newPath) {
+        val file = File(oldPath)
+        if (file.exists()) {
+            file.delete()
+        }
+    }
+    return newPath
 }
 
 fun Point.move(dx: Double = 0.0, dy: Double = 0.0) = Point(this.x + dx, this.y + dy)
