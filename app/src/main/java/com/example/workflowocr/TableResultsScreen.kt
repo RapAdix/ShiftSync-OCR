@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -105,6 +106,15 @@ class TableViewModel : ViewModel() {
     }
 }
 
+enum class RowStatus(
+    val backgroundColor: Color,
+    val contentColor: Color
+) {
+    DANGER(Color(0xFFFFEBEE), Color(0xFFB71C1C)),     // Red theme
+    WARNING(Color(0xFFFFFDE7), Color(0xFFF57F17)),    // Yellow theme
+    NEUTRAL(Color.Transparent, Color.Unspecified)     // Default
+}
+
 @Composable
 fun TableResultsScreen(viewModel: TableViewModel) {
     // The UI stays clean and just reacts to the ViewModel
@@ -156,14 +166,20 @@ fun TableResultsScreen(viewModel: TableViewModel) {
             }
 
             items(rowsList, key = { it.id }) { row ->
+                val status = getRowStatus(row)
+
                 ListItem(
+                    modifier = Modifier.clickable { viewModel.startEditing(row.id) },
+                    colors = ListItemDefaults.colors(
+                        containerColor = status.backgroundColor,
+                        headlineColor = status.contentColor
+                    ),
                     headlineContent = {
-                        // SNIPPET A: If OCR name is empty/short, show the image
                         if (row.name.length < 2 && row.nameSnippetPath != null) {
                             SnippetImage(row.nameSnippetPath, height = 40.dp)
                         } else {
                             Text(
-                                row.name,
+                                text = row.name,
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -171,23 +187,11 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                     },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (!hasTimeCrossed(row)) { // Only show text time badges if BOTH times are valid
-                                TimeBadge(row.startTime)
-                                Spacer(Modifier.width(8.dp))
-                                TimeBadge(row.finishTime)
-                            } else {
-                                row.startTimeSnippetPath?.let { path ->
-                                    SnippetImage(path, height = 24.dp, width = 64.dp)
-                                }
-                                // Add horizontal space between the two snippet images
-                                Spacer(Modifier.width(8.dp))
-                                row.finishTimeSnippetPath?.let { path ->
-                                    SnippetImage(path, height = 24.dp, width = 64.dp)
-                                }
-                            }
+                            displayTextTimeOrSnippet(row, row.startTimeSnippetPath, row.startTime)
+                            Spacer(Modifier.width(8.dp))
+                            displayTextTimeOrSnippet(row, row.finishTimeSnippetPath, row.finishTime)
                         }
-                    },
-                    modifier = Modifier.clickable { viewModel.startEditing(row.id) }
+                    }
                 )
                 HorizontalDivider(
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -199,6 +203,13 @@ fun TableResultsScreen(viewModel: TableViewModel) {
 }
 
 @Composable
+fun displayTextTimeOrSnippet(row: ProcessorRow, path: String?, time: String) {
+    if (hasTimeRecentlyCrossed(row)) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
+    else if (parseTimeOrNull(time) == null) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
+    else TimeBadge(time)
+}
+
+@Composable
 fun SnippetImage(path: String, height: androidx.compose.ui.unit.Dp, width: androidx.compose.ui.unit.Dp? = null) {
     AsyncImage(
         model = path, // Coil finds the file automatically from this path string
@@ -206,7 +217,6 @@ fun SnippetImage(path: String, height: androidx.compose.ui.unit.Dp, width: andro
         modifier = Modifier
             .height(height)
             .then(if (width != null) Modifier.width(width) else Modifier.wrapContentWidth())
-            .background(Color.White.copy(alpha = 0.5f)) // Visual paper backing
     )
 }
 
@@ -489,6 +499,24 @@ fun round15(mins: Int): Int {
     return ((mins + 7) / 15) * 15
 }
 
+// if newAnalysis has the time crossed but the confirmed one does not, then mark that time in red and full row in red, dont display any text times - only images
+// if there is XUW in time but no crossing(which can happen) then mark that time red and display it as image and whole row red.
+// if hasHoliday && hasRecentModifications then
+//      if !hasValidTimes display red row
+//      else display yellow row
+// if hasRecentModifications then only mark as warning if the times are crossed. otherwise it is probably employee signature
+fun getRowStatus(row: ProcessorRow): RowStatus {
+    val isExtraEmployee = hasHoliday(row) && hasRecentlyWrittenModifications(row)
+
+    return when {
+        !hasValidTimes(row) -> RowStatus.DANGER
+        hasTimeRecentlyCrossed(row) -> RowStatus.DANGER
+        isExtraEmployee && hasValidTimes(row) -> RowStatus.NEUTRAL // !hasValidTimes(row) is already covered
+        hasRecentlyWrittenModifications(row) && hasTimeCrossed(row) -> RowStatus.WARNING
+        else -> RowStatus.NEUTRAL
+    }
+}
+
 fun hasTimeCrossed(row: ProcessorRow): Boolean {
     val analysis = row.newAnalysis?: row.confirmedAnalysis
     if (analysis == null) return true // if analyzing failed we assume there were some modifications
@@ -519,7 +547,7 @@ fun currentlyHasWrittenModifications(row: ProcessorRow): Boolean {
 
 fun hasRecentlyWrittenModifications(row: ProcessorRow): Boolean {
     if (row.confirmedAnalysis == null) return currentlyHasWrittenModifications(row)
-    if (row.newAnalysis == null) return false // because the other changes were already ocnfirmed so are NOT recent
+    if (row.newAnalysis == null) return false // because the other changes were already confirmed so are NOT recent
     val coverageDifferenceThreshold = 0.08
     val columnsChanged =
         MODIFICATION_COLUMNS.filter { row.newAnalysis.penCoverage[it] - row.confirmedAnalysis.penCoverage[it] > coverageDifferenceThreshold }
