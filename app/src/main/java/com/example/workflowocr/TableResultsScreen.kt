@@ -141,9 +141,9 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                             .thenBy { it.id.substringAfterLast('_').toIntOrNull() ?: 0 }
                     )
                     .filter {
-                        !hasHoliday(it) || // people without holiday
-                        currentlyHasWrittenModifications(it) || // people with modifications
-                        hasValidTimes(it) // people who have proper time inserted(maybe someone erased modifications with eraser)
+                        !it.hasHoliday() || // people without holiday
+                        it.currentlyHasWrittenModifications() || // people with modifications
+                        it.hasValidTimes() // people who have proper time inserted(maybe someone erased modifications with eraser)
                     }
             }
         }
@@ -166,7 +166,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
             }
 
             items(rowsList, key = { it.id }) { row ->
-                val status = getRowStatus(row)
+                val status = row.getRowStatus()
 
                 ListItem(
                     modifier = Modifier.clickable { viewModel.startEditing(row.id) },
@@ -204,8 +204,8 @@ fun TableResultsScreen(viewModel: TableViewModel) {
 
 @Composable
 fun displayTextTimeOrSnippet(row: ProcessorRow, path: String?, time: String) {
-    if (hasTimeRecentlyCrossed(row)) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
-    else if (parseTimeOrNull(time) == null) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
+    if (row.hasTimeRecentlyCrossed()) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
+    else if (TimeUtils.parseTimeOrNull(time) == null) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
     else TimeBadge(time)
 }
 
@@ -249,18 +249,18 @@ fun EditTimeDialog(
     onSave: (startTime: String, finishTime: String) -> Unit
 ) {
     var start by remember {
-        mutableStateOf(round15(parseTimeOrNull(row.startTime) ?: currentTimeMinutes()))
+        mutableStateOf(TimeUtils.round15(TimeUtils.parseTimeOrNull(row.startTime) ?: TimeUtils.currentTimeMinutes()))
     }
     var end by remember {
         mutableStateOf(
-            round15(
-                parseTimeOrNull(row.finishTime) ?:
-                (parseTimeOrNull(row.startTime)?.let { it + 8 * 60 } ?: (currentTimeMinutes() + 8 * 60))
+            TimeUtils.round15(
+                TimeUtils.parseTimeOrNull(row.finishTime) ?:
+                (TimeUtils.parseTimeOrNull(row.startTime)?.let { it + 8 * 60 } ?: (TimeUtils.currentTimeMinutes() + 8 * 60))
             )
         )
     }
 
-    val hasModifications = currentlyHasWrittenModifications(row)
+    val hasModifications = row.currentlyHasWrittenModifications()
 
     Dialog(
         onDismissRequest = { }, // Managed manually via scrim
@@ -387,7 +387,7 @@ fun EditTimeDialog(
                         TextButton(onClick = onDismiss) { Text("Cancel") }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(onClick = {
-                            onSave(minutesToTimeString(start), minutesToTimeString(end))
+                            onSave(TimeUtils.minutesToTimeString(start), TimeUtils.minutesToTimeString(end))
                         }) {
                             Text("Save")
                         }
@@ -484,78 +484,63 @@ fun TimePicker15(
     }
 }
 
-fun minutesToTimeString(mins: Int): String {
-    val h = (mins / 60) % 24
-    val m = mins % 60
-    return String.format("%02d:%02d", h, m)
-}
-
-fun currentTimeMinutes(): Int {
-    val now = java.time.LocalTime.now()
-    return now.hour * 60 + now.minute
-}
-
-fun round15(mins: Int): Int {
-    return ((mins + 7) / 15) * 15
-}
-
 // if newAnalysis has the time crossed but the confirmed one does not, then mark that time in red and full row in red, dont display any text times - only images
 // if there is XUW in time but no crossing(which can happen) then mark that time red and display it as image and whole row red.
 // if hasHoliday && hasRecentModifications then
 //      if !hasValidTimes display red row
 //      else display yellow row
 // if hasRecentModifications then only mark as warning if the times are crossed. otherwise it is probably employee signature
-fun getRowStatus(row: ProcessorRow): RowStatus {
-    val isExtraEmployee = hasHoliday(row) && hasRecentlyWrittenModifications(row)
+fun ProcessorRow.getRowStatus(): RowStatus {
+    val isExtraEmployee = hasHoliday() && hasRecentlyWrittenModifications()
 
     return when {
-        !hasValidTimes(row) -> RowStatus.DANGER
-        hasTimeRecentlyCrossed(row) -> RowStatus.DANGER
-        isExtraEmployee && hasValidTimes(row) -> RowStatus.NEUTRAL // !hasValidTimes(row) is already covered
-        hasRecentlyWrittenModifications(row) && hasTimeCrossed(row) -> RowStatus.WARNING
+        !hasValidTimes() -> RowStatus.DANGER
+        hasTimeRecentlyCrossed() -> RowStatus.DANGER
+        isExtraEmployee && hasValidTimes() -> RowStatus.NEUTRAL // !hasValidTimes(row) is already covered
+        hasRecentlyWrittenModifications() && hasTimeCrossed() -> RowStatus.WARNING
         else -> RowStatus.NEUTRAL
     }
 }
 
-fun hasTimeCrossed(row: ProcessorRow): Boolean {
-    val analysis = row.newAnalysis?: row.confirmedAnalysis
+fun ProcessorRow.hasTimeCrossed(): Boolean {
+    val analysis = newAnalysis?: confirmedAnalysis
     if (analysis == null) return true // if analyzing failed we assume there were some modifications
     return analysis.startTimeCrossed || analysis.endTimeCrossed
 }
 
-fun hasTimeRecentlyCrossed(row: ProcessorRow): Boolean {
-    if (row.newAnalysis == null) return false
-    if (row.confirmedAnalysis == null) return hasTimeCrossed(row)
-    return !row.confirmedAnalysis.startTimeCrossed && row.newAnalysis.startTimeCrossed ||
-           !row.confirmedAnalysis.endTimeCrossed && row.newAnalysis.endTimeCrossed
+fun ProcessorRow.hasTimeRecentlyCrossed(): Boolean {
+    if (newAnalysis == null) return false
+    if (confirmedAnalysis == null) return hasTimeCrossed()
+    return !confirmedAnalysis.startTimeCrossed && newAnalysis.startTimeCrossed ||
+           !confirmedAnalysis.endTimeCrossed && newAnalysis.endTimeCrossed
 }
 
-fun hasValidTimes(row: ProcessorRow): Boolean {
-    return parseTimeOrNull(row.startTime) != null && parseTimeOrNull(row.finishTime) != null
+fun ProcessorRow.hasValidTimes(): Boolean {
+    return TimeUtils.parseTimeOrNull(startTime) != null && TimeUtils.parseTimeOrNull(finishTime) != null
 }
 
-fun hasHoliday(row: ProcessorRow): Boolean {
-    return row.startTime.any { it in "UW" } || row.finishTime.any { it in "UW" }
+fun ProcessorRow.hasHoliday(): Boolean {
+    return startTime.any { it in "UW" } || finishTime.any { it in "UW" }
 }
 
-fun currentlyHasWrittenModifications(row: ProcessorRow): Boolean {
-    val analysis = row.newAnalysis?: row.confirmedAnalysis
+fun ProcessorRow.currentlyHasWrittenModifications(): Boolean {
+    val analysis = newAnalysis?: confirmedAnalysis
     if (analysis == null) return true // if analyzing failed we assume there were some modifications
     val emptinessThreshold = 0.05
     return analysis.penCoverage[8] > emptinessThreshold || analysis.penCoverage[9] > emptinessThreshold
 }
 
-fun hasRecentlyWrittenModifications(row: ProcessorRow): Boolean {
-    if (row.confirmedAnalysis == null) return currentlyHasWrittenModifications(row)
-    if (row.newAnalysis == null) return false // because the other changes were already confirmed so are NOT recent
+fun ProcessorRow.hasRecentlyWrittenModifications(): Boolean {
+    if (confirmedAnalysis == null) return currentlyHasWrittenModifications()
+    if (newAnalysis == null) return false // because the other changes were already confirmed so are NOT recent
     val coverageDifferenceThreshold = 0.08
     val columnsChanged =
-        MODIFICATION_COLUMNS.filter { row.newAnalysis.penCoverage[it] - row.confirmedAnalysis.penCoverage[it] > coverageDifferenceThreshold }
+        MODIFICATION_COLUMNS.filter { newAnalysis.penCoverage[it] - confirmedAnalysis.penCoverage[it] > coverageDifferenceThreshold }
     return columnsChanged.any()
 }
 
 fun createSnippets(context: Context, bitmap: Bitmap, table: Array<Array<TableDetector.TableCell>>, date: String): Map<Int, Map<String, String?>>{
-    val rowPaths = mutableMapOf<Int, Map<String, String?>>() // TODO change map keys into strings
+    val rowPaths = mutableMapOf<Int, Map<String, String?>>()
     val timestamp = System.currentTimeMillis()
 
     // detection.cells holds the coordinates for every cell

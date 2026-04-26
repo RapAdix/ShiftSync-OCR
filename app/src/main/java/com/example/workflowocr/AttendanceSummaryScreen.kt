@@ -107,7 +107,7 @@ fun calculateHourlySummary(employees: List<ProcessorRow>, openingTime: Int, clos
     val events = mutableListOf<Pair<Int, Int>>() // Time to Delta
     employees.forEach { emp ->
         if (emp.startTime.isNotEmpty() && emp.finishTime.isNotEmpty()) { // TODO safety check for UWX for both times
-            val (s, e) = timeToMinutes(emp.startTime, emp.finishTime)
+            val (s, e) = TimeUtils.timeToMinutes(emp.startTime, emp.finishTime)
             events.add(s to 1)
             events.add(e to -1)
         }
@@ -148,32 +148,49 @@ fun calculateHourlySummary(employees: List<ProcessorRow>, openingTime: Int, clos
     return hourlyGroups
 }
 
-// Helper to convert "HH:mm" to minutes
-fun timeToMinutes(startTime: String, finishTime: String): Pair<Int, Int> {
-    val startMins = parseTimeOrNull(startTime)
-    val finishMins = parseTimeOrNull(finishTime)
-    if (startMins == null || finishMins == null)
-        return Pair(0, 0)
+object TimeUtils {
+    // Helper to convert "HH:mm" to minutes
+    fun timeToMinutes(startTime: String, finishTime: String): Pair<Int, Int> {
+        val startMins = parseTimeOrNull(startTime)
+        val finishMins = parseTimeOrNull(finishTime)
+        if (startMins == null || finishMins == null)
+            return Pair(0, 0)
 
-    return if (finishMins >= startMins) {
-        Pair(startMins, finishMins)
-    } else {
-        // It's after midnight (e.g., start 18:00 and finish 01:00
-        Pair(startMins, 24 * 60 + finishMins)
+        return if (finishMins >= startMins) {
+            Pair(startMins, finishMins)
+        } else {
+            // It's after midnight (e.g., start 18:00 and finish 01:00
+            Pair(startMins, 24 * 60 + finishMins)
+        }
     }
-}
 
-fun parseTimeOrNull(time: String): Int? {
-    // Strict format: "exactly 2 digits : exactly 2 digits"
-    val regex = Regex("""^(\d{2}):(\d{2})$""")
-    val match = regex.matchEntire(time) ?: return null
+    fun parseTimeOrNull(time: String): Int? {
+        // Strict format: "exactly 2 digits : exactly 2 digits"
+        val regex = Regex("""^(\d{2}):(\d{2})$""")
+        val match = regex.matchEntire(time) ?: return null
 
-    val (hStr, mStr) = match.destructured
-    val hours = hStr.toInt()
-    val minutes = mStr.toInt()
+        val (hStr, mStr) = match.destructured
+        val hours = hStr.toInt()
+        val minutes = mStr.toInt()
 
-    // Validate ranges
-    if (hours !in 0..23 || minutes !in 0..59) return null
+        // Validate ranges
+        if (hours !in 0..23 || minutes !in 0..59) return null
 
-    return hours * 60 + minutes
+        return hours * 60 + minutes
+    }
+
+    fun minutesToTimeString(mins: Int): String {
+        val h = (mins / 60) % 24
+        val m = mins % 60
+        return String.format("%02d:%02d", h, m)
+    }
+
+    fun currentTimeMinutes(): Int {
+        val now = java.time.LocalTime.now()
+        return now.hour * 60 + now.minute
+    }
+
+    fun round15(mins: Int): Int {
+        return ((mins + 7) / 15) * 15
+    }
 }
