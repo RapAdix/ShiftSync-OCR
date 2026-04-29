@@ -275,7 +275,7 @@ class MainActivity : ComponentActivity() {
                     val analysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells)
 
                     // Fallback snippets cut out from the table image
-                    val rowPaths = createSnippets(applicationContext, imageBitmap, detection.cells, table[0][3])
+                    val rowPaths = StorageManager.createSnippets(applicationContext, imageBitmap, detection.cells, table[0][3])
 
                     Triple(table, analysis, rowPaths)
                 }
@@ -291,11 +291,13 @@ class MainActivity : ComponentActivity() {
                     val existingRow = tableViewModel.extractedRows[id]
 
                     if (existingRow != null) {
-                        val startPath = rotateFile(existingRow.startTimeSnippetPath, paths["start"])
-                        val finishPath = rotateFile(existingRow.finishTimeSnippetPath, paths["finish"])
-                        val modificationPath = rotateFile(existingRow.newModificationsSnippetPath, paths["mods"])
+                        val namePath = StorageManager.rotateFile(existingRow.nameSnippetPath, paths["name"])
+                        val startPath = StorageManager.rotateFile(existingRow.startTimeSnippetPath, paths["start"])
+                        val finishPath = StorageManager.rotateFile(existingRow.finishTimeSnippetPath, paths["finish"])
+                        val modificationPath = StorageManager.rotateFile(existingRow.newModificationsSnippetPath, paths["mods"])
                         tableViewModel.extractedRows[id] = existingRow.copy(
                             newAnalysis = analysis[row],
+                            nameSnippetPath = namePath,
                             startTimeSnippetPath = startPath,
                             finishTimeSnippetPath = finishPath,
                             newModificationsSnippetPath = modificationPath

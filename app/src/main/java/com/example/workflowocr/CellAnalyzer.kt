@@ -2,6 +2,7 @@ package com.example.workflowocr
 
 import android.util.Log
 import com.example.workflowocr.TableDetector.TableCell
+import kotlinx.serialization.Serializable
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -13,6 +14,7 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 
 object CellAnalyzer {
+    @Serializable
     data class RowAnalysis (
         val penCoverage: Array<Double>,
         val startTimeCrossed: Boolean,
