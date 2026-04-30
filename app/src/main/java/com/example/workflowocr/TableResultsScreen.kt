@@ -1,5 +1,6 @@
 package com.example.workflowocr
 
+import android.app.Application
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -51,7 +52,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import coil.compose.AsyncImage
 import kotlinx.serialization.Serializable
 import org.opencv.core.Point
@@ -72,8 +73,36 @@ data class ProcessorRow(
     val newModificationsSnippetPath: String? = null,
 )
 
-class TableViewModel : ViewModel() {
+class TableViewModel(application: Application) : AndroidViewModel(application) {
+    val storageManager = StorageManager(application)
     val extractedRows = mutableStateMapOf<String, ProcessorRow>()
+
+    // Track which date we are currently looking at
+    var currentWorkingDate by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * Only loads if dates differ. Stores old data.
+     */
+    fun loadDate(newDate: String) {
+        if (newDate == currentWorkingDate) return
+        // 1. Save current work before switching
+        if (extractedRows.isNotEmpty()) {
+            storageManager.saveRowsToDisk(extractedRows, currentWorkingDate)
+        }
+
+        // 2. Clear and load new data
+        val loadedData = storageManager.loadRowsFromDisk(newDate)
+        extractedRows.clear()
+        extractedRows.putAll(loadedData)
+
+        // 3. Update current date state
+        currentWorkingDate = newDate
+    }
+
+    fun saveToStorage() {
+        storageManager.saveRowsToDisk(extractedRows, currentWorkingDate)
+    }
 
     // Track the "Edit" state
     var editingRowId by mutableStateOf<String?>(null)
@@ -100,6 +129,7 @@ class TableViewModel : ViewModel() {
             newModificationsSnippetPath = null
         )
         stopEditing()
+        storageManager.saveRowsToDisk(extractedRows, currentWorkingDate)
     }
 }
 

@@ -13,12 +13,22 @@ class StorageManager(private val context: Context) {
     // Configured to ignore unknown keys - in case fields are added to ProcessorRow later
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun saveRowsToDisk(rows: Map<String, ProcessorRow>, subDir: String) {
-        val file = File(context.filesDir, "data/$subDir/rows.json")
-        file.parentFile?.mkdirs()
+    fun saveRowsToDisk(rows: Map<String, ProcessorRow>, subDir: String?) {
+        if (subDir.isNullOrBlank()) {
+            Log.d("Storage", "Save aborted: subDir is null or blank.")
+            return
+        }
 
-        val jsonString = json.encodeToString(rows.values.toList())
-        file.writeText(jsonString)
+        try {
+            val folder = File(context.filesDir, "data/$subDir")
+            if (!folder.exists()) folder.mkdirs()
+
+            val file = File(folder, "rows.json")
+            val jsonString = json.encodeToString(rows.values.toList())
+            file.writeText(jsonString)
+        } catch (e: Exception) {
+            Log.e("Storage", "Error saving rows to $subDir", e)
+        }
     }
 
     fun loadRowsFromDisk(subDir: String): Map<String, ProcessorRow> {

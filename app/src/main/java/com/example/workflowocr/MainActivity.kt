@@ -12,6 +12,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,9 +35,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
@@ -45,6 +55,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
@@ -60,6 +71,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -107,7 +119,7 @@ class MainActivity : ComponentActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val snackbarHostState = SnackbarHostState()
 
-    private val tableViewModel = TableViewModel()
+    private val tableViewModel: TableViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -135,6 +147,14 @@ class MainActivity : ComponentActivity() {
                 var currentScreen by remember { mutableStateOf(Screen.SCAN_HUB) } // Starts here now
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val composeScope = rememberCoroutineScope()
+                var schedulesExpanded by remember { mutableStateOf(false) } // Track unfolding
+
+                // Fetch dates from the ViewModel
+                val availableDates by produceState(initialValue = emptyList<String>(), drawerState.isOpen) {
+                    if (drawerState.isOpen) {
+                        value = tableViewModel.storageManager.getAvailableDates()
+                    }
+                }
 
                 ModalNavigationDrawer(
                     drawerState = drawerState,
@@ -166,6 +186,61 @@ class MainActivity : ComponentActivity() {
                                 onClick = { currentScreen = Screen.ATTENDANCE_COUNT; composeScope.launch { drawerState.close() } },
                                 icon = { Icon(Icons.Filled.Calculate, null) }
                             )
+
+                            // The Unfolding "Saved Schedules" Section
+                            NavigationDrawerItem(
+                                label = { Text("Saved Schedules") },
+                                selected = false, // The parent itself isn't a "screen"
+                                onClick = { schedulesExpanded = !schedulesExpanded },
+                                icon = { Icon(Icons.Default.History, null) },
+                                badge = {
+                                    Icon(
+                                        imageVector = if (schedulesExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+
+                            // Animated Sub-Items
+                            AnimatedVisibility(
+                                visible = schedulesExpanded,
+                                enter = expandVertically() + fadeIn(),
+                                exit = shrinkVertically() + fadeOut()
+                            ) {
+                                Column(modifier = Modifier.padding(start = 24.dp)) {
+                                    if (availableDates.isEmpty()) {
+                                        Text(
+                                            "No saves found",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            modifier = Modifier.padding(16.dp),
+                                            color = MutedGrey
+                                        )
+                                    }
+
+                                    availableDates.forEach { date ->
+                                        val isCurrent = tableViewModel.currentWorkingDate == date
+                                        NavigationDrawerItem(
+                                            label = { Text(date, style = MaterialTheme.typography.bodyMedium) },
+                                            selected = isCurrent,
+                                            onClick = {
+                                                tableViewModel.loadDate(date)
+                                                currentScreen = Screen.TABLE_RESULTS // Switch to results after loading
+                                                composeScope.launch { drawerState.close() }
+                                            },
+                                            icon = {
+                                                Icon(
+                                                    Icons.Default.CalendarToday,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp),
+                                                    tint = if (isCurrent) AccentOlive else MutedGrey
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .padding(NavigationDrawerItemDefaults.ItemPadding)
+                                        )
+                                    }
+                                }
+                            }
                             NavigationDrawerItem(
                                 label = { Text("Settings (Hub)") },
                                 selected = currentScreen == Screen.SETTINGS,
@@ -280,8 +355,8 @@ class MainActivity : ComponentActivity() {
                     Triple(table, analysis, rowPaths)
                 }
                 val date = table[0][3]
-                // TODO check if I have that date's table already saved somewhere and load it to lastExtractedRows
-                val page = "e_p1" // TODO edd choosing of the page (e-employee, m-manager, p1-page1)
+                tableViewModel.loadDate(date)
+                val page = "e_p1" // TODO add choosing of the page (e-employee, m-manager, p1-page1)
                 // TODO sanity check - check if the number of rows match between this page and previously captured page. If no - display warning
 
                 for (row in table.indices) {
@@ -319,6 +394,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+                tableViewModel.saveToStorage()
 
                 detection.gray.release()
                 detection.thresh.release()
