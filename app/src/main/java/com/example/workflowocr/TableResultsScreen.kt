@@ -1,6 +1,7 @@
 package com.example.workflowocr
 
 import android.app.Application
+import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,6 +10,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,12 +27,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +72,7 @@ import androidx.lifecycle.AndroidViewModel
 import coil.compose.AsyncImage
 import kotlinx.serialization.Serializable
 import org.opencv.core.Point
+import java.io.File
 
 // Data Model
 @Serializable
@@ -176,6 +181,36 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
             storageManager.saveRowsToDisk(extractedRows, date)
         }
     }
+
+    fun deleteRow(id: String) {
+        val rowToDelete = extractedRows[id] ?: return
+
+        val pathsToDelete = listOfNotNull(
+            rowToDelete.nameSnippetPath,
+            rowToDelete.startTimeSnippetPath,
+            rowToDelete.finishTimeSnippetPath,
+            rowToDelete.oldModificationsSnippetPath,
+            rowToDelete.newModificationsSnippetPath
+        )
+
+        pathsToDelete.forEach { path ->
+            try {
+                val file = File(path)
+                if (file.exists()) {
+                    file.delete()
+                }
+            } catch (e: Exception) {
+                Log.w("StorageManager", "Failed to delete snippet file: $path", e)
+            }
+        }
+
+        // Remove from the state map (triggers UI refresh)
+        extractedRows.remove(id)
+
+        currentWorkingDate?.let { date ->
+            storageManager.saveRowsToDisk(extractedRows, date)
+        }
+    }
 }
 
 enum class RowStatus(
@@ -184,7 +219,8 @@ enum class RowStatus(
 ) {
     DANGER(Color(0xFFFFEBEE), Color(0xFFB71C1C)),     // Red theme
     WARNING(Color(0xFFFFFDE7), Color(0xFFF57F17)),    // Yellow theme
-    NEUTRAL(Color.Transparent, Color.Unspecified)     // Default
+    NEUTRAL(Color.Transparent, Color.Unspecified),     // Default
+    MANUALLY_ADDED(Color.Transparent, Color(0xFFF57F17)) // Yellow text
 }
 
 @Composable
@@ -200,7 +236,8 @@ fun TableResultsScreen(viewModel: TableViewModel) {
             onDismiss = { viewModel.stopEditing() },
             onSave = { start, end ->
                 viewModel.saveRow(id, start, end)
-            }
+            },
+            onDelete = { viewModel.deleteRow(id) }
         )
     }
     if (showAddDialog) {
@@ -220,16 +257,24 @@ fun TableResultsScreen(viewModel: TableViewModel) {
         val rowsList by remember(viewModel.extractedRows) {
             derivedStateOf {
                 viewModel.extractedRows.values
-                    .sortedWith(
-                        compareBy<ProcessorRow> { it.id.substringBeforeLast('_') }
-                            .thenBy { it.id.substringAfterLast('_').toIntOrNull() ?: 0 }
-                    )
                     .filter {
                         showAll ||
-                        !it.hasHoliday() || // people without holiday
-                        it.currentlyHasWrittenModifications() || // people with modifications
-                        it.hasValidTimes() // people who have proper time inserted(maybe someone erased modifications with eraser)
+                                !it.hasHoliday() || // people without holiday
+                                it.currentlyHasWrittenModifications() || // people with modifications
+                                it.hasValidTimes() // people who have proper time inserted(maybe someone erased modifications with eraser)
                     }
+                    .sortedWith(
+                        // Primary Sort: Group Scanned (0) before Manual (1)
+                        compareBy<ProcessorRow> { if (it.isManualEntry()) 1 else 0 }
+                            // Secondary Sort for Scanned: Original ID logic
+                            .thenBy { if (!it.isManualEntry()) it.id.substringBeforeLast('_') else "" }
+                            .thenBy {
+                                if (!it.isManualEntry()) it.id.substringAfterLast('_').toIntOrNull()
+                                    ?: 0 else 0
+                            }
+                            // Secondary Sort for Manual: Start Time
+                            .thenBy { if (it.isManualEntry()) it.startTime else "" }
+                    )
             }
         }
         LazyColumn(modifier = Modifier
@@ -326,26 +371,32 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                         .padding(vertical = 32.dp), // Space it out from the last row
                     contentAlignment = Alignment.Center
                 ) {
-                    Surface(
+                    Button(
                         onClick = { showAddDialog = true },
-                        color = AccentOlive.copy(alpha = 0.85f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AccentOlive,
+                            contentColor = Color.White
+                        ),
                         shape = RoundedCornerShape(12.dp),
-                        shadowElevation = 4.dp
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                        elevation = ButtonDefaults.buttonElevation(
+                            defaultElevation = 4.dp,
+                            pressedElevation = 2.dp,
+                            hoveredElevation = 4.dp,
+                            focusedElevation = 4.dp
+                        )
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Add,
                                 contentDescription = null,
-                                tint = Color.White,
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
                                 text = "Add Employee",
-                                color = Color.White,
                                 style = MaterialTheme.typography.labelLarge
                             )
                         }
@@ -400,7 +451,8 @@ fun TimeBadge(time: String) {
 fun EditTimeDialog(
     row: ProcessorRow,
     onDismiss: () -> Unit,
-    onSave: (startTime: String, finishTime: String) -> Unit
+    onSave: (startTime: String, finishTime: String) -> Unit,
+    onDelete: () -> Unit
 ) {
     var start by remember {
         mutableStateOf(TimeUtils.round15(TimeUtils.parseTimeOrNull(row.startTime) ?: TimeUtils.currentTimeMinutes()))
@@ -536,8 +588,28 @@ fun EditTimeDialog(
                     // --- ACTIONS ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically // Align trashcan with buttons
                     ) {
+                        // Delete Button on the far left
+                        if (row.isManualEntry()) {
+                            IconButton(
+                                onClick = {
+                                    onDelete()
+                                    onDismiss()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete Entry",
+                                    tint = Color(0xFFD32F2F) // Material Red
+                                )
+                            }
+                        }
+
+                        // This spacer pushes the following buttons to the right
+                        Spacer(modifier = Modifier.weight(1f))
+
                         TextButton(onClick = onDismiss) { Text("Cancel") }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(onClick = {
@@ -757,9 +829,9 @@ fun ProcessorRow.getRowStatus(): RowStatus {
 
     return when {
         !hasValidTimes() -> RowStatus.DANGER
+        isManualEntry() -> RowStatus.MANUALLY_ADDED
         hasTimeRecentlyCrossed() -> RowStatus.DANGER
         isExtraEmployee && hasValidTimes() -> RowStatus.NEUTRAL // !hasValidTimes(row) is already covered
-        isManualEntry() -> RowStatus.NEUTRAL
         hasRecentlyWrittenModifications() && hasTimeCrossed() -> RowStatus.WARNING
         else -> RowStatus.NEUTRAL
     }
