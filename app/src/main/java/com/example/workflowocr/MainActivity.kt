@@ -1,5 +1,7 @@
 package com.example.workflowocr
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
@@ -8,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -83,6 +86,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -155,6 +159,50 @@ class MainActivity : ComponentActivity() {
                 val availableDates by produceState(initialValue = emptyList<String>(), drawerState.isOpen) {
                     if (drawerState.isOpen) {
                         value = tableViewModel.storageManager.getAvailableDates()
+                    }
+                }
+
+                val context = LocalContext.current
+                var tempImageUri by remember { mutableStateOf<Uri?>(null) }
+
+                // The "Launcher" that handles the result of the camera app
+                val cameraLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.TakePicture()
+                ) { success ->
+                    if (success && tempImageUri != null) {
+                        val bitmap = ImageUtils.uriToBitmap(context, tempImageUri!!)
+
+                        executeFullExtractionFlow(bitmap) {
+                            currentScreen = Screen.TABLE_RESULTS
+                        }
+                    }
+                }
+
+                val permissionLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.RequestPermission()
+                        ) { isGranted ->
+                    if (isGranted) {
+                        val uri = ImageUtils.createTempImageUri(context)
+                        tempImageUri = uri // Update state variable
+                        cameraLauncher.launch(uri)
+                    } else {
+                        Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                // The Click Handler (Logic for the Button)
+                val onScanRequest = {
+                    val hasPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                    if (hasPermission) {
+                        val uri = ImageUtils.createTempImageUri(context)
+                        tempImageUri = uri
+                        cameraLauncher.launch(uri)
+                    } else {
+                        permissionLauncher.launch(Manifest.permission.CAMERA)
                     }
                 }
 
@@ -331,13 +379,13 @@ class MainActivity : ComponentActivity() {
                         Box(modifier = Modifier.padding(paddingValues)) {
                             when (currentScreen) {
                                 Screen.SCAN_HUB -> ScanHubScreen(
-                                    onScanRequest = {
+                                    onStubRequest = {
                                         // This is the functional "Make Picture" trigger
                                         executeFullExtractionFlow(originalBitmap) {
                                             currentScreen = Screen.TABLE_RESULTS
                                         }
                                     },
-                                    onViewResults = { currentScreen = Screen.TABLE_RESULTS }
+                                    onScanRequest = onScanRequest
                                 )
                                 Screen.TABLE_RESULTS -> TableResultsScreen(
                                     tableViewModel
@@ -411,7 +459,7 @@ class MainActivity : ComponentActivity() {
                 val page = "e_p1" // TODO add choosing of the page (e-employee, m-manager, p1-page1)
                 // TODO sanity check - check if the number of rows match between this page and previously captured page. If no - display warning
 
-                for (row in table.indices) {
+                for (row in 1 until table.size) {
                     val id = page + "_$row"
                     val paths = rowPaths[row] ?: emptyMap()
 
@@ -467,7 +515,7 @@ class MainActivity : ComponentActivity() {
 // --- COMPOSE SCREENS ---
 
 @Composable
-fun ScanHubScreen(onScanRequest: () -> Unit, onViewResults: () -> Unit) {
+fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -495,12 +543,12 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onViewResults: () -> Unit) {
 
         // Secondary Action: Review
         OutlinedButton(
-            onClick = onViewResults,
+            onClick = onStubRequest,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(70.dp)
         ) {
-            Text("REVIEW RECENT DATA")
+            Text("Use Stub")
         }
     }
 }
