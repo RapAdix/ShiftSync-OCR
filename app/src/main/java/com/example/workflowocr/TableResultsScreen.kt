@@ -15,17 +15,27 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -73,7 +83,17 @@ data class ProcessorRow(
     val finishTimeSnippetPath: String? = null,
     val oldModificationsSnippetPath: String? = null, // the remaining part of the row
     val newModificationsSnippetPath: String? = null,
-)
+) {
+    fun isManualEntry(): Boolean = id.startsWith(MANUAL_ID_PREFIX)
+
+    companion object {
+        private const val MANUAL_ID_PREFIX = "MANUAL_"
+
+        fun generateManualId(): String {
+            return "${MANUAL_ID_PREFIX}${System.currentTimeMillis()}"
+        }
+    }
+}
 
 class TableViewModel(application: Application) : AndroidViewModel(application) {
     val storageManager = StorageManager(application)
@@ -133,6 +153,29 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         stopEditing()
         storageManager.saveRowsToDisk(extractedRows, currentWorkingDate)
     }
+
+    fun addManualRow(name: String, startTime: String, finishTime: String) {
+        val manualId = ProcessorRow.generateManualId()
+        val newRow = ProcessorRow(
+            id = manualId,
+            name = name,
+            startTime = startTime,
+            finishTime = finishTime,
+            confirmedAnalysis = null,
+            newAnalysis = null,
+            nameSnippetPath = null,
+            startTimeSnippetPath = null,
+            finishTimeSnippetPath = null,
+            oldModificationsSnippetPath = null,
+            newModificationsSnippetPath = null
+        )
+
+        // Add to the map and save
+        extractedRows[manualId] = newRow
+        currentWorkingDate?.let { date ->
+            storageManager.saveRowsToDisk(extractedRows, date)
+        }
+    }
 }
 
 enum class RowStatus(
@@ -146,6 +189,7 @@ enum class RowStatus(
 
 @Composable
 fun TableResultsScreen(viewModel: TableViewModel) {
+    var showAddDialog by remember { mutableStateOf(false) }
     var showAll by remember { mutableStateOf(false) }
 
     // The UI stays clean and just reacts to the ViewModel
@@ -156,6 +200,15 @@ fun TableResultsScreen(viewModel: TableViewModel) {
             onDismiss = { viewModel.stopEditing() },
             onSave = { start, end ->
                 viewModel.saveRow(id, start, end)
+            }
+        )
+    }
+    if (showAddDialog) {
+        AddEmployeeDialog(
+            onDismiss = { showAddDialog = false },
+            onSave = { name, start, end ->
+                viewModel.addManualRow(name, start, end)
+                showAddDialog = false
             }
         )
     }
@@ -264,6 +317,40 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                     modifier = Modifier.padding(horizontal = 16.dp),
                     color = InkBlack.copy(alpha = 0.05f)
                 )
+            }
+
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp), // Space it out from the last row
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        onClick = { showAddDialog = true },
+                        color = AccentOlive.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(12.dp),
+                        shadowElevation = 4.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Add Employee",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -466,6 +553,114 @@ fun EditTimeDialog(
 }
 
 @Composable
+fun AddEmployeeDialog(
+    onDismiss: () -> Unit,
+    onSave: (name: String, startTime: String, finishTime: String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    // Initial values: 10:00 (600 min) and 18:00 (1080 min)
+    var startMinutes by remember { mutableStateOf(600) }
+    var endMinutes by remember { mutableStateOf(1080) }
+
+    Dialog(
+        onDismissRequest = { },
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.4f))
+                .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+            contentAlignment = Alignment.Center
+        ) {
+            // Dialog Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .pointerInput(Unit) { /* Stop tap propagation to scrim */ },
+                colors = CardDefaults.cardColors(containerColor = PaperWhite),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    Text(
+                        text = "Add Employee",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = InkBlack
+                    )
+
+                    // Upper Row: Name
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AccentOlive,
+                            focusedLabelColor = AccentOlive
+                        )
+                    )
+
+                    // Lower Row: Time Pickers
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            TimePicker15(
+                                label = "Start",
+                                value = startMinutes,
+                                onChange = { startMinutes = it }
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            TimePicker15(
+                                label = "Finish",
+                                value = endMinutes,
+                                onChange = { endMinutes = it }
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onDismiss) {
+                            Text("Cancel", color = MutedGrey)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (name.isNotBlank()) {
+                                    onSave(
+                                        name,
+                                        TimeUtils.minutesToTimeString(startMinutes),
+                                        TimeUtils.minutesToTimeString(endMinutes)
+                                    )
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentOlive),
+                            enabled = name.isNotBlank()
+                        ) {
+                            Text("Add")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun TimePicker15(
     label: String,
     value: Int,                // minutes (e.g. 480 = 08:00)
@@ -564,6 +759,7 @@ fun ProcessorRow.getRowStatus(): RowStatus {
         !hasValidTimes() -> RowStatus.DANGER
         hasTimeRecentlyCrossed() -> RowStatus.DANGER
         isExtraEmployee && hasValidTimes() -> RowStatus.NEUTRAL // !hasValidTimes(row) is already covered
+        isManualEntry() -> RowStatus.NEUTRAL
         hasRecentlyWrittenModifications() && hasTimeCrossed() -> RowStatus.WARNING
         else -> RowStatus.NEUTRAL
     }
