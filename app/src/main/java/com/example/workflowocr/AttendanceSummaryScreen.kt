@@ -106,7 +106,7 @@ fun AttendanceSummaryScreen(rowsMap: Map<String, ProcessorRow>) {
 fun calculateHourlySummary(employees: List<ProcessorRow>, openingTime: Int, closingTime: Int): List<HourGroup> {
     val events = mutableListOf<Pair<Int, Int>>() // Time to Delta
     employees.forEach { emp ->
-        if (emp.startTime.isNotEmpty() && emp.finishTime.isNotEmpty()) { // TODO safety check for UWX for both times
+        if (emp.hasValidTimes()) {
             val (s, e) = TimeUtils.timeToMinutes(emp.startTime, emp.finishTime)
             events.add(s to 1)
             events.add(e to -1)

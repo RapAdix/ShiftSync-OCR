@@ -27,6 +27,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
@@ -144,6 +146,8 @@ enum class RowStatus(
 
 @Composable
 fun TableResultsScreen(viewModel: TableViewModel) {
+    var showAll by remember { mutableStateOf(false) }
+
     // The UI stays clean and just reacts to the ViewModel
     viewModel.editingRowId?.let { id ->
         val row = viewModel.extractedRows[id] ?: return@let
@@ -168,6 +172,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                             .thenBy { it.id.substringAfterLast('_').toIntOrNull() ?: 0 }
                     )
                     .filter {
+                        showAll ||
                         !it.hasHoliday() || // people without holiday
                         it.currentlyHasWrittenModifications() || // people with modifications
                         it.hasValidTimes() // people who have proper time inserted(maybe someone erased modifications with eraser)
@@ -177,6 +182,41 @@ fun TableResultsScreen(viewModel: TableViewModel) {
         LazyColumn(modifier = Modifier
             .fillMaxSize()
             .background(PaperWhite)) {
+            // The Toggle Filter Row
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (showAll) "Showing all employees" else "Showing only working employees",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MutedGrey
+                    )
+
+                    // A simple M3 Switch or a TextButton toggle
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Show All",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Switch(
+                            checked = showAll,
+                            onCheckedChange = { showAll = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = AccentOlive,
+                                checkedTrackColor = AccentOlive.copy(alpha = 0.3f)
+                            )
+                        )
+                    }
+                }
+                HorizontalDivider(thickness = 1.dp, color = InkBlack.copy(alpha = 0.05f))
+            }
+
             item {
                 Row(
                     modifier = Modifier

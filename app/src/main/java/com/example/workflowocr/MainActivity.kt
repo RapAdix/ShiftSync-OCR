@@ -290,6 +290,31 @@ class MainActivity : ComponentActivity() {
                                     IconButton(onClick = { composeScope.launch { drawerState.open() } }) {
                                         Icon(Icons.Default.Menu, contentDescription = "Menu")
                                     }
+                                },
+                                actions = {
+                                    // This block adds buttons to the RIGHT side of the bar
+                                    if (currentScreen == Screen.TABLE_RESULTS) {
+                                        IconButton(
+                                            onClick = { currentScreen = Screen.ATTENDANCE_COUNT }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Calculate,
+                                                contentDescription = "View Attendance Summary",
+                                                tint = AccentOlive
+                                            )
+                                        }
+                                    }
+                                    if (currentScreen == Screen.ATTENDANCE_COUNT) {
+                                        IconButton(
+                                            onClick = { currentScreen = Screen.TABLE_RESULTS }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.List,
+                                                contentDescription = "View Table Results",
+                                                tint = AccentOlive
+                                            )
+                                        }
+                                    }
                                 }
                             )
                         },
