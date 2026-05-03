@@ -45,11 +45,14 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -69,14 +72,15 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -155,10 +159,12 @@ class MainActivity : ComponentActivity() {
                 val composeScope = rememberCoroutineScope()
                 var schedulesExpanded by remember { mutableStateOf(false) } // Track unfolding
 
-                // Fetch dates from the ViewModel
-                val availableDates by produceState(initialValue = emptyList<String>(), drawerState.isOpen) {
+                val availableDates by tableViewModel.availableDates.collectAsState()
+
+                // Refresh when the drawer opens to catch outside changes
+                LaunchedEffect(drawerState.isOpen) {
                     if (drawerState.isOpen) {
-                        value = tableViewModel.storageManager.getAvailableDates()
+                        tableViewModel.refreshAvailableDates()
                     }
                 }
 
@@ -293,12 +299,16 @@ class MainActivity : ComponentActivity() {
 
                                     availableDates.forEach { date ->
                                         val isCurrent = tableViewModel.currentWorkingDate == date
+
+                                        // Track if THIS specific item is showing its delete dialog
+                                        var showConfirmForThisItem by remember { mutableStateOf(false) }
+
                                         NavigationDrawerItem(
                                             label = { Text(date, style = MaterialTheme.typography.bodyMedium) },
                                             selected = isCurrent,
                                             onClick = {
                                                 tableViewModel.loadDate(date)
-                                                currentScreen = Screen.TABLE_RESULTS // Switch to results after loading
+                                                currentScreen = Screen.TABLE_RESULTS
                                                 composeScope.launch { drawerState.close() }
                                             },
                                             icon = {
@@ -309,9 +319,49 @@ class MainActivity : ComponentActivity() {
                                                     tint = if (isCurrent) AccentOlive else MutedGrey
                                                 )
                                             },
-                                            modifier = Modifier
-                                                .padding(NavigationDrawerItemDefaults.ItemPadding)
+                                            // The badge is automatically pushed to the far right
+                                            badge = {
+                                                IconButton(onClick = { showConfirmForThisItem = true }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = "Delete",
+                                                        modifier = Modifier.size(20.dp),
+                                                        tint = Color.Red.copy(alpha = 0.6f)
+                                                    )
+                                                }
+                                            },
+                                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                                         )
+
+                                        // Confirmation Dialog specific to this loop iteration
+                                        if (showConfirmForThisItem) {
+                                            AlertDialog(
+                                                onDismissRequest = { showConfirmForThisItem = false },
+                                                title = { Text("Delete $date?") },
+                                                text = { Text("All snippets and JSON for this day will be removed.") },
+                                                confirmButton = {
+                                                    TextButton(
+                                                        onClick = {
+                                                            tableViewModel.storageManager.deleteDataForDate(date)
+                                                            // If we just deleted what we are looking at, go home
+                                                            if (tableViewModel.currentWorkingDate == date) {
+                                                                currentScreen = Screen.SCAN_HUB
+                                                            }
+                                                            showConfirmForThisItem = false
+                                                            tableViewModel.refreshAvailableDates()
+                                                        },
+                                                        colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                                                    ) {
+                                                        Text("Delete")
+                                                    }
+                                                },
+                                                dismissButton = {
+                                                    TextButton(onClick = { showConfirmForThisItem = false }) {
+                                                        Text("Cancel")
+                                                    }
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -450,7 +500,7 @@ class MainActivity : ComponentActivity() {
                     val analysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells)
 
                     // Fallback snippets cut out from the table image
-                    val rowPaths = StorageManager.createSnippets(applicationContext, imageBitmap, detection.cells, table[0][3])
+                    val rowPaths = tableViewModel.storageManager.createSnippets(imageBitmap, detection.cells, table[0][3])
 
                     Triple(table, analysis, rowPaths)
                 }

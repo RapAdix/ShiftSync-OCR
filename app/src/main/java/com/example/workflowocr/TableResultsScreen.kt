@@ -69,7 +69,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.opencv.core.Point
 import java.io.File
@@ -107,6 +112,15 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
     // Track which date we are currently looking at
     var currentWorkingDate by mutableStateOf<String?>(null)
         private set
+
+    private val _availableDates = MutableStateFlow<List<String>>(emptyList())
+    val availableDates: StateFlow<List<String>> = _availableDates.asStateFlow()
+
+    fun refreshAvailableDates() {
+        viewModelScope.launch {
+            _availableDates.value = storageManager.getAvailableDates()
+        }
+    }
 
     /**
      * Only loads if dates differ. Stores old data.
