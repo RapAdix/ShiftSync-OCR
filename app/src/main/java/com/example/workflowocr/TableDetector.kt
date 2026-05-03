@@ -212,7 +212,7 @@ object TableDetector {
         var validXBelts = filterBeltsByDensity(rawGrid, rawXBelts, expectedXBelts, isHorizontal = false)
         var validYBelts = filterBeltsByDensity(rawGrid, rawYBelts, -1, isHorizontal = true)
         val propagatedYBelts = try {
-            propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, expectedYBelts)
+            propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1)
         } catch (e: MissingTopRowException) {
             Log.d("DEBUG", "Couldn't detect top header row during propagation. Rotating by 180 degrees.")
             rotations += 2
@@ -226,7 +226,7 @@ object TableDetector {
             intersectionsList = rotatePoints180(intersectionsList, horizontal.cols(), horizontal.rows())
             Core.rotate(intersections, intersections, Core.ROTATE_180) // needed in TablePropagator
             try {
-                propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, expectedYBelts)
+                propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1)
             } catch (e: MissingTopRowException) {
                 Log.d("DEBUG", "Error: Couldn't detect top header row during propagation even after rotating!")
                 validYBelts
@@ -249,6 +249,8 @@ object TableDetector {
                 )
             }
         }
+
+        Log.d("DEBUG", "Found ${cells.size} cell rows and ${cells[0].size} cell cols")
 
         val linesDebugMat = Mat.zeros(horizontal.size(), CvType.CV_8UC3)
 
@@ -471,7 +473,7 @@ object TableDetector {
             // Until we manage to add the Tall Header Row
             var currentTop = validYBelts[0]
             // Look for rows above until we find tall Header or reach limit
-            while (propagatedBelts.size < expectedRows) {
+            while (propagatedBelts.size < expectedRows || expectedRows == -1) {
 
                 // Try to find a standard small row above the current top
                 val predictedSmall = currentTop - rowHeight
@@ -539,13 +541,16 @@ object TableDetector {
 
         // ---- Adding rows after ----
         var currentBottom = propagatedBelts.last()
-        while (propagatedBelts.size < expectedRows) {
+        while (propagatedBelts.size < expectedRows || expectedRows == -1) {
             val predictedPos = currentBottom + rowHeight
 
             // Try to find a raw belt at the bottom
             val rawBelt = rawYBelts
                 .filter { Math.abs(it - predictedPos) < detectionErrorMargin }
                 .minByOrNull { Math.abs(it - predictedPos) }
+
+            // expectedRows == -1 means we don't have a target so if we didn't find a raw belt, stop propagating
+            if (expectedRows == -1 && rawBelt == null) break
 
             val nextPos = rawBelt ?: predictedPos
             propagatedBelts.add(nextPos)
