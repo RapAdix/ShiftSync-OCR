@@ -32,6 +32,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -441,7 +443,7 @@ fun SnippetImage(path: String, height: androidx.compose.ui.unit.Dp, width: andro
 
 @Composable
 fun TimeBadge(time: String) {
-    val isError = time.isEmpty() || time.split(":").let { if(it.size == 2) it[1].toInt() > 59 else true }
+    val isError = TimeUtils.parseTimeOrNull(time) == null
 
     Surface(
         // Slightly darker off-white for the badge background
@@ -468,6 +470,7 @@ fun EditTimeDialog(
     onSave: (startTime: String, finishTime: String) -> Unit,
     onDelete: () -> Unit
 ) {
+    var isAbsent by remember { mutableStateOf(row.finishTime == row.startTime && row.hasValidTimes()) }
     var start by remember {
         mutableStateOf(TimeUtils.round15(TimeUtils.parseTimeOrNull(row.startTime) ?: TimeUtils.currentTimeMinutes()))
     }
@@ -524,39 +527,74 @@ fun EditTimeDialog(
                     Spacer(modifier = Modifier.height(24.dp))
 
                     // --- BODY: Time Pickers ---
+                    Box(modifier = Modifier.alpha(if (isAbsent) 0.3f else 1.0f)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Start Column
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                row.startTimeSnippetPath?.let { SnippetImage(it, height = 32.dp) }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                TimePicker15("START", start) { start = it }
+                            }
+
+                            VerticalDivider(
+                                modifier = Modifier
+                                    .height(110.dp)
+                                    .padding(horizontal = 12.dp)
+                            )
+
+                            // Finish Column
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                row.finishTimeSnippetPath?.let { SnippetImage(it, height = 32.dp) }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                TimePicker15("FINISH", end) { end = it }
+                            }
+                        }
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        // Start Column
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            row.startTimeSnippetPath?.let { SnippetImage(it, height = 32.dp) }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            TimePicker15("START", start) { start = it }
-                        }
-
-                        VerticalDivider(modifier = Modifier
-                            .height(110.dp)
-                            .padding(horizontal = 12.dp))
-
-                        // Finish Column
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            row.finishTimeSnippetPath?.let { SnippetImage(it, height = 32.dp) }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            TimePicker15("FINISH", end) { end = it }
-                        }
+                        FilterChip(
+                            selected = isAbsent,
+                            onClick = { isAbsent = !isAbsent },
+                            label = {
+                                Text(
+                                    text = if (isAbsent) "ABSENT" else "WORKING",
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            },
+                            leadingIcon = null,
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isAbsent,
+                                borderColor = MaterialTheme.colorScheme.outline, // Standard grey
+                                selectedBorderColor = Color(0xFFFFB300),         // Vivid Amber/Yellow
+                                borderWidth = 1.dp,
+                                selectedBorderWidth = 2.dp
+                            ),
+                            colors = FilterChipDefaults.filterChipColors(
+                                // Neutral state
+                                containerColor = Color.Transparent,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                // Absent state
+                                selectedContainerColor = Color.Transparent
+                            )
+                        )
                     }
 
                     // --- BOTTOM: Modifications Snippet ---
                     if (hasModifications) {
-                        Spacer(modifier = Modifier.height(24.dp))
                         HorizontalDivider(modifier = Modifier.alpha(0.1f))
                         Spacer(modifier = Modifier.height(12.dp))
 
@@ -627,7 +665,10 @@ fun EditTimeDialog(
                         TextButton(onClick = onDismiss) { Text("Cancel") }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(onClick = {
-                            onSave(TimeUtils.minutesToTimeString(start), TimeUtils.minutesToTimeString(end))
+                            if (isAbsent)
+                                onSave(TimeUtils.minutesToTimeString(0), TimeUtils.minutesToTimeString(0))
+                            else
+                                onSave(TimeUtils.minutesToTimeString(start), TimeUtils.minutesToTimeString(end))
                         }) {
                             Text("Save")
                         }
