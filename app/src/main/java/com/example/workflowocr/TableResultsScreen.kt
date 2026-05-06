@@ -110,6 +110,7 @@ data class ProcessorRow(
 class TableViewModel(application: Application) : AndroidViewModel(application) {
     val storageManager = StorageManager(application)
     val extractedRows = mutableStateMapOf<String, ProcessorRow>()
+    var onDateSupplied by mutableStateOf<((String?) -> Unit)?>(null)
 
     // Track which date we are currently looking at
     var currentWorkingDate by mutableStateOf<String?>(null)

@@ -65,6 +65,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
@@ -210,6 +211,33 @@ class MainActivity : ComponentActivity() {
                     } else {
                         permissionLauncher.launch(Manifest.permission.CAMERA)
                     }
+                }
+
+                if (tableViewModel.onDateSupplied != null) {
+                    var inputDate by remember { mutableStateOf("") }
+
+                    AlertDialog(
+                        title = { Text("Manual Date Entry") },
+                        text = {
+                            OutlinedTextField(
+                                value = inputDate,
+                                onValueChange = { inputDate = it },
+                                label = { Text("Enter Date (MM-DD)") }
+                            )
+                        },
+                        onDismissRequest = {
+                            val action = tableViewModel.onDateSupplied
+                            tableViewModel.onDateSupplied = null
+                            action?.invoke(null) // Signal cleanup
+                        },
+                        confirmButton = {
+                            Button(onClick = {
+                                val action = tableViewModel.onDateSupplied
+                                tableViewModel.onDateSupplied = null
+                                action?.invoke(inputDate) // Execute the "frozen" logic
+                            }) { Text("Process") }
+                        }
+                    )
                 }
 
                 ModalNavigationDrawer(
@@ -493,9 +521,37 @@ class MainActivity : ComponentActivity() {
 
             scope.launch {
                 val imageBitmap = TableDetector.matToBitmap(detection.gray)
-                //TODO TextProcessor.determineDate(detection.cells, imageBitmap)
+                val rawTextGrid = withContext(Dispatchers.IO) {
+                    TextProcessor.extractTextFromCells(
+                        detection.cells,
+                        imageBitmap,
+                        listOf(0, 1, 2, 3)
+                    )
+                }
+                val date = try {
+                    TextProcessor.determineDate(rawTextGrid)
+                } catch (e: TextProcessor.CouldNotDetermineDateException) {
+                    tableViewModel.onDateSupplied = { manualDate ->
+                        proceedWithExtraction(manualDate, rawTextGrid, detection, imageBitmap, onFinished)
+                    }
+                    return@launch
+                }
+                // If no exception, just run immediately
+                proceedWithExtraction(date, rawTextGrid, detection, imageBitmap, onFinished)
+            }
+        }
+    }
+
+    private fun proceedWithExtraction(
+        date: String?,
+        rawTextGrid: Array<Array<String>>,
+        detection: TableDetector.TableDetectionResult,
+        imageBitmap: Bitmap,
+        onFinished: () -> Unit
+    ) {
+        scope.launch(Dispatchers.IO) {
+            if (date != null) {
                 val (table, analysis, rowPaths) = withContext(Dispatchers.IO) {
-                    val rawTextGrid = TextProcessor.extractTextFromCells(detection.cells, imageBitmap, listOf(0, 1, 2, 3))
                     val table = TextProcessor.refineTableData(rawTextGrid)
                     val analysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells)
 
@@ -504,7 +560,6 @@ class MainActivity : ComponentActivity() {
 
                     Triple(table, analysis, rowPaths)
                 }
-                val date = table[0][3]
                 tableViewModel.loadDate(date)
                 val page = "e_p1" // TODO add choosing of the page (e-employee, m-manager, p1-page1)
                 // TODO sanity check - check if the number of rows match between this page and previously captured page. If no - display warning
@@ -545,14 +600,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 tableViewModel.saveToStorage()
-
-                detection.gray.release()
-                detection.thresh.release()
-                detection.mask.release()
-                detection.lines.release()
-                // Switch View Automatically
-                onFinished()
             }
+
+            detection.gray.release()
+            detection.thresh.release()
+            detection.mask.release()
+            detection.lines.release()
+            // Switch View Automatically
+            onFinished()
         }
     }
 

@@ -52,7 +52,6 @@ object TextProcessor {
                             .addOnFailureListener { e -> cont.resume("ERROR: ${e.message}") {} }
                     }
 
-                    // 3. Time column-specific repair
                     results[row][col] = ocrText
 
                     // Clean up temporary bitmaps!
@@ -88,7 +87,6 @@ object TextProcessor {
             }
         }
 
-        repairDecideDate(refinedGrid)
         for (row in refinedGrid.indices) {
             // Skip header row
             if (row == 0) {
@@ -97,8 +95,14 @@ object TextProcessor {
             else {
                 for (col in refinedGrid[row].indices) {
                     val ocrText = refinedGrid[row][col]
-                    if (col == TIME_START_COL || col == TIME_END_COL)
-                        refinedGrid[row][col] = repairTimeCols(ocrText)
+                    if (col == TIME_START_COL || col == TIME_END_COL) {
+                        val time = repairTimeCols(ocrText)
+                        val minutes = TimeUtils.parseTimeOrNull(time)
+                        if (minutes != null && TimeUtils.round15(minutes) != minutes)
+                            refinedGrid[row][col] = "X"
+                        else
+                            refinedGrid[row][col] = time
+                    }
                 }
             }
         }
@@ -106,7 +110,7 @@ object TextProcessor {
         return refinedGrid
     }
 
-    fun repairTimeCols(text: String): String {
+    private fun repairTimeCols(text: String): String {
         // 1. Clean whitespace
         var cleaned = text.replace(" ", "").trim()
 
@@ -126,7 +130,6 @@ object TextProcessor {
         if (digits.length == 4) { // the time is always written as 07:05 so anything other than 4 digits is not time
             val hh = digits.substring(0, 2).toInt()
             val mm = digits.substring(2, 4).toInt()
-
             if (hh in 0..23 && mm in 0..59) {
                 return "${digits.substring(0, 2)}:${digits.substring(2)}"
             } else {
@@ -137,11 +140,11 @@ object TextProcessor {
         // Check if UW/UWP/UBP/W was written in this cell instead of the time
         val holidayLetters = "UWPM"
         if (cleaned.any { it.uppercaseChar() in holidayLetters })
-            return "UW"
+            return "W"
         return "X"
     }
 
-    private fun repairDecideDate(grid: Array<Array<String>>) {
+    fun determineDate(grid: Array<Array<String>>): String {
         val d1 = grid[0][2].take( 6).filter { it.isDigit() }.take(4)
         val d2 = grid[0][3].take( 6).filter { it.isDigit() }.take(4)
         val d3 = grid[0][4].take( 6).filter { it.isDigit() }.take(4)
@@ -161,9 +164,7 @@ object TextProcessor {
             3 -> resolveThreeDigitDate(winner)
             else -> throw CouldNotDetermineDateException("Date voting malfunction. The winner was $winner")
         }
-        grid[0][2] = date
-        grid[0][3] = date
-        grid[0][4] = date
+        return date
     }
 
     /**
