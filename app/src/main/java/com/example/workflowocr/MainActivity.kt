@@ -370,13 +370,12 @@ class MainActivity : ComponentActivity() {
                                                 confirmButton = {
                                                     TextButton(
                                                         onClick = {
-                                                            tableViewModel.storageManager.deleteDataForDate(date)
                                                             // If we just deleted what we are looking at, go home
                                                             if (tableViewModel.currentWorkingDate == date) {
                                                                 currentScreen = Screen.SCAN_HUB
                                                             }
                                                             showConfirmForThisItem = false
-                                                            tableViewModel.refreshAvailableDates()
+                                                            tableViewModel.deleteDate(date)
                                                         },
                                                         colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
                                                     ) {
@@ -525,7 +524,7 @@ class MainActivity : ComponentActivity() {
                     TextProcessor.extractTextFromCells(
                         detection.cells,
                         imageBitmap,
-                        listOf(0, 1, 2, 3)
+                        listOf(0, 2, 3, 4)
                     )
                 }
                 val date = try {
@@ -556,7 +555,7 @@ class MainActivity : ComponentActivity() {
                     val analysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells)
 
                     // Fallback snippets cut out from the table image
-                    val rowPaths = tableViewModel.storageManager.createSnippets(imageBitmap, detection.cells, table[0][3])
+                    val rowPaths = tableViewModel.storageManager.createSnippets(imageBitmap, detection.cells, date)
 
                     Triple(table, analysis, rowPaths)
                 }
@@ -569,6 +568,7 @@ class MainActivity : ComponentActivity() {
                     val paths = rowPaths[row] ?: emptyMap()
 
                     val existingRow = tableViewModel.extractedRows[id]
+                    Log.d("DEBUG", "ROW: $row, name: ${table[row][0]}, start: ${table[row][2]}, finish: ${table[row][3]}, existed:${existingRow != null}")
 
                     if (existingRow != null) {
                         val namePath = StorageManager.rotateFile(existingRow.nameSnippetPath, paths["name"])

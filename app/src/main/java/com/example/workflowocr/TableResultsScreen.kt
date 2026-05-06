@@ -148,6 +148,15 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         storageManager.saveRowsToDisk(extractedRows, currentWorkingDate)
     }
 
+    fun deleteDate(date: String) {
+        storageManager.deleteDataForDate(date)
+        refreshAvailableDates()
+        if (currentWorkingDate == date) {
+            currentWorkingDate = null
+            extractedRows.clear()
+        }
+    }
+
     // Track the "Edit" state
     var editingRowId by mutableStateOf<String?>(null)
         private set // Only the ViewModel can change the ID
