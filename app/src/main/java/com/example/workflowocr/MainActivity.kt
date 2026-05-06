@@ -520,36 +520,35 @@ class MainActivity : ComponentActivity() {
 
             scope.launch {
                 val imageBitmap = TableDetector.matToBitmap(detection.gray)
-                val rawTextGrid = withContext(Dispatchers.IO) {
-                    TextProcessor.extractTextFromCells(
-                        detection.cells,
-                        imageBitmap,
-                        listOf(0, 2, 3, 4)
-                    )
-                }
                 val date = try {
-                    TextProcessor.determineDate(rawTextGrid)
+                    TextProcessor.determineDate(detection.cells, imageBitmap)
                 } catch (e: TextProcessor.CouldNotDetermineDateException) {
                     tableViewModel.onDateSupplied = { manualDate ->
-                        proceedWithExtraction(manualDate, rawTextGrid, detection, imageBitmap, onFinished)
+                        proceedWithExtraction(manualDate, detection, imageBitmap, onFinished)
                     }
                     return@launch
                 }
                 // If no exception, just run immediately
-                proceedWithExtraction(date, rawTextGrid, detection, imageBitmap, onFinished)
+                proceedWithExtraction(date, detection, imageBitmap, onFinished)
             }
         }
     }
 
     private fun proceedWithExtraction(
         date: String?,
-        rawTextGrid: Array<Array<String>>,
         detection: TableDetector.TableDetectionResult,
         imageBitmap: Bitmap,
         onFinished: () -> Unit
     ) {
         scope.launch(Dispatchers.IO) {
             if (date != null) {
+                val rawTextGrid = withContext(Dispatchers.IO) {
+                    TextProcessor.extractTextFromCells(
+                        detection.cells,
+                        imageBitmap,
+                        listOf(0, 2, 3)
+                    )
+                }
                 val (table, analysis, rowPaths) = withContext(Dispatchers.IO) {
                     val table = TextProcessor.refineTableData(rawTextGrid)
                     val analysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells)

@@ -30,41 +30,44 @@ object TextProcessor {
         val cols = specificCols ?: cells[0].indices
         for (row in cells.indices) {
             for (col in cols) {
-                val rect = getRectForCell(cells[row][col])
-
-                // 1. Inset to avoid table lines
-                val padding = 3
-                val x = (rect.x + padding).coerceIn(0, bitmap.width - 1)
-                val y = (rect.y + padding).coerceIn(0, bitmap.height - 1)
-                val w = (rect.width - 2 * padding).coerceIn(1, bitmap.width - x)
-                val h = (rect.height - 2 * padding).coerceIn(1, bitmap.height - y)
-
-                try {
-                    val cellBmp = Bitmap.createBitmap(bitmap, x, y, w, h)
-
-                    // 2. Upscale for better recognition
-                    val upscaled = Bitmap.createBitmap(cellBmp, 0, 0, cellBmp.width, cellBmp.height, matrix, true)
-
-                    val inputImage = InputImage.fromBitmap(upscaled, 0)
-                    val ocrText = suspendCancellableCoroutine<String> { cont ->
-                        recognizer.process(inputImage)
-                            .addOnSuccessListener { cont.resume(it.text) {} }
-                            .addOnFailureListener { e -> cont.resume("ERROR: ${e.message}") {} }
-                    }
-
-                    results[row][col] = ocrText
-
-                    // Clean up temporary bitmaps!
-                    cellBmp.recycle()
-                    upscaled.recycle()
-
-                } catch (e: Exception) {
-                    results[row][col] = ""
-                }
+                results[row][col] = extractTextFromCell(cells[row][col], bitmap, matrix)
             }
         }
 
         return@withContext results
+    }
+
+    private suspend fun extractTextFromCell(
+        cell: TableDetector.TableCell,
+        bitmap: Bitmap,
+        upscaleMatrix: Matrix
+    ): String = withContext(Dispatchers.IO) {
+        val rect = getRectForCell(cell)
+
+        // Inset to avoid table lines
+        val padding = 3
+        val x = (rect.x + padding).coerceIn(0, bitmap.width - 1)
+        val y = (rect.y + padding).coerceIn(0, bitmap.height - 1)
+        val w = (rect.width - 2 * padding).coerceIn(1, bitmap.width - x)
+        val h = (rect.height - 2 * padding).coerceIn(1, bitmap.height - y)
+
+        try {
+            // Upscale for better recognition
+            val upscaled = Bitmap.createBitmap(bitmap, x, y, w, h, upscaleMatrix, true)
+
+            val inputImage = InputImage.fromBitmap(upscaled, 0)
+            val ocrText = suspendCancellableCoroutine<String> { cont ->
+                recognizer.process(inputImage)
+                    .addOnSuccessListener { cont.resume(it.text) {} }
+                    .addOnFailureListener { e -> cont.resume("ERROR: ${e.message}") {} }
+            }
+
+            // Clean up temporary bitmaps!
+            upscaled.recycle()
+            return@withContext ocrText
+        } catch (e: Exception) {
+            return@withContext ""
+        }
     }
 
     fun getRectForCell(cell: TableDetector.TableCell) : Rect {
@@ -144,10 +147,15 @@ object TextProcessor {
         return "X"
     }
 
-    fun determineDate(grid: Array<Array<String>>): String {
-        val d1 = grid[0][2].take( 6).filter { it.isDigit() }.take(4)
-        val d2 = grid[0][3].take( 6).filter { it.isDigit() }.take(4)
-        val d3 = grid[0][4].take( 6).filter { it.isDigit() }.take(4)
+    suspend fun determineDate(cells: Array<Array<TableDetector.TableCell>>,
+                      bitmap: Bitmap): String = withContext(Dispatchers.IO) {
+        val matrix = Matrix().apply { postScale(2f, 2f) } // 2x Zoom
+        val text1 = extractTextFromCell(cells[0][2], bitmap, matrix)
+        val text2 = extractTextFromCell(cells[0][3], bitmap, matrix)
+        val text3 = extractTextFromCell(cells[0][4], bitmap, matrix)
+        val d1 = text1.take(6).filter { it.isDigit() }.take(4)
+        val d2 = text2.take(6).filter { it.isDigit() }.take(4)
+        val d3 = text3.take(6).filter { it.isDigit() }.take(4)
 
         val candidates = listOf(d1, d2, d3)
 
@@ -164,7 +172,7 @@ object TextProcessor {
             3 -> resolveThreeDigitDate(winner)
             else -> throw CouldNotDetermineDateException("Date voting malfunction. The winner was $winner")
         }
-        return date
+        return@withContext date
     }
 
     /**
