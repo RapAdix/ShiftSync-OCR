@@ -2,6 +2,7 @@ package com.example.workflowocr
 
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -148,8 +149,14 @@ object TextProcessor {
         return "X"
     }
 
-    suspend fun determineDate(cells: Array<Array<TableDetector.TableCell>>,
-                      bitmap: Bitmap): String = withContext(Dispatchers.IO) {
+    suspend fun determineDate(
+        cells: Array<Array<TableDetector.TableCell>>,
+        bitmap: Bitmap
+    ): String = withContext(Dispatchers.IO) {
+        if (cells.isEmpty() || cells[0].size <= 4) {
+            Log.w("DEBUG", "determineDate: Date detection impossible. cells array is (nearly) empty")
+            throw CouldNotDetermineDateException("Cells array is empty")
+        }
         val matrix = Matrix().apply { postScale(2f, 2f) } // 2x Zoom
         val text1 = extractTextFromCell(cells[0][2], bitmap, matrix)
         val text2 = extractTextFromCell(cells[0][3], bitmap, matrix)

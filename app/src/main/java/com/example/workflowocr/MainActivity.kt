@@ -132,7 +132,7 @@ class MainActivity : ComponentActivity() {
             Log.e("OpenCV", "Failed to load OpenCV")
         }
 
-        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_4)
+        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_4_nodpi)
 
         val paperColorScheme = lightColorScheme(
             primary = AccentOlive,
@@ -653,7 +653,7 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit) {
  */
 @Composable
 fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
-    var displayedBitmap by remember { mutableStateOf(originalBitmap) }
+    var displayedBitmap by remember { mutableStateOf(originalBitmap.scaleForPreview()) }
     var threshBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var maskBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var linesBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -685,11 +685,27 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                             deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
 
                             val detection = TableDetector.detectTableCells(deskewMat!!)
+                            Log.d("DEBUG", "detectTableCells exited")
 
                             // 2. Prepare Bitmaps for UI
                             val threshBmp = TableDetector.matToBitmap(detection.thresh)
+                            Log.d("DEBUG", "threshBmp matToBitmap preparations finished")
                             val maskBmp = TableDetector.matToBitmap(detection.mask)
+                            Log.d("DEBUG", "maskBmp matToBitmap preparations finished")
                             val linesBmp = TableDetector.matToBitmap(detection.lines)
+                            Log.d("DEBUG", "linesBmp matToBitmap preparations finished")
+//                            val deskewedBmp = TableDetector.matToBitmap(detection.gray)
+//                            Log.d("DEBUG", "matToBitmaps preparations finished")
+//                            object {
+//                                val boxed = null
+//                                val cells = detection.cells
+//                                val cellsAnalysis = null
+//                                val deskewedBmp = deskewedBmp
+//                                val thresh = threshBmp
+//                                val mask = maskBmp
+//                                val lines = linesBmp
+//                                val margins = null
+//                            }
 
                             // Draw the "Boxed" debug image
                             boxedMat = TableDetector.drawCells(detection.gray, detection.cells)
@@ -748,12 +764,13 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                             }
                         }
                     }
+                    Log.d("DEBUG", "summarized 'results' object obtained, memory released")
 
                     // Update all UI state variables at once on the Main thread
-                    threshBitmap = results.thresh
-                    maskBitmap = results.margins
-                    linesBitmap = results.lines
-                    displayedBitmap = results.boxed
+                    threshBitmap = results.thresh.scaleForPreview()
+                    maskBitmap = results.mask.scaleForPreview()
+                    linesBitmap = results.lines.scaleForPreview()
+                    displayedBitmap = results.boxed.scaleForPreview()
 
                     logText = withContext(Dispatchers.Default) {
                         // OCR (Text Extraction)
@@ -799,4 +816,11 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
         Text("OCR log:", modifier = Modifier.padding(top = 16.dp))
         Text(logText, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+fun Bitmap.scaleForPreview(maxWidth: Int = 1000): Bitmap {
+    if (this.width <= maxWidth) return this
+    val aspectRatio = this.height.toFloat() / this.width.toFloat()
+    val targetHeight = (maxWidth * aspectRatio).toInt()
+    return Bitmap.createScaledBitmap(this, maxWidth, targetHeight, true)
 }
