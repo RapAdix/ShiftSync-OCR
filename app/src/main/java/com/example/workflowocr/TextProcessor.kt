@@ -23,7 +23,7 @@ object TextProcessor {
         bitmap: Bitmap,
         specificCols: List<Int>? = null
     ): Array<Array<String>> = withContext(Dispatchers.IO) {
-
+        if (cells.isEmpty()) return@withContext emptyArray()
         val results = Array<Array<String>>(cells.size) {Array<String>(cells[0].size) {""} }
         val matrix = Matrix().apply { postScale(2f, 2f) } // 2x Zoom
 
@@ -84,6 +84,7 @@ object TextProcessor {
     }
 
     fun refineTableData(rawGrid: Array<Array<String>>): Array<Array<String>> {
+        if (rawGrid.isEmpty()) return emptyArray()
         val refinedGrid = Array(rawGrid.size) { row ->
             Array(rawGrid[row].size) { col ->
                 rawGrid[row][col]

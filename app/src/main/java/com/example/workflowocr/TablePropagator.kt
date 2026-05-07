@@ -1,5 +1,6 @@
 package com.example.workflowocr
 
+import android.util.Log
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
@@ -20,6 +21,10 @@ class TablePropagator(
     ): Array<Array<Point>> {
         expectedRows = validY.size
         expectedCols = validX.size
+        if (expectedRows == 0 || expectedCols == 0) {
+            Log.w("DEBUG", "Table propagation impossible, belts amount is 0, rows:$expectedRows, cols:$expectedCols")
+            return emptyArray()
+        }
 
         val midR = expectedRows / 2
         val midC = expectedCols / 2

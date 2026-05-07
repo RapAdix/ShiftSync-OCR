@@ -33,7 +33,7 @@ object TableDetector {
 
     class MissingTopRowException(message: String) : Exception(message)
 
-    private val minRequiredIntersectionsCoeff : Double = 0.5
+    private val minRequiredIntersectionsCoeff : Double = 0.6
 
     private val expectedRows = 38
     private val expectedCols = 12
@@ -171,7 +171,7 @@ object TableDetector {
         Core.reduce(horizontal, rowSums, 1, Core.REDUCE_SUM, CvType.CV_32F)
         Core.reduce(vertical, colSums, 0, Core.REDUCE_SUM, CvType.CV_32F)
 
-        // Determine Thresholds (3x Average)
+        // Determine Thresholds (x Average)
         val avgRow = Core.mean(rowSums).`val`[0]
         val avgCol = Core.mean(colSums).`val`[0]
         val rowThresh = avgRow * 1.5
@@ -199,6 +199,8 @@ object TableDetector {
         // Filter out fake belts(paper edges, pencil strokes..)
         val filteredXBelts = filterBeltsByDensity(rawGrid, rawXBelts, -1, isHorizontal = false)
         val filteredYBelts = filterBeltsByDensity(rawGrid, rawYBelts, -1, isHorizontal = true)
+        Log.d("DEBUG", "filteredYBelts ${filteredYBelts.size} potential rows")
+        Log.d("DEBUG", "filteredXBelts ${filteredXBelts.size} potential cols")
         if (isLayingOnSide(filteredXBelts, filteredYBelts)) {
             Log.d("DEBUG", "Rotating 90 degrees.")
             rotations++
@@ -211,6 +213,8 @@ object TableDetector {
         }
         var validXBelts = filterBeltsByDensity(rawGrid, rawXBelts, expectedXBelts, isHorizontal = false)
         var validYBelts = filterBeltsByDensity(rawGrid, rawYBelts, -1, isHorizontal = true)
+        Log.d("DEBUG", "validYBelts ${validYBelts.size} potential rows")
+        Log.d("DEBUG", "validXBelts ${validXBelts.size} potential cols")
         val propagatedYBelts = try {
             propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1)
         } catch (e: MissingTopRowException) {
@@ -232,6 +236,7 @@ object TableDetector {
                 validYBelts
             }
         }
+        Log.d("DEBUG", "propagatedYBelts ${propagatedYBelts.size} rows")
 
         // Put it again through grid creation because we removed fake belts
         val cleanedGrid = gridFromClosestIntersections(intersectionsList, validXBelts, propagatedYBelts)
@@ -239,7 +244,8 @@ object TableDetector {
         val propagator = TablePropagator()
         val propagatedGrid = propagator.propagateRobustGrid(intersections, validXBelts, propagatedYBelts, cleanedGrid)
 
-        val cells = Array(propagatedGrid.size - 1) { r ->
+        val cells = if (propagatedGrid.size <= 1) emptyArray()
+            else Array(propagatedGrid.size - 1) { r ->
             Array(propagatedGrid[0].size - 1) { c ->
                 TableCell(
                     topLeft = propagatedGrid[r][c],
@@ -250,7 +256,7 @@ object TableDetector {
             }
         }
 
-        Log.d("DEBUG", "Found ${cells.size} cell rows and ${cells[0].size} cell cols")
+        Log.d("DEBUG", "Found ${cells.size} cell rows and ${if (cells.isEmpty()) 0 else cells[0].size} cell cols")
 
         val linesDebugMat = Mat.zeros(horizontal.size(), CvType.CV_8UC3)
 
@@ -445,6 +451,7 @@ object TableDetector {
         validYBelts: List<Int>,
         expectedRows: Int
     ): List<Int> {
+        if (validYBelts.size <= 1) return validYBelts
         val detectionErrorMargin = 10 // px of difference between rows height is considered sane
         val gaps = mutableListOf<Int>()
         for (i in 0 until validYBelts.size - 1) gaps.add(validYBelts[i+1] - validYBelts[i])
@@ -565,7 +572,7 @@ object TableDetector {
         grid: Array<Array<Point?>>,
         belts: List<Int>,
         targetCount: Int,
-        isHorizontal: Boolean
+        isHorizontal: Boolean // true -> input are YBelts - each row's Y value
     ): List<Int> {
         if (belts.size <= targetCount) return belts
 
@@ -594,7 +601,8 @@ object TableDetector {
         } else {
             // Calculate threshold based on grid dimensions
             val maxPoints = if (isHorizontal) (grid.firstOrNull()?.size ?: 0) else grid.size
-            val minRequiredPoints = maxPoints * minRequiredIntersectionsCoeff
+            val minRequiredPoints = if (isHorizontal) expectedXBelts * minRequiredIntersectionsCoeff
+                else maxPoints * minRequiredIntersectionsCoeff
 
             return beltScorePairs
                 .filter { it.second >= minRequiredPoints }
@@ -650,13 +658,13 @@ object TableDetector {
 
     /** Convert an Android Bitmap -> OpenCV grayscale Mat */
     fun bitmapToGrayMat(bitmap: Bitmap): Mat {
-        Log.d("DEBUG", "bitmapToGratMay size before: ${bitmap.width} width, ${bitmap.height} height")
+        Log.d("DEBUG", "bitmapToGrayMat size before: ${bitmap.width} width, ${bitmap.height} height")
         val rgba = Mat()
         Utils.bitmapToMat(bitmap, rgba)
 
         val gray = Mat()
         Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGBA2GRAY)
-        Log.d("DEBUG", "bitmapToGratMay size after: ${gray.width()} width, ${gray.height()} height, ${gray.rows()} rows, ${gray.cols()} cols")
+        Log.d("DEBUG", "bitmapToGrayMat size after: ${gray.width()} width, ${gray.height()} height, ${gray.rows()} rows, ${gray.cols()} cols")
 
         rgba.release()
         return gray
@@ -666,6 +674,7 @@ object TableDetector {
     fun matToBitmap(mat: Mat): Bitmap {
         // Null or empty Mat? — return safe 1×1 bitmap
         if (mat.empty() || mat.cols() <= 0 || mat.rows() <= 0) {
+            Log.d("DEBUG", "matToBitmap: mat is empty")
             return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
         }
 
@@ -680,6 +689,7 @@ object TableDetector {
         if (debugImage.channels() == 1) {
             Imgproc.cvtColor(debugImage, debugImage, Imgproc.COLOR_GRAY2RGB)
         }
+        if (cells.isEmpty()) return debugImage
         val green = Scalar(0.0, 255.0, 0.0)
 
         // Iterate through the grid to create cells (N rows/cols give N-1 cells)

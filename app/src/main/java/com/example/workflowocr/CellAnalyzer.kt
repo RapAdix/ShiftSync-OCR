@@ -22,6 +22,7 @@ object CellAnalyzer {
     )
 
     fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>): Array<RowAnalysis> {
+        if (cells.isEmpty()) return emptyArray()
         val swollenThresh = Mat()
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
         Imgproc.dilate(thresh, swollenThresh, kernel)
