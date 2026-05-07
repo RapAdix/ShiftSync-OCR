@@ -119,10 +119,10 @@ class StorageManager(private val context: Context) {
 
             val modsPath = saveSnippet(
                 bitmap = bitmap,
-                p1 = cells[4].topLeft,
-                p2 = cells[4].topRight.move(40.0, 0.0),
-                p3 = cells[4].bottomRight.move(40.0, 0.0),
-                p4 = cells[4].bottomLeft,
+                p1 = cells[6].topLeft.move(0.0, -10.0),
+                p2 = cells[11].topRight.move(20.0, 0.0),
+                p3 = cells[11].bottomRight.move(20.0, 0.0),
+                p4 = cells[6].bottomLeft.move(0.0, 10.0),
                 fileName = "mods_${timestamp}_$i",
                 subDir = date,
                 paddingFactor = 0.1f
