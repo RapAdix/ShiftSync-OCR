@@ -151,6 +151,9 @@ class MainActivity : ComponentActivity() {
                 val composeScope = rememberCoroutineScope()
                 var schedulesExpanded by remember { mutableStateOf(false) } // Track unfolding
 
+                var isDebugCapture by remember { mutableStateOf(false) }
+                var debugBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
                 val availableDates by tableViewModel.availableDates.collectAsState()
 
                 // Refresh when the drawer opens to catch outside changes
@@ -170,10 +173,16 @@ class MainActivity : ComponentActivity() {
                     if (success && tempImageUri != null) {
                         val bitmap = ImageUtils.uriToBitmap(context, tempImageUri!!)
 
-                        executeFullExtractionFlow(bitmap) {
-                            currentScreen = Screen.TABLE_RESULTS
+                        if (isDebugCapture) {
+                            debugBitmap = bitmap
+                            currentScreen = Screen.SAMPLE_DETECTION
+                        } else {
+                            executeFullExtractionFlow(bitmap) {
+                                currentScreen = Screen.TABLE_RESULTS
+                            }
                         }
                     }
+                    isDebugCapture = false
                 }
 
                 val permissionLauncher = rememberLauncherForActivityResult(
@@ -453,13 +462,17 @@ class MainActivity : ComponentActivity() {
                                             currentScreen = Screen.TABLE_RESULTS
                                         }
                                     },
-                                    onScanRequest = onScanRequest
+                                    onScanRequest = onScanRequest,
+                                    onDebugScanRequest = {
+                                        isDebugCapture = true
+                                        onScanRequest()
+                                    }
                                 )
                                 Screen.TABLE_RESULTS -> TableResultsScreen(
                                     tableViewModel
                                 )
                                 Screen.ATTENDANCE_COUNT -> AttendanceSummaryScreen(tableViewModel.extractedRows)
-                                Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(originalBitmap)
+                                Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(debugBitmap?: originalBitmap)
                                 Screen.SETTINGS -> Text("Settings view")
                             }
                         }
@@ -610,7 +623,7 @@ class MainActivity : ComponentActivity() {
 // --- COMPOSE SCREENS ---
 
 @Composable
-fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit) {
+fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit, onDebugScanRequest: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -636,7 +649,6 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit) {
 
         Spacer(Modifier.height(24.dp))
 
-        // Secondary Action: Review
         OutlinedButton(
             onClick = onStubRequest,
             modifier = Modifier
@@ -644,6 +656,17 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit) {
                 .height(70.dp)
         ) {
             Text("Use Stub")
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        OutlinedButton(
+            onClick = onDebugScanRequest,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(70.dp)
+        ) {
+            Text("Put it into debug")
         }
     }
 }
