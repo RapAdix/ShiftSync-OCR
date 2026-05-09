@@ -56,6 +56,12 @@ object TableDetector {
         val validMask = Mat()
         Imgproc.threshold(gray, validMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
 
+        // FILL THE HOLES: This removes the table lines from the mask
+        // so they don't get deleted later.
+        val kernelSize = 25.0 // Large enough to cover thickest line/text
+        val closeElement = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(kernelSize, kernelSize))
+        Imgproc.morphologyEx(validMask, validMask, Imgproc.MORPH_CLOSE, closeElement)
+
         // Erode the mask to "shrink" the valid area away from the edges
         // This ensures that after rotation the high-contrast transition at the image edge is ignored.
         val maskErosionSize = 6.0 // px
@@ -63,6 +69,7 @@ object TableDetector {
         Imgproc.erode(validMask, validMask, maskElement)
 
         val thresh = Mat()
+        Core.normalize(gray, gray, 0.0, 255.0, Core.NORM_MINMAX)
         // Apply adaptive threshold to get binary image
         Imgproc.adaptiveThreshold(
             gray, thresh, 255.0,
@@ -174,8 +181,8 @@ object TableDetector {
         // Determine Thresholds (x Average)
         val avgRow = Core.mean(rowSums).`val`[0]
         val avgCol = Core.mean(colSums).`val`[0]
-        val rowThresh = avgRow * 1.5
-        val colThresh = avgCol * 1.5
+        val rowThresh = avgRow * 1.2
+        val colThresh = avgCol * 1.2
         Log.d("DEBUG", "avgRow = $avgRow")
         Log.d("DEBUG", "avgCol = $avgCol")
 
