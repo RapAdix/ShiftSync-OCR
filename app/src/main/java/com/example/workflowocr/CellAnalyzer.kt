@@ -26,7 +26,7 @@ object CellAnalyzer {
         val swollenThresh = Mat()
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
         Imgproc.dilate(thresh, swollenThresh, kernel)
-        val penCoverage = detectPenStrokes(swollenThresh, cells, MODIFICATION_COLUMNS + listOf(2, 3))
+        val penCoverage = detectPenStrokes(swollenThresh, cells, MODIFICATION_COLUMNS + listOf(TIME_START_COL, TIME_END_COL))
 
         val startTimeCrossed = Array(cells.size) {false}
         for (row in cells.indices) {

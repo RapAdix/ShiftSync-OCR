@@ -158,9 +158,9 @@ object TextProcessor {
             throw CouldNotDetermineDateException("Cells array is empty")
         }
         val matrix = Matrix().apply { postScale(2f, 2f) } // 2x Zoom
-        val text1 = extractTextFromCell(cells[0][2], bitmap, matrix)
-        val text2 = extractTextFromCell(cells[0][3], bitmap, matrix)
-        val text3 = extractTextFromCell(cells[0][4], bitmap, matrix)
+        val text1 = extractTextFromCell(cells[0][TIME_START_COL], bitmap, matrix)
+        val text2 = extractTextFromCell(cells[0][TIME_END_COL], bitmap, matrix)
+        val text3 = extractTextFromCell(cells[0][TIME_END_COL + 1], bitmap, matrix)
         val d1 = text1.take(6).filter { it.isDigit() }.take(4)
         val d2 = text2.take(6).filter { it.isDigit() }.take(4)
         val d3 = text3.take(6).filter { it.isDigit() }.take(4)

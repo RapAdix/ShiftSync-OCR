@@ -82,10 +82,10 @@ class StorageManager(private val context: Context) {
             // 1. Name Snippet (Column 0)
             val namePath = saveSnippet(
                 bitmap = bitmap,
-                p1 = cells[0].topLeft,
-                p2 = cells[0].topRight,
-                p3 = cells[0].bottomRight,
-                p4 = cells[0].bottomLeft,
+                p1 = cells[NAME_COL].topLeft,
+                p2 = cells[NAME_COL].topRight,
+                p3 = cells[NAME_COL].bottomRight,
+                p4 = cells[NAME_COL].bottomLeft,
                 fileName = "name_${timestamp}_$i",
                 subDir = date,
                 paddingFactor = -0.05f
@@ -94,10 +94,10 @@ class StorageManager(private val context: Context) {
             // 2. Start Time Snippet (Column 2)
             val startPath = saveSnippet(
                 bitmap = bitmap,
-                p1 = cells[2].topLeft,
-                p2 = cells[2].topRight,
-                p3 = cells[2].bottomRight,
-                p4 = cells[2].bottomLeft,
+                p1 = cells[TIME_START_COL].topLeft,
+                p2 = cells[TIME_START_COL].topRight,
+                p3 = cells[TIME_START_COL].bottomRight,
+                p4 = cells[TIME_START_COL].bottomLeft,
                 fileName = "start_${timestamp}_$i",
                 subDir = date,
                 paddingFactor = -0.05f
@@ -106,10 +106,10 @@ class StorageManager(private val context: Context) {
             // 3. Finish Time Snippet (Column 3)
             val finishPath = saveSnippet(
                 bitmap = bitmap,
-                p1 = cells[3].topLeft,
-                p2 = cells[3].topRight,
-                p3 = cells[3].bottomRight,
-                p4 = cells[3].bottomLeft,
+                p1 = cells[TIME_END_COL].topLeft,
+                p2 = cells[TIME_END_COL].topRight,
+                p3 = cells[TIME_END_COL].bottomRight,
+                p4 = cells[TIME_END_COL].bottomLeft,
                 fileName = "finish_${timestamp}_$i",
                 subDir = date,
                 paddingFactor = -0.05f
@@ -119,10 +119,10 @@ class StorageManager(private val context: Context) {
 
             val modsPath = saveSnippet(
                 bitmap = bitmap,
-                p1 = cells[6].topLeft.move(0.0, -10.0),
-                p2 = cells[11].topRight.move(20.0, 0.0),
-                p3 = cells[11].bottomRight.move(20.0, 0.0),
-                p4 = cells[6].bottomLeft.move(0.0, 10.0),
+                p1 = cells[MODIFICATION_COLUMNS[0]].topLeft.move(0.0, -10.0),
+                p2 = cells[EXPECTED_COLS - 1].topRight.move(20.0, 0.0),
+                p3 = cells[EXPECTED_COLS - 1].bottomRight.move(20.0, 0.0),
+                p4 = cells[MODIFICATION_COLUMNS[0]].bottomLeft.move(0.0, 10.0),
                 fileName = "mods_${timestamp}_$i",
                 subDir = date,
                 paddingFactor = 0.1f

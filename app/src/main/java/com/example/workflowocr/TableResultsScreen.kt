@@ -927,7 +927,7 @@ fun ProcessorRow.currentlyHasWrittenModifications(): Boolean {
     val analysis = newAnalysis?: confirmedAnalysis
     if (analysis == null) return true // if analyzing failed we assume there were some modifications
     val emptinessThreshold = 0.05
-    return analysis.penCoverage[8] > emptinessThreshold || analysis.penCoverage[9] > emptinessThreshold
+    return analysis.penCoverage[CHANGE_COL] > emptinessThreshold || analysis.penCoverage[MANAGER_COL] > emptinessThreshold
 }
 
 fun ProcessorRow.hasRecentlyWrittenModifications(): Boolean {

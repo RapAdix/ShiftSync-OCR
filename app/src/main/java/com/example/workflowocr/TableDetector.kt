@@ -36,7 +36,7 @@ object TableDetector {
     private val minRequiredIntersectionsCoeff : Double = 0.6
 
     private val expectedRows = 38
-    private val expectedCols = 12
+    private val expectedCols = EXPECTED_COLS
     private val headerRowHeightMultiplier = 3 // ratio of height between header_row / normal_row  // TODO put correct constant
 
     private val expectedYBelts = expectedRows + 1

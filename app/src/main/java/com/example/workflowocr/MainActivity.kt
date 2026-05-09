@@ -550,7 +550,7 @@ class MainActivity : ComponentActivity() {
                     TextProcessor.extractTextFromCells(
                         detection.cells,
                         imageBitmap,
-                        listOf(0, 2, 3)
+                        listOf(NAME_COL, TIME_START_COL, TIME_END_COL)
                     )
                 }
                 val (table, analysis, rowPaths) = withContext(Dispatchers.IO) {
@@ -571,7 +571,7 @@ class MainActivity : ComponentActivity() {
                     val paths = rowPaths[row] ?: emptyMap()
 
                     val existingRow = tableViewModel.extractedRows[id]
-                    Log.d("DEBUG", "ROW: $row, name: ${table[row][0]}, start: ${table[row][2]}, finish: ${table[row][3]}, existed:${existingRow != null}")
+                    Log.d("DEBUG", "ROW: $row, name: ${table[row][NAME_COL]}, start: ${table[row][TIME_START_COL]}, finish: ${table[row][TIME_END_COL]}, existed:${existingRow != null}")
 
                     if (existingRow != null) {
                         val namePath = StorageManager.rotateFile(existingRow.nameSnippetPath, paths["name"])
@@ -588,9 +588,9 @@ class MainActivity : ComponentActivity() {
                     } else {
                         tableViewModel.extractedRows[id] = ProcessorRow(
                             id = id,
-                            name = table[row][0],
-                            startTime = table[row][2],
-                            finishTime = table[row][3],
+                            name = table[row][NAME_COL],
+                            startTime = table[row][TIME_START_COL],
+                            finishTime = table[row][TIME_END_COL],
                             confirmedAnalysis = null,
                             newAnalysis = analysis[row],
                             // Linking the files we just created
@@ -797,7 +797,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
 
                     logText = withContext(Dispatchers.Default) {
                         // OCR (Text Extraction)
-                        val rawTextGrid = TextProcessor.extractTextFromCells(results.cells, results.deskewedBmp, listOf(0, 2, 3))
+                        val rawTextGrid = TextProcessor.extractTextFromCells(results.cells, results.deskewedBmp, listOf(NAME_COL, TIME_START_COL, TIME_END_COL))
                         val textGrid = TextProcessor.refineTableData(rawTextGrid)
 
                         // Build Log Text
