@@ -211,10 +211,10 @@ object TableDetector {
         if (isLayingOnSide(filteredXBelts, filteredYBelts)) {
             Log.d("DEBUG", "Rotating 90 degrees.")
             rotations++
-            val rotatedBelts = rotateBelts90(rawXBelts, rawYBelts, horizontal.cols())
+            val rotatedBelts = rotateBelts90(rawXBelts, rawYBelts, intersections.cols())
             rawXBelts = rotatedBelts.first
             rawYBelts = rotatedBelts.second
-            intersectionsList = rotatePoints90(intersectionsList, horizontal.cols())
+            intersectionsList = rotatePoints90(intersectionsList, intersections.cols())
             Core.rotate(intersections, intersections, Core.ROTATE_90_COUNTERCLOCKWISE) // needed in TablePropagator
             rawGrid = gridFromClosestIntersections(intersectionsList, rawXBelts, rawYBelts)
         }
@@ -228,13 +228,13 @@ object TableDetector {
             Log.d("DEBUG", "Couldn't detect top header row during propagation. Rotating by 180 degrees.")
             rotations += 2
 
-            val rotatedValid = rotateBelts180(validXBelts, validYBelts, horizontal.cols(), horizontal.rows())
+            val rotatedValid = rotateBelts180(validXBelts, validYBelts, intersections.cols(), intersections.rows())
             validXBelts = rotatedValid.first
             validYBelts = rotatedValid.second
-            val rotatedRaw = rotateBelts180(rawXBelts, rawYBelts, horizontal.cols(), horizontal.rows())
+            val rotatedRaw = rotateBelts180(rawXBelts, rawYBelts, intersections.cols(), intersections.rows())
             rawXBelts = rotatedRaw.first
             rawYBelts = rotatedRaw.second
-            intersectionsList = rotatePoints180(intersectionsList, horizontal.cols(), horizontal.rows())
+            intersectionsList = rotatePoints180(intersectionsList, intersections.cols(), intersections.rows())
             Core.rotate(intersections, intersections, Core.ROTATE_180) // needed in TablePropagator
             try {
                 propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1)
@@ -265,19 +265,19 @@ object TableDetector {
 
         Log.d("DEBUG", "Found ${cells.size} cell rows and ${if (cells.isEmpty()) 0 else cells[0].size} cell cols")
 
-        val linesDebugMat = Mat.zeros(horizontal.size(), CvType.CV_8UC3)
+        val linesDebugMat = Mat.zeros(intersections.size(), CvType.CV_8UC3)
 
         // 2. horizontal on RED
         for (y in rawYBelts) {
             val pt1 = Point(0.0, y.toDouble())
-            val pt2 = Point(horizontal.cols().toDouble(), y.toDouble())
+            val pt2 = Point(intersections.cols().toDouble(), y.toDouble())
             Imgproc.line(linesDebugMat, pt1, pt2, Scalar(0.0, 0.0, 255.0), 2)
         }
 
         // vertical BLUE
         for (x in rawXBelts) {
             val pt1 = Point(x.toDouble(), 0.0)
-            val pt2 = Point(x.toDouble(), horizontal.rows().toDouble())
+            val pt2 = Point(x.toDouble(), intersections.rows().toDouble())
             Imgproc.line(linesDebugMat, pt1, pt2, Scalar(255.0, 0.0, 0.0), 2)
         }
 
