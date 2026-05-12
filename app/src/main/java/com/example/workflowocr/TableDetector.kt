@@ -37,7 +37,7 @@ object TableDetector {
 
     private val expectedRows = 38
     private val expectedCols = EXPECTED_COLS
-    private val headerRowHeightMultiplier = 3 // ratio of height between header_row / normal_row  // TODO put correct constant
+    private val headerRowHeightMultiplier = HEADER_ROW_HEIGHT_MULTIPLIER // ratio of height between header_row / normal_row
 
     private val expectedYBelts = expectedRows + 1
     private val expectedXBelts = expectedCols + 1
@@ -464,7 +464,7 @@ object TableDetector {
         for (i in 0 until validYBelts.size - 1) gaps.add(validYBelts[i+1] - validYBelts[i])
 
         // For each gap, count how many other gaps are within tolerance 'detectionErrorMargin' pixels
-        // The gap with the highest count is our "Mode"
+        // The gap with the highest count is our "Model"
         val bestGap = gaps.maxByOrNull { g ->
             gaps.count { abs(it - g) <= detectionErrorMargin }
         } ?: gaps[0]
