@@ -190,4 +190,57 @@ class TablePropagator(
         roi.release()
         return result
     }
+
+    companion object {
+        fun gridFromClosestIntersections(
+            intersections: List<Point>,
+            validXBelts: List<Int>,
+            validYBelts: List<Int>,
+        ): Array<Array<Point?>> {
+            val rowEdgeCount = validYBelts.size
+            val colEdgeCount = validXBelts.size
+
+            // Create a 2D Array to store the best point for each intersection
+            // Points are nullable because some intersections might be missing
+            val grid = Array(rowEdgeCount) { arrayOfNulls<Point>(colEdgeCount) }
+
+            // Tolerance for perspective/noise
+            val tolerance = 15.0
+
+            for (intersection in intersections) {
+                val cx = intersection.x
+                val cy = intersection.y
+                // Find the closest index and check if it's within tolerance
+                val rowIndex = validYBelts.indices
+                    .minByOrNull { Math.abs(validYBelts[it] - cy) }
+                    ?.takeIf { Math.abs(validYBelts[it] - cy) < tolerance } ?: -1
+
+                val colIndex = validXBelts.indices
+                    .minByOrNull { Math.abs(validXBelts[it] - cx) }
+                    ?.takeIf { Math.abs(validXBelts[it] - cx) < tolerance } ?: -1
+
+                if (rowIndex != -1 && colIndex != -1) {
+                    val point = Point(cx, cy)
+                    val currentBest = grid[rowIndex][colIndex]
+
+                    if (currentBest == null) {
+                        grid[rowIndex][colIndex] = point
+                    } else {
+                        // Compare distances to the ideal "Global Belt" intersection
+                        val distNew =
+                            Math.hypot(cx - validXBelts[colIndex], cy - validYBelts[rowIndex])
+                        val distOld = Math.hypot(
+                            currentBest.x - validXBelts[colIndex],
+                            currentBest.y - validYBelts[rowIndex]
+                        )
+
+                        if (distNew < distOld) {
+                            grid[rowIndex][colIndex] = point
+                        }
+                    }
+                }
+            }
+            return grid
+        }
+    }
 }
