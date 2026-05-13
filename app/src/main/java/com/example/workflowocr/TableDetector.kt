@@ -517,7 +517,6 @@ object TableDetector {
                     break // After adding header row we are at the absolute top of the table.
                 }
             }
-            propagatedBelts.add(validYBelts[0])
         }
         val startIndex = if (propagatedBelts.isEmpty()) 1 else 0 // if first row was missing we start from 0
 

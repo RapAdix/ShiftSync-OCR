@@ -129,7 +129,7 @@ class TablePropagator(
         val validContours = contours.filter {
             val rect = Imgproc.boundingRect(it)
             val aspect = rect.width.toDouble() / rect.height.toDouble()
-            aspect in 0.2..5.0 && Imgproc.contourArea(it) > 5.0
+            aspect in 0.2..6.0
         }
 
         val bestContour = validContours.maxByOrNull { Imgproc.contourArea(it) }
