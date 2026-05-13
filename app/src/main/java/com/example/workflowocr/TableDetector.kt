@@ -412,30 +412,33 @@ object TableDetector {
         expectedRows: Int
     ): List<Int> {
         if (validYBelts.size <= 1) return validYBelts
-        val detectionErrorMargin = 10 // px of difference between rows height is considered sane
+        val detectionErrorCoeff = 0.08 // -> max 10% of difference between rows to be considered sane
+        val gapBucketMargin = 10 // px of difference between rows to fall in the same bucket
         val gaps = mutableListOf<Int>()
         for (i in 0 until validYBelts.size - 1) gaps.add(validYBelts[i+1] - validYBelts[i])
 
         // For each gap, count how many other gaps are within tolerance 'detectionErrorMargin' pixels
         // The gap with the highest count is our "Model"
         val bestGap = gaps.maxByOrNull { g ->
-            gaps.count { abs(it - g) <= detectionErrorMargin }
+            gaps.count { abs(it - g) <= gapBucketMargin }
         } ?: gaps[0]
 
+        val smallRowErrorMargin = bestGap * detectionErrorCoeff // px of difference between rows height is considered sane
         // To get a more precise value, average all gaps that fell into this cluster
-        val cluster = gaps.filter { Math.abs(it - bestGap) <= detectionErrorMargin }
+        val cluster = gaps.filter { Math.abs(it - bestGap) <= smallRowErrorMargin }
         val rowHeight = cluster.average().toInt()
         if (cluster.size * 2 < gaps.size)
             Log.d(
                 "DEBUG",
-                "Warning: Only ${cluster.size} rows has similar heights of $rowHeight +- $detectionErrorMargin out of all initially detected ${gaps.size} rows"
+                "Warning: Only ${cluster.size} rows has similar heights of $rowHeight +- $smallRowErrorMargin out of all initially detected ${gaps.size} rows"
             )
 
         val propagatedBelts = mutableListOf<Int>()
         val tallRowHeight = rowHeight * headerRowHeightMultiplier
+        val tallRowErrorMargin = tallRowHeight * detectionErrorCoeff
 
-        // ---- Adding rows before ----
-        if (gaps[0] < tallRowHeight - detectionErrorMargin) { // first row is missing
+            // ---- Adding rows before ----
+        if (gaps[0] < tallRowHeight - tallRowErrorMargin) { // first row is missing
             // We will add any possible normal size rows above of what was found
             // Until we manage to add the Tall Header Row
             var currentTop = validYBelts[0]
@@ -445,7 +448,7 @@ object TableDetector {
                 // Try to find a standard small row above the current top
                 val predictedSmall = currentTop - rowHeight
                 val rawSmall = rawYBelts
-                    .filter { Math.abs(it - predictedSmall) < detectionErrorMargin }
+                    .filter { Math.abs(it - predictedSmall) < smallRowErrorMargin }
                     .minByOrNull { Math.abs(it - predictedSmall) }
 
                 if (rawSmall != null) {
@@ -457,7 +460,7 @@ object TableDetector {
                     // No small row found in raw data try the Tall Top Row (the header).
                     val predictedTall = currentTop - tallRowHeight
                     val rawTall = rawYBelts
-                        .filter { Math.abs(it - predictedTall) < detectionErrorMargin }
+                        .filter { Math.abs(it - predictedTall) < smallRowErrorMargin }
                         .minByOrNull { Math.abs(it - predictedTall) }
 
                     if (rawTall != null) {
@@ -495,7 +498,7 @@ object TableDetector {
                 for (j in 1 until numRowsInGap) {
                     val predictedPos = currentAnchor + (j * predictedRowHeight)
 
-                    val rawBeltExists = rawYBelts.any { abs(it - predictedPos) < detectionErrorMargin }
+                    val rawBeltExists = rawYBelts.any { abs(it - predictedPos) < smallRowErrorMargin }
                     if (!rawBeltExists)
                         Log.d("DEBUG", "${j}th raw belt between validBelts $i and ${i+1} not found")
 
@@ -512,7 +515,7 @@ object TableDetector {
 
             // Try to find a raw belt at the bottom
             val rawBelt = rawYBelts
-                .filter { Math.abs(it - predictedPos) < detectionErrorMargin }
+                .filter { Math.abs(it - predictedPos) < smallRowErrorMargin }
                 .minByOrNull { Math.abs(it - predictedPos) }
 
             // expectedRows == -1 means we don't have a target so if we didn't find a raw belt, stop propagating
