@@ -33,7 +33,7 @@ object TableDetector {
 
     class MissingTopRowException(message: String) : Exception(message)
 
-    private val minRequiredIntersectionsCoeff : Double = 0.6
+    private val minRequiredIntersectionsCoeff : Double = 0.5 // Require at least 50% of the most intersected belt's points
 
     private val expectedRows = 38
     private val expectedCols = EXPECTED_COLS
@@ -460,7 +460,7 @@ object TableDetector {
                     // No small row found in raw data try the Tall Top Row (the header).
                     val predictedTall = currentTop - tallRowHeight
                     val rawTall = rawYBelts
-                        .filter { Math.abs(it - predictedTall) < smallRowErrorMargin }
+                        .filter { Math.abs(it - predictedTall) < tallRowErrorMargin }
                         .minByOrNull { Math.abs(it - predictedTall) }
 
                     if (rawTall != null) {
@@ -561,10 +561,8 @@ object TableDetector {
                 .map { it.first }
                 .sorted()
         } else {
-            // Calculate threshold based on grid dimensions
-            val maxPoints = if (isHorizontal) (grid.firstOrNull()?.size ?: 0) else grid.size
-            val minRequiredPoints = if (isHorizontal) expectedXBelts * minRequiredIntersectionsCoeff
-                else maxPoints * minRequiredIntersectionsCoeff
+            // Calculate threshold based on the amount of intersections on the most intersected belt.
+            val minRequiredPoints = scores.max() * minRequiredIntersectionsCoeff
 
             return beltScorePairs
                 .filter { it.second >= minRequiredPoints }
