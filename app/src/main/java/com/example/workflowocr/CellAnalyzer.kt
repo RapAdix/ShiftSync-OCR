@@ -23,21 +23,22 @@ object CellAnalyzer {
 
     fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>): Array<RowAnalysis> {
         if (cells.isEmpty()) return emptyArray()
-        val swollenThresh = Mat()
+        val cleanedThresh = Mat()
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
-        Imgproc.dilate(thresh, swollenThresh, kernel)
-        val penCoverage = detectPenStrokes(swollenThresh, cells, MODIFICATION_COLUMNS + listOf(TIME_START_COL, TIME_END_COL))
+        Imgproc.erode(thresh, cleanedThresh, kernel)
+        Imgproc.dilate(cleanedThresh, cleanedThresh, kernel)
+        val penCoverage = detectPenStrokes(cleanedThresh, cells, MODIFICATION_COLUMNS + listOf(TIME_START_COL, TIME_END_COL))
 
         val startTimeCrossed = Array(cells.size) {false}
         for (row in cells.indices) {
-            val (isCrossed, _, _) = detectPenCrossing(swollenThresh, cells[row][TIME_START_COL])
+            val (isCrossed, _, _) = detectPenCrossing(cleanedThresh, cells[row][TIME_START_COL])
             startTimeCrossed[row] = isCrossed
             if (isCrossed)
                 Log.d("DEBUG", "Row: $row, col: $TIME_START_COL has a crossing over time")
         }
         val endTimeCrossed = Array(cells.size) {false}
         for (row in cells.indices) {
-            val (isCrossed, _, _) = detectPenCrossing(swollenThresh, cells[row][TIME_END_COL])
+            val (isCrossed, _, _) = detectPenCrossing(cleanedThresh, cells[row][TIME_END_COL])
             endTimeCrossed[row] = isCrossed
             if (isCrossed)
                 Log.d("DEBUG", "Row: $row, col: $TIME_END_COL has a crossing over time")
@@ -50,7 +51,7 @@ object CellAnalyzer {
                 endTimeCrossed = endTimeCrossed[i]
                 )
         }.toTypedArray()
-        swollenThresh.release()
+        cleanedThresh.release()
         kernel.release()
         return analysis
     }

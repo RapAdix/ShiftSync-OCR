@@ -132,7 +132,7 @@ class MainActivity : ComponentActivity() {
             Log.e("OpenCV", "Failed to load OpenCV")
         }
 
-        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_4_nodpi)
+        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_7_nodpi)
 
         val paperColorScheme = lightColorScheme(
             primary = AccentOlive,
@@ -740,7 +740,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                             }
                             val red = Scalar(255.0, 0.0, 0.0)
                             for (row in detection.cells.indices) {
-                                for (col in listOf(2, 3)) {
+                                for (col in listOf(TIME_START_COL, TIME_END_COL)) {
                                     val (isCrossed, pointsTop, pointsBtm) = CellAnalyzer.detectPenCrossing(detection.thresh, detection.cells[row][col])
                                     if (isCrossed)
                                         Log.d("DEBUG", "Row: $row, col: $col has a crossing over time")

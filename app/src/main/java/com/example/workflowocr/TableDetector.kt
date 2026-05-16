@@ -75,7 +75,7 @@ object TableDetector {
             gray, thresh, 255.0,
             Imgproc.ADAPTIVE_THRESH_MEAN_C,
             Imgproc.THRESH_BINARY_INV,
-            15, 10.0
+            55, 8.0
         )
         Log.d("DEBUG", ">> thresh size = ${thresh.rows()} x ${thresh.cols()}")
         Log.d("DEBUG", "thresh nonZero = ${Core.countNonZero(thresh)}")
