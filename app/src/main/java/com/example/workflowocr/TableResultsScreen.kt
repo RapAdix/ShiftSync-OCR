@@ -246,7 +246,8 @@ enum class RowStatus(
     DANGER(Color(0xFFFFEBEE), Color(0xFFB71C1C)),     // Red theme
     WARNING(Color(0xFFFFFDE7), Color(0xFFF57F17)),    // Yellow theme
     NEUTRAL(Color.Transparent, Color.Unspecified),     // Default
-    MANUALLY_ADDED(Color.Transparent, Color(0xFFF57F17)) // Yellow text
+    MANUALLY_ADDED(Color.Transparent, Color(0xFFF57F17)), // Yellow text
+    ABSENT(Color(0xFFC0BDBD), Color(0xFF969691))
 }
 
 @Composable
@@ -437,7 +438,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
 fun displayTextTimeOrSnippet(row: ProcessorRow, path: String?, time: String) {
     if (row.hasTimeRecentlyCrossed()) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
     else if (TimeUtils.parseTimeOrNull(time) == null) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
-    else TimeBadge(time)
+    else TimeBadge(time, row.isRelevantButUltimatelyAbsent())
 }
 
 @Composable
@@ -452,21 +453,28 @@ fun SnippetImage(path: String, height: androidx.compose.ui.unit.Dp, width: andro
 }
 
 @Composable
-fun TimeBadge(time: String) {
+fun TimeBadge(time: String, isAbsent: Boolean = false) {
     val isError = TimeUtils.parseTimeOrNull(time) == null
 
     Surface(
-        // Slightly darker off-white for the badge background
-        color = if (isError) Color(0xFFFFEBEE) else Color(0xFFEBEBE6),
+        color = when {
+            isError -> Color(0xFFFFEBEE)
+            isAbsent -> Color.Transparent
+            else -> Color(0xFFEBEBE6)
+        },
         shape = MaterialTheme.shapes.small,
-        border = if (isError) BorderStroke(1.dp, Color.Red) else BorderStroke(0.5.dp, InkBlack.copy(alpha = 0.1f))
+        border = if (isError) {
+            BorderStroke(1.dp, Color.Red)
+        } else {
+            BorderStroke(0.5.dp, InkBlack.copy(alpha = if (isAbsent) 0.05f else 0.1f))
+        }
     ) {
         Text(
             text = if (time.isEmpty()) "??:??" else time,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
             style = MaterialTheme.typography.bodyMedium.copy(
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Black // Bold "Ink" look
+                fontWeight = if (isAbsent) FontWeight.Normal else FontWeight.Black
             ),
             color = if (isError) Color.Red else InkBlack
         )
@@ -896,8 +904,9 @@ fun ProcessorRow.getRowStatus(): RowStatus {
         !hasValidTimes() -> RowStatus.DANGER
         isManualEntry() -> RowStatus.MANUALLY_ADDED
         hasTimeRecentlyCrossed() -> RowStatus.DANGER
-        isExtraEmployee && hasValidTimes() -> RowStatus.NEUTRAL // !hasValidTimes(row) is already covered
+        isExtraEmployee && hasValidTimes() -> RowStatus.NEUTRAL // !hasValidTimes() is already covered
         hasRecentlyWrittenModifications() && hasTimeCrossed() -> RowStatus.WARNING
+        isRelevantButUltimatelyAbsent() -> RowStatus.ABSENT
         else -> RowStatus.NEUTRAL
     }
 }
@@ -937,6 +946,11 @@ fun ProcessorRow.hasRecentlyWrittenModifications(): Boolean {
     val columnsChanged =
         MODIFICATION_COLUMNS.filter { newAnalysis.penCoverage[it] - confirmedAnalysis.penCoverage[it] > coverageDifferenceThreshold }
     return columnsChanged.any()
+}
+
+// At some point appeared in the schedule but is not present.
+fun ProcessorRow.isRelevantButUltimatelyAbsent(): Boolean {
+    return hasValidTimes() && startTime == finishTime
 }
 
 fun Point.move(dx: Double = 0.0, dy: Double = 0.0) = Point(this.x + dx, this.y + dy)
