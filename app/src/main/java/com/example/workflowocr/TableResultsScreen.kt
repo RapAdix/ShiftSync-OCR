@@ -80,6 +80,9 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.opencv.core.Point
 import java.io.File
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 // Data Model
 @Serializable
@@ -237,6 +240,24 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
             storageManager.saveRowsToDisk(extractedRows, date)
         }
     }
+
+    fun isScheduleForToday(): Boolean {
+        if (currentWorkingDate.isNullOrEmpty()) return false
+        val now = LocalTime.now()
+        val today = LocalDate.now()
+
+        val presentBusinessDate = if (WorkplaceClosingTime < WorkplaceOpeningTime && now.hour < WorkplaceClosingTime) {
+            // If we are past midnight but BEFORE closing time, it's still yesterday's business day.
+            today.minusDays(1)
+        } else {
+            today
+        }
+
+        val formatter = DateTimeFormatter.ofPattern("DD-MM")
+        val presentBusinessDateStr = presentBusinessDate.format(formatter)
+
+        return currentWorkingDate == presentBusinessDateStr
+    }
 }
 
 enum class RowStatus(
@@ -357,8 +378,9 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                 HorizontalDivider(thickness = 1.dp, color = InkBlack.copy(alpha = 0.1f))
             }
 
+            val isScheduleForToday = viewModel.isScheduleForToday()
             items(rowsList, key = { it.id }) { row ->
-                val status = row.getRowStatus()
+                val status = row.getRowStatus(isScheduleForToday)
 
                 ListItem(
                     modifier = Modifier.clickable { viewModel.startEditing(row.id) },
@@ -897,7 +919,7 @@ fun TimePicker15(
 //      if !hasValidTimes display red row
 //      else display yellow row
 // if hasRecentModifications then only mark as warning if the times are crossed. otherwise it is probably employee signature
-fun ProcessorRow.getRowStatus(): RowStatus {
+fun ProcessorRow.getRowStatus(isScheduleForToday: Boolean): RowStatus {
     val isExtraEmployee = hasHoliday() && hasRecentlyWrittenModifications()
 
     return when {
@@ -905,7 +927,7 @@ fun ProcessorRow.getRowStatus(): RowStatus {
         isManualEntry() -> RowStatus.MANUALLY_ADDED
         hasTimeRecentlyCrossed() -> RowStatus.DANGER
         isExtraEmployee && hasValidTimes() -> RowStatus.NEUTRAL // !hasValidTimes() is already covered
-        hasRecentlyWrittenModifications() && hasTimeCrossed() -> RowStatus.WARNING
+        hasRecentlyWrittenModifications() && (!isScheduleForToday || hasTimeCrossed()) -> RowStatus.WARNING
         isRelevantButUltimatelyAbsent() -> RowStatus.ABSENT
         else -> RowStatus.NEUTRAL
     }

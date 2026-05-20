@@ -111,9 +111,6 @@ val InkBlack = Color(0xFF1A1A1A)
 val MutedGrey = Color(0xFF8A8A85)
 val AccentOlive = Color(0xFF5A5A40)
 
-val WorkplaceOpeningTime: Int = 6  // Hour of opening
-val WorkplaceClosingTime: Int = 1 // Hour of closure
-
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
 

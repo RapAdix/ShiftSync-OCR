@@ -1,5 +1,8 @@
 package com.example.workflowocr
 
+val WorkplaceOpeningTime: Int = 6  // Hour of opening
+val WorkplaceClosingTime: Int = 1 // Hour of closure
+
 const val EXPECTED_COLS = 13
 const val NAME_COL = 0
 const val TIME_START_COL = 3
