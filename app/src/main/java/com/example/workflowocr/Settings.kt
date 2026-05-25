@@ -8,9 +8,7 @@ enum class PresetType {
 }
 
 object PresetDefaults {
-    val default13Col = AppSettings(
-        workplaceOpeningTime = 6, // Hour of opening
-        workplaceClosingTime = 1, // Hour of closing
+    val layout13Col = TableLayout(
         expectedCols = 13,
         nameCol = 0,
         timeStartCol = 3,
@@ -22,9 +20,7 @@ object PresetDefaults {
         isCustom = false // Flag indicating this is a factory default
     )
 
-    val default12Col = AppSettings(
-        workplaceOpeningTime = 6, // Hour of opening
-        workplaceClosingTime = 1, // Hour of closing
+    val layout12Col = TableLayout(
         expectedCols = 12,
         nameCol = 0,
         timeStartCol = 2,
@@ -37,18 +33,24 @@ object PresetDefaults {
     )
 }
 
+// 1. Facility-wide rules. Always editable, independent of presets.
 @Serializable
-data class AppSettings(
-    val workplaceOpeningTime: Int = PresetDefaults.default13Col.workplaceOpeningTime,
-    val workplaceClosingTime: Int = PresetDefaults.default13Col.workplaceClosingTime,
-    val expectedCols: Int = PresetDefaults.default13Col.expectedCols,
-    val nameCol: Int = PresetDefaults.default13Col.nameCol,
-    val timeStartCol: Int = PresetDefaults.default13Col.timeStartCol,
-    val timeEndCol: Int = PresetDefaults.default13Col.timeEndCol,
-    val firstModificationCol: Int = PresetDefaults.default13Col.firstModificationCol,
-    val changeCol: Int = PresetDefaults.default13Col.changeCol,
-    val managerCol: Int = PresetDefaults.default13Col.managerCol,
-    val headerRowHeightMultiplier: Double = PresetDefaults.default13Col.headerRowHeightMultiplier,
+data class UniversalSettings(
+    val workplaceOpeningTime: Int = 6, // Hour of opening
+    val workplaceClosingTime: Int = 1  // Hour of closing
+)
+
+// 2. Structural grid rules. Highly volatile.
+@Serializable
+data class TableLayout(
+    val expectedCols: Int = PresetDefaults.layout13Col.expectedCols,
+    val nameCol: Int = PresetDefaults.layout13Col.nameCol,
+    val timeStartCol: Int = PresetDefaults.layout13Col.timeStartCol,
+    val timeEndCol: Int = PresetDefaults.layout13Col.timeEndCol,
+    val firstModificationCol: Int = PresetDefaults.layout13Col.firstModificationCol,
+    val changeCol: Int = PresetDefaults.layout13Col.changeCol,
+    val managerCol: Int = PresetDefaults.layout13Col.managerCol,
+    val headerRowHeightMultiplier: Double = PresetDefaults.layout13Col.headerRowHeightMultiplier,
     val isCustom: Boolean = true // True unless explicitly instantiated by our factory defaults
 ) {
     val modificationColumns: List<Int>

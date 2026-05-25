@@ -23,40 +23,54 @@ private val Context.dataStore by preferencesDataStore(name = "app_preferences")
 
 class StorageManager(private val context: Context) {
     private val PRESET_TYPE_KEY = stringPreferencesKey("preset_type")
-    private val SETTINGS_JSON_KEY = stringPreferencesKey("settings_json")
+    private val LAYOUT_JSON_KEY = stringPreferencesKey("layout_json")
+    private val UNIVERSAL_JSON_KEY = stringPreferencesKey("universal_json")
     // Configured to ignore unknown keys - in case fields are added to ProcessorRow later
     private val json = Json { ignoreUnknownKeys = true }
 
     // Dynamic, safe reading pipeline
-    val settingsStateFlow: Flow<Pair<PresetType, AppSettings>> = context.dataStore.data.map { preferences ->
+    val settingsStateFlow: Flow<Triple<PresetType, TableLayout, UniversalSettings>> = context.dataStore.data.map { preferences ->
+        // 1. Parse Universal Settings (or use factory defaults if missing)
+        val universalJson = preferences[UNIVERSAL_JSON_KEY]
+        val universal = if (universalJson != null) {
+            Json.decodeFromString<UniversalSettings>(universalJson)
+        } else {
+            UniversalSettings()
+        }
+
+        // 2. Parse Preset Type
         val presetTypeStr = preferences[PRESET_TYPE_KEY] ?: PresetType.DEFAULT_13_COL.name
         val presetType = PresetType.valueOf(presetTypeStr)
 
-        val settings = when (presetType) {
-            PresetType.DEFAULT_13_COL -> PresetDefaults.default13Col
-            PresetType.DEFAULT_12_COL -> PresetDefaults.default12Col
+        // 3. Parse Layout
+        val layout = when (presetType) {
+            PresetType.DEFAULT_13_COL -> PresetDefaults.layout13Col
+            PresetType.DEFAULT_12_COL -> PresetDefaults.layout12Col
             PresetType.CUSTOM -> {
-                val json = preferences[SETTINGS_JSON_KEY]
-                if (json != null) {
-                    Json.decodeFromString<AppSettings>(json)
+                val layoutJson = preferences[LAYOUT_JSON_KEY]
+                if (layoutJson != null) {
+                    Json.decodeFromString<TableLayout>(layoutJson)
                 } else {
-                    // Fallback to a clean editable custom template if they haven't typed one yet
-                    PresetDefaults.default13Col.copy(isCustom = true)
+                    PresetDefaults.layout13Col.copy(isCustom = true)
                 }
             }
         }
 
-        Pair(presetType, settings)
+        Triple(presetType, layout, universal)
+    }
+
+    suspend fun saveUniversalSettings(settings: UniversalSettings) {
+        context.dataStore.edit { preferences ->
+            preferences[UNIVERSAL_JSON_KEY] = Json.encodeToString(settings)
+        }
     }
 
     // Conditional savings rules
-    suspend fun saveSettings(type: PresetType, settings: AppSettings? = null) {
+    suspend fun saveLayoutPreset(type: PresetType, layout: TableLayout? = null) {
         context.dataStore.edit { preferences ->
             preferences[PRESET_TYPE_KEY] = type.name
-
-            if (settings != null && type == PresetType.CUSTOM) {
-                // Only save custom parameter objects to the file system
-                preferences[SETTINGS_JSON_KEY] = Json.encodeToString(AppSettings.serializer(), settings)
+            if (type == PresetType.CUSTOM && layout != null) {
+                preferences[LAYOUT_JSON_KEY] = Json.encodeToString(layout)
             }
         }
     }
@@ -114,7 +128,7 @@ class StorageManager(private val context: Context) {
         bitmap: Bitmap,
         table: Array<Array<TableDetector.TableCell>>,
         date: String,
-        settings: AppSettings
+        settings: TableLayout
     ): Map<Int, Map<String, String?>> {
         val rowPaths = mutableMapOf<Int, Map<String, String?>>()
         val timestamp = System.currentTimeMillis()

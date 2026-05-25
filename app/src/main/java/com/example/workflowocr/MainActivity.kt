@@ -524,7 +524,7 @@ class MainActivity : ComponentActivity() {
                     // Note: deskewGrayMat should return a NEW Mat if it modifies it
                     deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
 
-                    val detection = TableDetector.detectTableCells(deskewMat!!, tableViewModel.activeSettings)
+                    val detection = TableDetector.detectTableCells(deskewMat!!, tableViewModel.activeLayout)
 
                     detection
                 } finally {
@@ -546,7 +546,7 @@ class MainActivity : ComponentActivity() {
             scope.launch {
                 val imageBitmap = TableDetector.matToBitmap(detection.gray)
                 val date = try {
-                    TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeSettings)
+                    TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeLayout)
                 } catch (e: TextProcessor.CouldNotDetermineDateException) {
                     tableViewModel.onDateSupplied = { manualDate ->
                         proceedWithExtraction(manualDate, detection, imageBitmap, onFinished)
@@ -565,7 +565,7 @@ class MainActivity : ComponentActivity() {
         imageBitmap: Bitmap,
         onFinished: () -> Unit
     ) {
-        val settings = tableViewModel.activeSettings
+        val settings = tableViewModel.activeLayout
         scope.launch(Dispatchers.IO) {
             if (date != null) {
                 val rawTextGrid = withContext(Dispatchers.IO) {
@@ -704,7 +704,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
     var linesBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var logText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-    val settings = LocalTableViewModel.current.activeSettings
+    val settings = LocalTableViewModel.current.activeLayout
 
     Column(
         modifier = Modifier

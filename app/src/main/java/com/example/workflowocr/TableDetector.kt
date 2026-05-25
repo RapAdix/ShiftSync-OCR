@@ -41,7 +41,7 @@ object TableDetector {
      * - Array of rectangles representing detected cells
      * - grayscale Mat - rotated if incorrect table orientation detected
      */
-    fun detectTableCells(originalGray: Mat, settings: AppSettings): TableDetectionResult {
+    fun detectTableCells(originalGray: Mat, settings: TableLayout): TableDetectionResult {
         val expectedCols = settings.expectedCols
         val headerRowHeightMultiplier = settings.headerRowHeightMultiplier // ratio of height between header_row / normal_row
         val expectedXBelts = expectedCols + 1

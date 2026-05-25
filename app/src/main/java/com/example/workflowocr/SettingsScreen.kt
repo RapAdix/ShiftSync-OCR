@@ -19,8 +19,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,26 +33,16 @@ import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: TableViewModel) {
-    // 1. Observe our clean forwarded state hooks from the ViewModel
+    // Observe our newly decoupled state variables from the ViewModel
     val activePreset = viewModel.activePresetType
-    val currentSettings = viewModel.activeSettings
+    val currentLayout = viewModel.activeLayout
+    val universalSettings = viewModel.universalSettings
     val scrollState = rememberScrollState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Application Settings") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            )
-        }
-    ) { innerPadding ->
+    Scaffold {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .padding(16.dp)
                 .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -72,62 +60,62 @@ fun SettingsScreen(viewModel: TableViewModel) {
                     PresetSelectionRow(
                         label = "Default 13-Column Layout",
                         selected = activePreset == PresetType.DEFAULT_13_COL,
-                        onClick = { viewModel.updateSettings(PresetType.DEFAULT_13_COL, PresetDefaults.default13Col) }
+                        onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_13_COL) }
                     )
                     PresetSelectionRow(
                         label = "Default 12-Column Layout",
                         selected = activePreset == PresetType.DEFAULT_12_COL,
-                        onClick = { viewModel.updateSettings(PresetType.DEFAULT_12_COL, PresetDefaults.default12Col) }
+                        onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_12_COL) }
                     )
                     PresetSelectionRow(
                         label = "Custom Rules Template (Editable)",
                         selected = activePreset == PresetType.CUSTOM,
-                        onClick = {
-                            // If switching to custom for the first time, clone the current 13-col parameters as a base
-                            if (activePreset != PresetType.CUSTOM) {
-                                viewModel.updateSettings(PresetType.CUSTOM)
-                            }
-                        }
+                        onClick = { viewModel.updateLayoutPreset(PresetType.CUSTOM) }
                     )
                 }
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // --- SECTION 2: EDITABLE PARAMETERS ---
-            Text(
-                text = if (currentSettings.isCustom) "Modify Custom Settings" else "View Active Preset Rules (Locked)",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (currentSettings.isCustom) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            if (!currentSettings.isCustom) {
-                Text(
-                    text = "Select 'Custom Rules Template' above to unlock editing fields.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-
-            // Group 1: Shift Operational Hours
+            // --- SECTION 2: GLOBAL FACILITY TIMINGS (ALWAYS EDITABLE) ---
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Workplace Shifts Timings", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Workplace Shifts Timings",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
 
                     NumericSettingInput(
                         label = "Opening Hour (0-23)",
-                        value = currentSettings.workplaceOpeningTime,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(workplaceOpeningTime = it)) }
+                        value = universalSettings.workplaceOpeningTime,
+                        enabled = true, // Universal settings are always editable
+                        onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceOpeningTime = it)) }
                     )
                     NumericSettingInput(
                         label = "Closing Hour (0-23)",
-                        value = currentSettings.workplaceClosingTime,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(workplaceClosingTime = it)) }
+                        value = universalSettings.workplaceClosingTime,
+                        enabled = true, // Universal settings are always editable
+                        onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceClosingTime = it)) }
                     )
                 }
+            }
+
+            // --- SECTION 3: EDITABLE PARAMETERS ---
+            Text(
+                text = if (currentLayout.isCustom) "Modify Custom Layout" else "View Active Layout Rules (Locked)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (currentLayout.isCustom) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (!currentLayout.isCustom) {
+                Text(
+                    text = "Select 'Custom Rules Template' above to unlock structural table edits.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
 
             // Group 2: Table Columns Configuration Mapping
@@ -137,45 +125,45 @@ fun SettingsScreen(viewModel: TableViewModel) {
 
                     NumericSettingInput(
                         label = "Expected Column Size",
-                        value = currentSettings.expectedCols,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(expectedCols = it)) }
+                        value = currentLayout.expectedCols,
+                        enabled = currentLayout.isCustom,
+                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(expectedCols = it)) }
                     )
                     NumericSettingInput(
                         label = "Employee Name Column",
-                        value = currentSettings.nameCol,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(nameCol = it)) }
+                        value = currentLayout.nameCol,
+                        enabled = currentLayout.isCustom,
+                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(nameCol = it)) }
                     )
                     NumericSettingInput(
                         label = "Shift Start Time Column",
-                        value = currentSettings.timeStartCol,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(timeStartCol = it)) }
+                        value = currentLayout.timeStartCol,
+                        enabled = currentLayout.isCustom,
+                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(timeStartCol = it)) }
                     )
                     NumericSettingInput(
                         label = "Shift End Time Column",
-                        value = currentSettings.timeEndCol,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(timeEndCol = it)) }
+                        value = currentLayout.timeEndCol,
+                        enabled = currentLayout.isCustom,
+                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(timeEndCol = it)) }
                     )
                     NumericSettingInput(
                         label = "First Modification Track Column",
-                        value = currentSettings.firstModificationCol,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(firstModificationCol = it)) }
+                        value = currentLayout.firstModificationCol,
+                        enabled = currentLayout.isCustom,
+                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(firstModificationCol = it)) }
                     )
                     NumericSettingInput(
                         label = "Change Log Column",
-                        value = currentSettings.changeCol,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(changeCol = it)) }
+                        value = currentLayout.changeCol,
+                        enabled = currentLayout.isCustom,
+                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(changeCol = it)) }
                     )
                     NumericSettingInput(
                         label = "Manager Signature Column",
-                        value = currentSettings.managerCol,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(managerCol = it)) }
+                        value = currentLayout.managerCol,
+                        enabled = currentLayout.isCustom,
+                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(managerCol = it)) }
                     )
                 }
             }
@@ -187,9 +175,9 @@ fun SettingsScreen(viewModel: TableViewModel) {
 
                     DoubleSettingInput(
                         label = "Header Row Height Multiplier",
-                        value = currentSettings.headerRowHeightMultiplier,
-                        enabled = currentSettings.isCustom,
-                        onValueChange = { viewModel.updateSettings(PresetType.CUSTOM, currentSettings.copy(headerRowHeightMultiplier = it)) }
+                        value = currentLayout.headerRowHeightMultiplier,
+                        enabled = currentLayout.isCustom,
+                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(headerRowHeightMultiplier = it)) }
                     )
                 }
             }
@@ -219,7 +207,6 @@ fun NumericSettingInput(label: String, value: Int, enabled: Boolean, onValueChan
         value = textState,
         onValueChange = { input ->
             textState = input
-            // Only update downstream if input maps to a valid base-10 number string
             input.toIntOrNull()?.let { validInt ->
                 onValueChange(validInt)
             }

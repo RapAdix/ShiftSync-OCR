@@ -125,23 +125,28 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
     var activePresetType by mutableStateOf(PresetType.DEFAULT_13_COL)
         private set
 
-    var activeSettings by mutableStateOf(PresetDefaults.default13Col)
+    var activeLayout by mutableStateOf(PresetDefaults.layout13Col)
+        private set
+    var universalSettings by mutableStateOf(UniversalSettings())
         private set
 
     init {
         // Automatically listen to disk updates on initialization
         viewModelScope.launch {
-            storageManager.settingsStateFlow.collect { (type, settings) ->
+            storageManager.settingsStateFlow.collect { (type, layout, universal) ->
                 activePresetType = type
-                activeSettings = settings
+                activeLayout = layout
+                universalSettings = universal
             }
         }
     }
 
-    fun updateSettings(type: PresetType, settings: AppSettings? = null) {
-        viewModelScope.launch {
-            storageManager.saveSettings(type, settings)
-        }
+    fun updateUniversalSettings(settings: UniversalSettings) {
+        viewModelScope.launch { storageManager.saveUniversalSettings(settings) }
+    }
+
+    fun updateLayoutPreset(type: PresetType, layout: TableLayout? = null) {
+        viewModelScope.launch { storageManager.saveLayoutPreset(type, layout) }
     }
 
     fun refreshAvailableDates() {
@@ -269,8 +274,8 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         val today = LocalDate.now()
 
         val presentBusinessDate =
-            if (activeSettings.workplaceClosingTime < activeSettings.workplaceOpeningTime
-                && now.hour < activeSettings.workplaceClosingTime) {
+            if (universalSettings.workplaceClosingTime < universalSettings.workplaceOpeningTime
+                && now.hour < universalSettings.workplaceClosingTime) {
             // If we are past midnight but BEFORE closing time, it's still yesterday's business day.
             today.minusDays(1)
         } else {
@@ -332,7 +337,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                     .filter {
                         showAll ||
                                 !it.hasHoliday() || // people without holiday
-                                it.currentlyHasWrittenModifications(viewModel.activeSettings) || // people with modifications
+                                it.currentlyHasWrittenModifications(viewModel.activeLayout) || // people with modifications
                                 it.hasValidTimes() // people who have proper time inserted(maybe someone erased modifications with eraser)
                     }
                     .sortedWith(
@@ -404,7 +409,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
 
             val isScheduleForToday = viewModel.isScheduleForToday()
             items(rowsList, key = { it.id }) { row ->
-                val status = row.getRowStatus(isScheduleForToday, viewModel.activeSettings)
+                val status = row.getRowStatus(isScheduleForToday, viewModel.activeLayout)
 
                 ListItem(
                     modifier = Modifier.clickable { viewModel.startEditing(row.id) },
@@ -546,7 +551,7 @@ fun EditTimeDialog(
             )
         )
     }
-    val settings = LocalTableViewModel.current.activeSettings
+    val settings = LocalTableViewModel.current.activeLayout
     val hasModifications = row.currentlyHasWrittenModifications(settings)
 
     Dialog(
@@ -943,7 +948,7 @@ fun TimePicker15(
 //      if !hasValidTimes display red row
 //      else display yellow row
 // if hasRecentModifications then only mark as warning if the times are crossed. otherwise it is probably employee signature
-fun ProcessorRow.getRowStatus(isScheduleForToday: Boolean, settings: AppSettings): RowStatus {
+fun ProcessorRow.getRowStatus(isScheduleForToday: Boolean, settings: TableLayout): RowStatus {
     val isExtraEmployee = hasHoliday() && hasRecentlyWrittenModifications(settings)
 
     return when {
@@ -978,14 +983,14 @@ fun ProcessorRow.hasHoliday(): Boolean {
     return startTime.any { it in "UW" } || finishTime.any { it in "UW" }
 }
 
-fun ProcessorRow.currentlyHasWrittenModifications(settings: AppSettings): Boolean {
+fun ProcessorRow.currentlyHasWrittenModifications(settings: TableLayout): Boolean {
     val analysis = newAnalysis?: confirmedAnalysis
     if (analysis == null) return true // if analyzing failed we assume there were some modifications
     val emptinessThreshold = 0.05
     return analysis.penCoverage[settings.changeCol] > emptinessThreshold || analysis.penCoverage[settings.managerCol] > emptinessThreshold
 }
 
-fun ProcessorRow.hasRecentlyWrittenModifications(settings: AppSettings): Boolean {
+fun ProcessorRow.hasRecentlyWrittenModifications(settings: TableLayout): Boolean {
     if (confirmedAnalysis == null) return currentlyHasWrittenModifications(settings)
     if (newAnalysis == null) return false // because the other changes were already confirmed so are NOT recent
     val coverageDifferenceThreshold = 0.08

@@ -84,7 +84,7 @@ object TextProcessor {
         )
     }
 
-    fun refineTableData(rawGrid: Array<Array<String>>, settings: AppSettings): Array<Array<String>> {
+    fun refineTableData(rawGrid: Array<Array<String>>, settings: TableLayout): Array<Array<String>> {
         if (rawGrid.isEmpty()) return emptyArray()
         val refinedGrid = Array(rawGrid.size) { row ->
             Array(rawGrid[row].size) { col ->
@@ -152,7 +152,7 @@ object TextProcessor {
     suspend fun determineDate(
         cells: Array<Array<TableDetector.TableCell>>,
         bitmap: Bitmap,
-        settings: AppSettings
+        settings: TableLayout
     ): String = withContext(Dispatchers.IO) {
         if (cells.isEmpty() || cells[0].size <= 4) {
             Log.w("DEBUG", "determineDate: Date detection impossible. cells array is (nearly) empty")

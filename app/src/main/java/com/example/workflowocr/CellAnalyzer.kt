@@ -21,7 +21,7 @@ object CellAnalyzer {
         val endTimeCrossed: Boolean
     )
 
-    fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>, settings: AppSettings): Array<RowAnalysis> {
+    fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>, settings: TableLayout): Array<RowAnalysis> {
         if (cells.isEmpty()) return emptyArray()
         val cleanedThresh = Mat()
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))

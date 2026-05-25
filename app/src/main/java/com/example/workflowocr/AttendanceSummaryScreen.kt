@@ -44,7 +44,7 @@ fun AttendanceSummaryScreen(rowsMap: Map<String, ProcessorRow>) {
     val employees by remember {
         derivedStateOf { rowsMap.values.sortedBy { it.id } }
     }
-    val settings = LocalTableViewModel.current.activeSettings
+    val settings = LocalTableViewModel.current.universalSettings
     val summary = remember(employees) { calculateHourlySummary(employees, settings.workplaceOpeningTime, settings.workplaceClosingTime) }
     var expandedHour by remember { mutableStateOf<String?>(null) }
 
