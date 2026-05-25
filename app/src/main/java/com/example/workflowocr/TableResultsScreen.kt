@@ -138,7 +138,7 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateSettings(type: PresetType, settings: AppSettings) {
+    fun updateSettings(type: PresetType, settings: AppSettings? = null) {
         viewModelScope.launch {
             storageManager.saveSettings(type, settings)
         }

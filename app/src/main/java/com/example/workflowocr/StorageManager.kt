@@ -50,11 +50,11 @@ class StorageManager(private val context: Context) {
     }
 
     // Conditional savings rules
-    suspend fun saveSettings(type: PresetType, settings: AppSettings) {
+    suspend fun saveSettings(type: PresetType, settings: AppSettings? = null) {
         context.dataStore.edit { preferences ->
             preferences[PRESET_TYPE_KEY] = type.name
 
-            if (type == PresetType.CUSTOM) {
+            if (settings != null && type == PresetType.CUSTOM) {
                 // Only save custom parameter objects to the file system
                 preferences[SETTINGS_JSON_KEY] = Json.encodeToString(AppSettings.serializer(), settings)
             }
