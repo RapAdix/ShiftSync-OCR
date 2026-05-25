@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -27,9 +30,42 @@ android {
         }
     }
 
+    flavorDimensions.add("version")
+
+    productFlavors {
+        create("internal") {
+            dimension = "version"
+            applicationIdSuffix = ".internal"
+            versionNameSuffix = "-internal"
+            manifestPlaceholders += mapOf("manifestAppName" to "ShiftSync INTERNAL")
+        }
+
+        create("production") {
+            dimension = "version"
+            manifestPlaceholders += mapOf("manifestAppName" to "ShiftSync")
+        }
+    }
+
+    val localProperties = Properties()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localProperties.load(FileInputStream(localPropertiesFile))
+    }
+
+    signingConfigs {
+        create("releaseConfig") {
+            // Read values from local.properties safely
+            storeFile = localProperties.getProperty("RELEASE_KEYSTORE_PATH")?.let { file(it) }
+            storePassword = localProperties.getProperty("RELEASE_KEYSTORE_PASSWORD")
+            keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS")
+            keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("releaseConfig")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -44,7 +80,7 @@ android {
         jvmTarget = "11"
     }
     buildFeatures {
-        compose = true;
+        compose = true
         viewBinding = true
     }
 }
@@ -70,4 +106,50 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// Guardrail: Sabotage the build if trying to compile the internal flavor as a Release
+gradle.taskGraph.whenReady {
+    val targetedTasks = allTasks.map { it.name.lowercase() }
+    val internals = targetedTasks.filter { it.contains("internal") }
+    val isInternalAndRelease = internals.any { it.contains("release") || it.contains("production") || it.contains("bundle")}
+
+    if (isInternalAndRelease) {
+        throw GradleException(
+            "\n\n🚨 COMPILER BLOCKED! 🚨\n" +
+                    "You are attempting to build a Release APK using the 'internal' flavor.\n" +
+                    "This variant contains your super-secret testing images!\n\n" +
+                    "👉 FIX: Switch your Active Build Variant to 'releaseRelease' before building.\n"
+        )
+    }
+}
+
+// Automatically copy productionRelease APK out of intermediates on every run
+androidComponents {
+    onVariants(selector().withFlavor("version" to "production").withBuildType("release")) { variant ->
+        // Create your custom copy task dynamically
+        val copyTask = tasks.register<Copy>("copyProductionReleaseApkToOutputs") {
+            description = "Copies the production release APK from intermediates to outputs/apk for convenience."
+            group = "custom"
+
+            // Look up the official, final signed APK artifact directory dynamically
+            val apkFolder = variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.APK)
+
+            from(apkFolder)
+            into(rootProject.layout.projectDirectory.dir("app/build/outputs/apk/production/release"))
+
+            // Only copy actual .apk files, ignore temporary JSON metadata
+            include("**/*.apk")
+            eachFile {
+                path = "app-production-release.apk"
+            }
+        }
+
+        // Safely hook into the execution graph once tasks are realized by the engine
+        tasks.configureEach {
+            if (name == "assembleProductionRelease") {
+                finalizedBy(copyTask)
+            }
+        }
+    }
 }
