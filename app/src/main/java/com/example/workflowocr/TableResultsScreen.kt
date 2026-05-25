@@ -253,7 +253,7 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
             today
         }
 
-        val formatter = DateTimeFormatter.ofPattern("DD-MM")
+        val formatter = DateTimeFormatter.ofPattern("dd-MM")
         val presentBusinessDateStr = presentBusinessDate.format(formatter)
 
         return currentWorkingDate == presentBusinessDateStr
