@@ -153,3 +153,24 @@ androidComponents {
         }
     }
 }
+
+tasks.register<Copy>("copyLicenseToAssets") {
+    description = "Copies the root LICENSE file into the app assets folder so it gets bundled into the APK."
+    from(rootProject.file("LICENSE"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
+// Ensure this copy task runs BEFORE anything tries to compile or analyze project assets
+tasks.configureEach {
+    // 1. Catch asset compilation tasks
+    if (name.startsWith("generate") && name.endsWith("Assets")) {
+        dependsOn("copyLicenseToAssets")
+    }
+
+    // 2. Catch ALL Lint-related tasks (analysis, report models, verification, etc.)
+    if (name.contains("lint", ignoreCase = true)) {
+        // Enforce an explicit execution order sequence so they never conflict
+        mustRunAfter("copyLicenseToAssets")
+        dependsOn("copyLicenseToAssets")
+    }
+}
