@@ -71,7 +71,7 @@ object TextProcessor {
         }
     }
 
-    fun getRectForCell(cell: TableDetector.TableCell) : Rect {
+    private fun getRectForCell(cell: TableDetector.TableCell) : Rect {
         val cellW = (Math.abs(cell.topRight.x - cell.topLeft.x) +
                 Math.abs(cell.bottomRight.x - cell.bottomLeft.x)) / 2.0
         val cellH = (Math.abs(cell.bottomLeft.y - cell.topLeft.y) +
@@ -84,7 +84,7 @@ object TextProcessor {
         )
     }
 
-    fun refineTableData(rawGrid: Array<Array<String>>): Array<Array<String>> {
+    fun refineTableData(rawGrid: Array<Array<String>>, settings: AppSettings): Array<Array<String>> {
         if (rawGrid.isEmpty()) return emptyArray()
         val refinedGrid = Array(rawGrid.size) { row ->
             Array(rawGrid[row].size) { col ->
@@ -100,7 +100,7 @@ object TextProcessor {
             else {
                 for (col in refinedGrid[row].indices) {
                     val ocrText = refinedGrid[row][col]
-                    if (col == TIME_START_COL || col == TIME_END_COL) {
+                    if (col == settings.timeStartCol || col == settings.timeEndCol) {
                         val time = repairTimeCols(ocrText)
                         val minutes = TimeUtils.parseTimeOrNull(time)
                         if (minutes != null && TimeUtils.round15(minutes) != minutes)
@@ -151,16 +151,17 @@ object TextProcessor {
 
     suspend fun determineDate(
         cells: Array<Array<TableDetector.TableCell>>,
-        bitmap: Bitmap
+        bitmap: Bitmap,
+        settings: AppSettings
     ): String = withContext(Dispatchers.IO) {
         if (cells.isEmpty() || cells[0].size <= 4) {
             Log.w("DEBUG", "determineDate: Date detection impossible. cells array is (nearly) empty")
             throw CouldNotDetermineDateException("Cells array is empty")
         }
         val matrix = Matrix().apply { postScale(2f, 2f) } // 2x Zoom
-        val text1 = extractTextFromCell(cells[0][TIME_START_COL], bitmap, matrix)
-        val text2 = extractTextFromCell(cells[0][TIME_END_COL], bitmap, matrix)
-        val text3 = extractTextFromCell(cells[0][TIME_END_COL + 1], bitmap, matrix)
+        val text1 = extractTextFromCell(cells[0][settings.timeStartCol], bitmap, matrix)
+        val text2 = extractTextFromCell(cells[0][settings.timeEndCol], bitmap, matrix)
+        val text3 = extractTextFromCell(cells[0][settings.timeEndCol + 1], bitmap, matrix)
         val d1 = text1.take(6).filter { it.isDigit() }.take(4)
         val d2 = text2.take(6).filter { it.isDigit() }.take(4)
         val d3 = text3.take(6).filter { it.isDigit() }.take(4)

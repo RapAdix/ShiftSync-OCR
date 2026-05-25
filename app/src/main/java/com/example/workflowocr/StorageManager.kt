@@ -8,15 +8,58 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.FileProvider
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.opencv.core.Point
 import java.io.File
 import java.io.FileOutputStream
 
+private val Context.dataStore by preferencesDataStore(name = "app_preferences")
+
 class StorageManager(private val context: Context) {
+    private val PRESET_TYPE_KEY = stringPreferencesKey("preset_type")
+    private val SETTINGS_JSON_KEY = stringPreferencesKey("settings_json")
     // Configured to ignore unknown keys - in case fields are added to ProcessorRow later
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Dynamic, safe reading pipeline
+    val settingsStateFlow: Flow<Pair<PresetType, AppSettings>> = context.dataStore.data.map { preferences ->
+        val presetTypeStr = preferences[PRESET_TYPE_KEY] ?: PresetType.DEFAULT_13_COL.name
+        val presetType = PresetType.valueOf(presetTypeStr)
+
+        val settings = when (presetType) {
+            PresetType.DEFAULT_13_COL -> PresetDefaults.default13Col
+            PresetType.DEFAULT_12_COL -> PresetDefaults.default12Col
+            PresetType.CUSTOM -> {
+                val json = preferences[SETTINGS_JSON_KEY]
+                if (json != null) {
+                    Json.decodeFromString<AppSettings>(json)
+                } else {
+                    // Fallback to a clean editable custom template if they haven't typed one yet
+                    PresetDefaults.default13Col.copy(isCustom = true)
+                }
+            }
+        }
+
+        Pair(presetType, settings)
+    }
+
+    // Conditional savings rules
+    suspend fun saveSettings(type: PresetType, settings: AppSettings) {
+        context.dataStore.edit { preferences ->
+            preferences[PRESET_TYPE_KEY] = type.name
+
+            if (type == PresetType.CUSTOM) {
+                // Only save custom parameter objects to the file system
+                preferences[SETTINGS_JSON_KEY] = Json.encodeToString(AppSettings.serializer(), settings)
+            }
+        }
+    }
 
     fun saveRowsToDisk(rows: Map<String, ProcessorRow>, subDir: String?) {
         if (subDir.isNullOrBlank()) {
@@ -70,7 +113,8 @@ class StorageManager(private val context: Context) {
     fun createSnippets(
         bitmap: Bitmap,
         table: Array<Array<TableDetector.TableCell>>,
-        date: String
+        date: String,
+        settings: AppSettings
     ): Map<Int, Map<String, String?>> {
         val rowPaths = mutableMapOf<Int, Map<String, String?>>()
         val timestamp = System.currentTimeMillis()
@@ -82,10 +126,10 @@ class StorageManager(private val context: Context) {
             // 1. Name Snippet (Column 0)
             val namePath = saveSnippet(
                 bitmap = bitmap,
-                p1 = cells[NAME_COL].topLeft,
-                p2 = cells[NAME_COL].topRight,
-                p3 = cells[NAME_COL].bottomRight,
-                p4 = cells[NAME_COL].bottomLeft,
+                p1 = cells[settings.nameCol].topLeft,
+                p2 = cells[settings.nameCol].topRight,
+                p3 = cells[settings.nameCol].bottomRight,
+                p4 = cells[settings.nameCol].bottomLeft,
                 fileName = "name_${timestamp}_$i",
                 subDir = date,
                 paddingFactor = -0.05f
@@ -94,10 +138,10 @@ class StorageManager(private val context: Context) {
             // 2. Start Time Snippet (Column 2)
             val startPath = saveSnippet(
                 bitmap = bitmap,
-                p1 = cells[TIME_START_COL].topLeft,
-                p2 = cells[TIME_START_COL].topRight,
-                p3 = cells[TIME_START_COL].bottomRight,
-                p4 = cells[TIME_START_COL].bottomLeft,
+                p1 = cells[settings.timeStartCol].topLeft,
+                p2 = cells[settings.timeStartCol].topRight,
+                p3 = cells[settings.timeStartCol].bottomRight,
+                p4 = cells[settings.timeStartCol].bottomLeft,
                 fileName = "start_${timestamp}_$i",
                 subDir = date,
                 paddingFactor = -0.05f
@@ -106,10 +150,10 @@ class StorageManager(private val context: Context) {
             // 3. Finish Time Snippet (Column 3)
             val finishPath = saveSnippet(
                 bitmap = bitmap,
-                p1 = cells[TIME_END_COL].topLeft,
-                p2 = cells[TIME_END_COL].topRight,
-                p3 = cells[TIME_END_COL].bottomRight,
-                p4 = cells[TIME_END_COL].bottomLeft,
+                p1 = cells[settings.timeEndCol].topLeft,
+                p2 = cells[settings.timeEndCol].topRight,
+                p3 = cells[settings.timeEndCol].bottomRight,
+                p4 = cells[settings.timeEndCol].bottomLeft,
                 fileName = "finish_${timestamp}_$i",
                 subDir = date,
                 paddingFactor = -0.05f
@@ -119,10 +163,10 @@ class StorageManager(private val context: Context) {
 
             val modsPath = saveSnippet(
                 bitmap = bitmap,
-                p1 = cells[MODIFICATION_COLUMNS[0]].topLeft.move(0.0, -10.0),
-                p2 = cells[EXPECTED_COLS - 1].topRight.move(20.0, 0.0),
-                p3 = cells[EXPECTED_COLS - 1].bottomRight.move(20.0, 0.0),
-                p4 = cells[MODIFICATION_COLUMNS[0]].bottomLeft.move(0.0, 10.0),
+                p1 = cells[settings.modificationColumns[0]].topLeft.move(0.0, -10.0),
+                p2 = cells[settings.expectedCols - 1].topRight.move(20.0, 0.0),
+                p3 = cells[settings.expectedCols - 1].bottomRight.move(20.0, 0.0),
+                p4 = cells[settings.modificationColumns[0]].bottomLeft.move(0.0, 10.0),
                 fileName = "mods_${timestamp}_$i",
                 subDir = date,
                 paddingFactor = 0.1f

@@ -35,20 +35,17 @@ object TableDetector {
 
     private val minRequiredIntersectionsCoeff : Double = 0.5 // Require at least 50% of the most intersected belt's points
 
-    private val expectedRows = 38
-    private val expectedCols = EXPECTED_COLS
-    private val headerRowHeightMultiplier = HEADER_ROW_HEIGHT_MULTIPLIER // ratio of height between header_row / normal_row
-
-    private val expectedYBelts = expectedRows + 1
-    private val expectedXBelts = expectedCols + 1
-
     /**
      * Input: a grayscale Mat
      * Output:
      * - Array of rectangles representing detected cells
      * - grayscale Mat - rotated if incorrect table orientation detected
      */
-    fun detectTableCells(originalGray: Mat): TableDetectionResult {
+    fun detectTableCells(originalGray: Mat, settings: AppSettings): TableDetectionResult {
+        val expectedCols = settings.expectedCols
+        val headerRowHeightMultiplier = settings.headerRowHeightMultiplier // ratio of height between header_row / normal_row
+        val expectedXBelts = expectedCols + 1
+
         val gray = originalGray.clone()
 
         // 1. Create a mask of the "Paper" area,
@@ -124,7 +121,7 @@ object TableDetector {
 
         structure.release()
 
-        val (cells, linesDrawing, rotations) = findRefinedCorners(horizontal, vertical)
+        val (cells, linesDrawing, rotations) = findRefinedCorners(horizontal, vertical, expectedXBelts, headerRowHeightMultiplier)
         // Rotate source based on what rotations were performed during table detection.
         if (rotations % 4 != 0) {
             rotateMatNSteps(gray, rotations)
@@ -171,7 +168,12 @@ object TableDetector {
      * Detects table corners by combining global projections with local intersections
      * to filter out noise (like pen strokes).
      */
-    fun findRefinedCorners(horizontal: Mat, vertical: Mat): Triple<Array<Array<TableCell>>, Mat, Int> {
+    fun findRefinedCorners(
+        horizontal: Mat,
+        vertical: Mat,
+        expectedXBelts: Int,
+        headerRowHeightMultiplier: Double
+    ): Triple<Array<Array<TableCell>>, Mat, Int> {
         // Get Global Projections to find "Line Belts"
         val rowSums = Mat()
         val colSums = Mat()
@@ -223,7 +225,7 @@ object TableDetector {
         Log.d("DEBUG", "validYBelts ${validYBelts.size} potential rows")
         Log.d("DEBUG", "validXBelts ${validXBelts.size} potential cols")
         val propagatedYBelts = try {
-            propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1)
+            propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1, headerRowHeightMultiplier)
         } catch (e: MissingTopRowException) {
             Log.d("DEBUG", "Couldn't detect top header row during propagation. Rotating by 180 degrees.")
             rotations += 2
@@ -237,7 +239,7 @@ object TableDetector {
             intersectionsList = rotatePoints180(intersectionsList, intersections.cols(), intersections.rows())
             Core.rotate(intersections, intersections, Core.ROTATE_180) // needed in TablePropagator
             try {
-                propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1)
+                propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1, headerRowHeightMultiplier)
             } catch (e: MissingTopRowException) {
                 Log.d("DEBUG", "Error: Couldn't detect top header row during propagation even after rotating!")
                 validYBelts
@@ -409,7 +411,8 @@ object TableDetector {
     private fun propagateHorizontalBeltsByStructure(
         rawYBelts: List<Int>,
         validYBelts: List<Int>,
-        expectedRows: Int
+        expectedRows: Int,
+        headerRowHeightMultiplier: Double
     ): List<Int> {
         if (validYBelts.size <= 1) return validYBelts
         val detectionErrorCoeff = 0.08 // -> max 10% of difference between rows to be considered sane

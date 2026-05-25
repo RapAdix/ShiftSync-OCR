@@ -21,27 +21,27 @@ object CellAnalyzer {
         val endTimeCrossed: Boolean
     )
 
-    fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>): Array<RowAnalysis> {
+    fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>, settings: AppSettings): Array<RowAnalysis> {
         if (cells.isEmpty()) return emptyArray()
         val cleanedThresh = Mat()
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
         Imgproc.erode(thresh, cleanedThresh, kernel)
         Imgproc.dilate(cleanedThresh, cleanedThresh, kernel)
-        val penCoverage = detectPenStrokes(cleanedThresh, cells, MODIFICATION_COLUMNS + listOf(TIME_START_COL, TIME_END_COL))
+        val penCoverage = detectPenStrokes(cleanedThresh, cells, settings.modificationColumns + listOf(settings.timeStartCol, settings.timeEndCol))
 
         val startTimeCrossed = Array(cells.size) {false}
         for (row in cells.indices) {
-            val (isCrossed, _, _) = detectPenCrossing(cleanedThresh, cells[row][TIME_START_COL])
+            val (isCrossed, _, _) = detectPenCrossing(cleanedThresh, cells[row][settings.timeStartCol])
             startTimeCrossed[row] = isCrossed
             if (isCrossed)
-                Log.d("DEBUG", "Row: $row, col: $TIME_START_COL has a crossing over time")
+                Log.d("DEBUG", "Row: $row, col: ${settings.timeStartCol} has a crossing over time")
         }
         val endTimeCrossed = Array(cells.size) {false}
         for (row in cells.indices) {
-            val (isCrossed, _, _) = detectPenCrossing(cleanedThresh, cells[row][TIME_END_COL])
+            val (isCrossed, _, _) = detectPenCrossing(cleanedThresh, cells[row][settings.timeEndCol])
             endTimeCrossed[row] = isCrossed
             if (isCrossed)
-                Log.d("DEBUG", "Row: $row, col: $TIME_END_COL has a crossing over time")
+                Log.d("DEBUG", "Row: $row, col: ${settings.timeEndCol} has a crossing over time")
         }
 
         val analysis = penCoverage.mapIndexed { i, coverage ->
@@ -56,7 +56,7 @@ object CellAnalyzer {
         return analysis
     }
 
-    fun detectPenStrokes(thresh: Mat, cells: Array<Array<TableCell>>, cols: List<Int> = MODIFICATION_COLUMNS): Array<Array<Double>> {
+    fun detectPenStrokes(thresh: Mat, cells: Array<Array<TableCell>>, cols: List<Int>): Array<Array<Double>> {
         val penCoverage = Array(cells.size) {Array(cells[0].size) {0.0}}
         for (col in cols) {
             for (row in cells.indices) {
