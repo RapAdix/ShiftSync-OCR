@@ -925,7 +925,7 @@ fun ProcessorRow.getRowStatus(isScheduleForToday: Boolean): RowStatus {
     return when {
         !hasValidTimes() -> RowStatus.DANGER
         isManualEntry() -> RowStatus.MANUALLY_ADDED
-        hasTimeRecentlyCrossed() -> RowStatus.DANGER
+        hasTimeRecentlyCrossed() && startTime != finishTime -> RowStatus.DANGER
         isExtraEmployee && hasValidTimes() -> RowStatus.NEUTRAL // !hasValidTimes() is already covered
         hasRecentlyWrittenModifications() && (!isScheduleForToday || hasTimeCrossed()) -> RowStatus.WARNING
         isRelevantButUltimatelyAbsent() -> RowStatus.ABSENT

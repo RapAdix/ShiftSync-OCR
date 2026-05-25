@@ -142,8 +142,8 @@ object TextProcessor {
             }
         }
 
-        // Check if UW/UWP/UBP/W was written in this cell instead of the time
-        val holidayLetters = "UWPM"
+        // Check if UW/UWP/UBP/W/4N was written in this cell instead of the time
+        val holidayLetters = "UWPMN"
         if (cleaned.any { it.uppercaseChar() in holidayLetters })
             return "W"
         return "X"
