@@ -1,0 +1,24 @@
+Creative Commons Attribution-NonCommercial 4.0 International Public License
+
+By exercising the Licensed Rights (defined below), You accept and agree to be bound by the terms and conditions of this Creative Commons Attribution-NonCommercial 4.0 International Public License ("Public License"). To the extent this Public License may be interpreted as a contract, You are granted the Licensed Rights in consideration of Your acceptance of these terms and conditions, and the Licensor grants You such rights in consideration of benefits the Licensor receives from making the Licensed Material available under these terms and conditions.
+
+1. EXPLICIT RESTRICTIONS & INTENT
+This software is designed to automate workflow OCR data extraction and reduce manual administrative labor.
+- COMMERCIAL USE IS STRICTLY PROHIBITED. This includes, but is not limited to, use of this software, its compiled packages (APKs), or its derivative works by any corporate entity, business enterprise, or employer to optimize business operations, increase profit, or reduce institutional overhead.
+- Derivative works built on top of this software are permitted ONLY for strictly non-commercial, open-source projects. Any derivative project must carry this exact same restriction.
+- For explicit commercial licensing inquiries, contact the original author directly.
+
+2. SUMMARY OF RIGHTS (CC BY-NC 4.0)
+Subject to the terms and conditions of this Public License, the Licensor hereby grants You a worldwide, royalty-free, non-sublicensable, non-exclusive, irrevocable license to exercise the Licensed Rights in the Licensed Material to:
+- Share: Copy and redistribute the material in any medium or format.
+- Adapt: Remix, transform, and build upon the material.
+
+Under the following strict conditions:
+- Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the Licensor endorses you or your use.
+- NonCommercial: You may NOT use the material for commercial purposes.
+
+3. DISCLAIMER OF WARRANTIES AND LIMITATION OF LIABILITY
+The Licensed Material is provided "as-is" and "as-available," and the Licensor makes no representations or warranties of any kind concerning the Licensed Material, whether express, implied, statutory, or other.
+
+Full legal code of this license can be found online at:
+https://creativecommons.org/licenses/by-nc/4.0/legalcode
