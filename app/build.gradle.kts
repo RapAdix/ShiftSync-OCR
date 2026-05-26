@@ -83,6 +83,14 @@ android {
         compose = true
         viewBinding = true
     }
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a") // Only include modern phone types
+            isUniversalApk = false // Do not generate the giant 200MB combined file
+        }
+    }
 }
 
 dependencies {
@@ -122,36 +130,6 @@ gradle.taskGraph.whenReady {
                     "This variant contains your super-secret testing images!\n\n" +
                     "👉 FIX: Switch your Active Build Variant to 'releaseRelease' before building.\n"
         )
-    }
-}
-
-// Automatically copy productionRelease APK out of intermediates on every run
-androidComponents {
-    onVariants(selector().withFlavor("version" to "production").withBuildType("release")) { variant ->
-        // Create your custom copy task dynamically
-        val copyTask = tasks.register<Copy>("copyProductionReleaseApkToOutputs") {
-            description = "Copies the production release APK from intermediates to outputs/apk for convenience."
-            group = "custom"
-
-            // Look up the official, final signed APK artifact directory dynamically
-            val apkFolder = variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.APK)
-
-            from(apkFolder)
-            into(rootProject.layout.projectDirectory.dir("app/build/outputs/apk/production/release"))
-
-            // Only copy actual .apk files, ignore temporary JSON metadata
-            include("**/*.apk")
-            eachFile {
-                path = "app-production-release.apk"
-            }
-        }
-
-        // Safely hook into the execution graph once tasks are realized by the engine
-        tasks.configureEach {
-            if (name == "assembleProductionRelease") {
-                finalizedBy(copyTask)
-            }
-        }
     }
 }
 
