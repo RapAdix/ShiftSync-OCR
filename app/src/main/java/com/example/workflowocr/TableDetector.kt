@@ -47,7 +47,50 @@ object TableDetector {
         val expectedXBelts = expectedCols + 1
 
         val gray = originalGray.clone()
+        val thresh = createThresh(gray)
+        val (horizontal, vertical) = createHorizontalVertical(thresh)
 
+        val (cells, linesDrawing, rotations) = findRefinedCorners(horizontal, vertical, expectedXBelts, headerRowHeightMultiplier)
+        // Rotate source based on what rotations were performed during table detection.
+        if (rotations % 4 != 0) {
+            rotateMatNSteps(gray, rotations)
+            rotateMatNSteps(thresh, rotations)
+            rotateMatNSteps(horizontal, rotations)
+            rotateMatNSteps(vertical, rotations)
+        }
+
+        val linesOverlayImage = gray.clone()
+        if (linesOverlayImage.channels() == 1) {
+            Imgproc.cvtColor(linesOverlayImage, linesOverlayImage, Imgproc.COLOR_GRAY2RGB)
+        }
+        val linesMask = Mat()
+        Imgproc.cvtColor(linesDrawing, linesMask, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.threshold(linesMask, linesMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
+        linesDrawing.copyTo(linesOverlayImage, linesMask)
+
+        linesDrawing.release()
+        linesMask.release()
+
+        // Combine horizontal and vertical lines to get table mask
+        val mask = Mat()
+        Core.add(horizontal, vertical, mask)
+        Log.d("DEBUG", ">> mask size = ${mask.rows()} x ${mask.cols()}")
+        Log.d("DEBUG", "mask nonZero = ${Core.countNonZero(mask)}")
+
+        horizontal.release()
+        vertical.release()
+
+        // Sort cells by row, then column
+        return TableDetectionResult(
+            cells,
+            gray,
+            thresh,
+            mask,
+            linesOverlayImage
+        )
+    }
+
+    fun createThresh(gray: Mat): Mat {
         // 1. Create a mask of the "Paper" area,
         // // Background is pure black (0) after rotation
         val validMask = Mat()
@@ -66,10 +109,10 @@ object TableDetector {
         Imgproc.erode(validMask, validMask, maskElement)
 
         val thresh = Mat()
-        Core.normalize(gray, gray, 0.0, 255.0, Core.NORM_MINMAX)
+        Core.normalize(gray, thresh, 0.0, 255.0, Core.NORM_MINMAX)
         // Apply adaptive threshold to get binary image
         Imgproc.adaptiveThreshold(
-            gray, thresh, 255.0,
+            thresh, thresh, 255.0,
             Imgproc.ADAPTIVE_THRESH_MEAN_C,
             Imgproc.THRESH_BINARY_INV,
             55, 8.0
@@ -82,7 +125,10 @@ object TableDetector {
         // Cleanup mask
         validMask.release()
         maskElement.release()
+        return thresh
+    }
 
+    private fun createHorizontalVertical(thresh: Mat): Pair<Mat, Mat> {
         // Detect horizontal and vertical lines separately
         val horizontal = Mat(thresh.size(), CvType.CV_8UC1)
         val vertical = Mat(thresh.size(), CvType.CV_8UC1)
@@ -120,48 +166,10 @@ object TableDetector {
         Imgproc.dilate(vertical, vertical, verticalStructure)
 
         structure.release()
-
-        val (cells, linesDrawing, rotations) = findRefinedCorners(horizontal, vertical, expectedXBelts, headerRowHeightMultiplier)
-        // Rotate source based on what rotations were performed during table detection.
-        if (rotations % 4 != 0) {
-            rotateMatNSteps(gray, rotations)
-            rotateMatNSteps(thresh, rotations)
-            rotateMatNSteps(horizontal, rotations)
-            rotateMatNSteps(vertical, rotations)
-        }
-
-        val linesOverlayImage = gray.clone()
-        if (linesOverlayImage.channels() == 1) {
-            Imgproc.cvtColor(linesOverlayImage, linesOverlayImage, Imgproc.COLOR_GRAY2RGB)
-        }
-        val linesMask = Mat()
-        Imgproc.cvtColor(linesDrawing, linesMask, Imgproc.COLOR_BGR2GRAY)
-        Imgproc.threshold(linesMask, linesMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
-        linesDrawing.copyTo(linesOverlayImage, linesMask)
-
-        linesDrawing.release()
-        linesMask.release()
-
-        // Combine horizontal and vertical lines to get table mask
-        val mask = Mat()
-        Core.add(horizontal, vertical, mask)
-        Log.d("DEBUG", ">> mask size = ${mask.rows()} x ${mask.cols()}")
-        Log.d("DEBUG", "mask nonZero = ${Core.countNonZero(mask)}")
-
-        horizontal.release()
-        vertical.release()
-
         horizontalStructure.release()
         verticalStructure.release()
 
-        // Sort cells by row, then column
-        return TableDetectionResult(
-            cells,
-            gray,
-            thresh,
-            mask,
-            linesOverlayImage
-        )
+        return Pair(horizontal, vertical)
     }
 
     /**
@@ -174,24 +182,7 @@ object TableDetector {
         expectedXBelts: Int,
         headerRowHeightMultiplier: Double
     ): Triple<Array<Array<TableCell>>, Mat, Int> {
-        // Get Global Projections to find "Line Belts"
-        val rowSums = Mat()
-        val colSums = Mat()
-        Core.reduce(horizontal, rowSums, 1, Core.REDUCE_SUM, CvType.CV_32F)
-        Core.reduce(vertical, colSums, 0, Core.REDUCE_SUM, CvType.CV_32F)
-
-        // Determine Thresholds (x Average)
-        val avgRow = Core.mean(rowSums).`val`[0]
-        val avgCol = Core.mean(colSums).`val`[0]
-        val rowThresh = avgRow * 1.2
-        val colThresh = avgCol * 1.2
-        Log.d("DEBUG", "avgRow = $avgRow")
-        Log.d("DEBUG", "avgCol = $avgCol")
-
-        // Identify Candidate X and Y positions (Line Belts)
-        // rawYBelts[0] has Y pixel position of the horizontal table line.
-        var rawYBelts = getBeltCenters(rowSums, rowThresh, true)
-        var rawXBelts = getBeltCenters(colSums, colThresh, false)
+        var (rawXBelts, rawYBelts) = createBelts(horizontal, vertical)
 
         Log.d("DEBUG", "counted ${rawYBelts.size} potential rows")
         Log.d("DEBUG", "counted ${rawXBelts.size} potential cols")
@@ -284,14 +275,36 @@ object TableDetector {
         }
 
         // Cleanup
-        rowSums.release()
-        colSums.release()
         intersections.release()
 
         return Triple(cells, linesDebugMat, rotations)
     }
 
-    fun getBeltCenters(sums: Mat, threshold: Double, isRow: Boolean): List<Int> {
+    private fun createBelts(horizontal: Mat, vertical: Mat): Pair<List<Int>, List<Int>> {
+        // Get Global Projections to find "Line Belts"
+        val rowSums = Mat()
+        val colSums = Mat()
+        Core.reduce(horizontal, rowSums, 1, Core.REDUCE_SUM, CvType.CV_32F)
+        Core.reduce(vertical, colSums, 0, Core.REDUCE_SUM, CvType.CV_32F)
+
+        // Determine Thresholds (x Average)
+        val avgRow = Core.mean(rowSums).`val`[0]
+        val avgCol = Core.mean(colSums).`val`[0]
+        val rowThresh = avgRow * 1.2
+        val colThresh = avgCol * 1.2
+        Log.d("DEBUG", "avgRow = $avgRow")
+        Log.d("DEBUG", "avgCol = $avgCol")
+
+        // Identify Candidate X and Y positions (Line Belts)
+        // rawYBelts[0] has Y pixel position of the horizontal table line.
+        var rawYBelts = getBeltCenters(rowSums, rowThresh, true)
+        var rawXBelts = getBeltCenters(colSums, colThresh, false)
+        rowSums.release()
+        colSums.release()
+        return Pair(rawXBelts, rawYBelts)
+    }
+
+    private fun getBeltCenters(sums: Mat, threshold: Double, isRow: Boolean): List<Int> {
         val size = if (isRow) sums.rows() else sums.cols()
         val activeIndices = mutableListOf<Int>()
 
