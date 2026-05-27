@@ -464,10 +464,12 @@ class MainActivity : ComponentActivity() {
                             },
                             snackbarHost = {
                                 SnackbarHost(hostState = snackbarHostState) { data ->
+                                    val isError = data.visuals.message.startsWith("Extraction aborted")
+
                                     Snackbar(
-                                        containerColor = Color(0xFF2E7D32), // Emerald Green
-                                        contentColor = Color.White,
-                                        snackbarData = data
+                                        snackbarData = data,
+                                        containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else Color(0xFF2E7D32), // Emerald Green
+                                        contentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer else Color.White
                                     )
                                 }
                             }
@@ -536,25 +538,46 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            scope.launch {
-                snackbarHostState.showSnackbar(
-                    message = "Table detection success! Extracting text...",
-                    duration = SnackbarDuration.Short
-                )
-            }
-
-            scope.launch {
-                val imageBitmap = TableDetector.matToBitmap(detection.gray)
-                val date = try {
-                    TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeLayout)
-                } catch (e: TextProcessor.CouldNotDetermineDateException) {
-                    tableViewModel.onDateSupplied = { manualDate ->
-                        proceedWithExtraction(manualDate, detection, imageBitmap, onFinished)
+            when (detection) {
+                is TableDetector.TableDetectionResult.Success -> {
+                    // 1. Handle Successful Path
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            message = "Table detection success! Extracting text...",
+                            duration = SnackbarDuration.Short
+                        )
                     }
-                    return@launch
+
+                    scope.launch {
+                        val imageBitmap = TableDetector.matToBitmap(detection.gray)
+                        val date = try {
+                            TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeLayout)
+                        } catch (e: TextProcessor.CouldNotDetermineDateException) {
+                            tableViewModel.onDateSupplied = { manualDate ->
+                                proceedWithExtraction(manualDate, detection, imageBitmap, onFinished)
+                            }
+                            return@launch
+                        }
+                        // If no exception, just run immediately
+                        proceedWithExtraction(date, detection, imageBitmap, onFinished)
+                    }
                 }
-                // If no exception, just run immediately
-                proceedWithExtraction(date, detection, imageBitmap, onFinished)
+
+                is TableDetector.TableDetectionResult.Failure -> {
+                    // 2. Handle Structural Error Path
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            message = "Extraction aborted: Cannot find table header layout!",
+                            duration = SnackbarDuration.Long
+                        )
+                    }
+
+                    detection.gray.release()
+                    detection.thresh.release()
+                    detection.mask.release()
+                    detection.lines.release()
+                    onFinished()
+                }
             }
         }
     }

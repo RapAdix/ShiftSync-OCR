@@ -23,13 +23,31 @@ object TableDetector {
         val bottomRight: Point
     )
 
-    data class TableDetectionResult(
-        val cells: Array<Array<TableCell>>,
-        val gray: Mat,
-        val thresh: Mat,
-        val mask: Mat,
-        val lines: Mat
-    )
+    sealed class TableDetectionResult {
+        // 1. Shared fields accessible on both Success and Failure layouts
+        abstract val cells: Array<Array<TableDetector.TableCell>>
+        abstract val gray: Mat
+        abstract val thresh: Mat
+        abstract val mask: Mat
+        abstract val lines: Mat
+
+        data class Success(
+            override val cells: Array<Array<TableDetector.TableCell>>,
+            override val gray: Mat,
+            override val thresh: Mat,
+            override val mask: Mat,
+            override val lines: Mat
+        ) : TableDetectionResult()
+
+        data class Failure(
+            override val cells: Array<Array<TableDetector.TableCell>>,
+            override val gray: Mat,
+            override val thresh: Mat,
+            override val mask: Mat,
+            override val lines: Mat,
+            val exception: Exception // 👈 Explains why text parsing shouldn't proceed
+        ) : TableDetectionResult()
+    }
 
     class MissingTopRowException(message: String) : Exception(message)
 
@@ -41,53 +59,15 @@ object TableDetector {
      * - Array of rectangles representing detected cells
      * - grayscale Mat - rotated if incorrect table orientation detected
      */
-    fun detectTableCells(originalGray: Mat, settings: TableLayout): TableDetectionResult {
+    fun detectTableCells(gray: Mat, settings: TableLayout): TableDetectionResult {
         val expectedCols = settings.expectedCols
         val headerRowHeightMultiplier = settings.headerRowHeightMultiplier // ratio of height between header_row / normal_row
         val expectedXBelts = expectedCols + 1
 
-        val gray = originalGray.clone()
         val thresh = createThresh(gray)
         val (horizontal, vertical) = createHorizontalVertical(thresh)
 
-        val (cells, linesDrawing, rotations) = findRefinedCorners(horizontal, vertical, expectedXBelts, headerRowHeightMultiplier)
-        // Rotate source based on what rotations were performed during table detection.
-        if (rotations % 4 != 0) {
-            rotateMatNSteps(gray, rotations)
-            rotateMatNSteps(thresh, rotations)
-            rotateMatNSteps(horizontal, rotations)
-            rotateMatNSteps(vertical, rotations)
-        }
-
-        val linesOverlayImage = gray.clone()
-        if (linesOverlayImage.channels() == 1) {
-            Imgproc.cvtColor(linesOverlayImage, linesOverlayImage, Imgproc.COLOR_GRAY2RGB)
-        }
-        val linesMask = Mat()
-        Imgproc.cvtColor(linesDrawing, linesMask, Imgproc.COLOR_BGR2GRAY)
-        Imgproc.threshold(linesMask, linesMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
-        linesDrawing.copyTo(linesOverlayImage, linesMask)
-
-        linesDrawing.release()
-        linesMask.release()
-
-        // Combine horizontal and vertical lines to get table mask
-        val mask = Mat()
-        Core.add(horizontal, vertical, mask)
-        Log.d("DEBUG", ">> mask size = ${mask.rows()} x ${mask.cols()}")
-        Log.d("DEBUG", "mask nonZero = ${Core.countNonZero(mask)}")
-
-        horizontal.release()
-        vertical.release()
-
-        // Sort cells by row, then column
-        return TableDetectionResult(
-            cells,
-            gray,
-            thresh,
-            mask,
-            linesOverlayImage
-        )
+        return findRefinedCorners(gray, thresh, horizontal, vertical, expectedXBelts, headerRowHeightMultiplier)
     }
 
     fun createThresh(gray: Mat): Mat {
@@ -176,12 +156,16 @@ object TableDetector {
      * Detects table corners by combining global projections with local intersections
      * to filter out noise (like pen strokes).
      */
-    fun findRefinedCorners(
+    private fun findRefinedCorners(
+        originalGray: Mat,
+        thresh: Mat,
         horizontal: Mat,
         vertical: Mat,
         expectedXBelts: Int,
         headerRowHeightMultiplier: Double
-    ): Triple<Array<Array<TableCell>>, Mat, Int> {
+    ): TableDetectionResult {
+        val gray = originalGray.clone()
+        var structuralException: MissingTopRowException? = null
         var (rawXBelts, rawYBelts) = createBelts(horizontal, vertical)
 
         Log.d("DEBUG", "counted ${rawYBelts.size} potential rows")
@@ -233,6 +217,7 @@ object TableDetector {
                 propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1, headerRowHeightMultiplier)
             } catch (e: MissingTopRowException) {
                 Log.d("DEBUG", "Error: Couldn't detect top header row during propagation even after rotating!")
+                structuralException = e
                 validYBelts
             }
         }
@@ -258,26 +243,77 @@ object TableDetector {
 
         Log.d("DEBUG", "Found ${cells.size} cell rows and ${if (cells.isEmpty()) 0 else cells[0].size} cell cols")
 
-        val linesDebugMat = Mat.zeros(intersections.size(), CvType.CV_8UC3)
+        // Rotate source based on what rotations were performed during table detection.
+        if (rotations % 4 != 0) {
+            rotateMatNSteps(gray, rotations)
+            rotateMatNSteps(thresh, rotations)
+            rotateMatNSteps(horizontal, rotations)
+            rotateMatNSteps(vertical, rotations)
+        }
+
+        val linesOverlayImage = createLinesOverlayImage(rawXBelts, rawYBelts, gray)
+
+        // Combine horizontal and vertical lines to get table mask
+        val mask = Mat()
+        Core.add(horizontal, vertical, mask)
+        Log.d("DEBUG", ">> mask size = ${mask.rows()} x ${mask.cols()}")
+        Log.d("DEBUG", "mask nonZero = ${Core.countNonZero(mask)}")
+
+        // Cleanup
+        intersections.release()
+        horizontal.release()
+        vertical.release()
+
+        return if (structuralException != null) {
+            TableDetectionResult.Failure(
+                cells = cells,
+                gray = gray,
+                thresh = thresh,
+                mask = mask,
+                lines = linesOverlayImage,
+                exception = structuralException
+            )
+        } else {
+            TableDetectionResult.Success(
+                cells = cells,
+                gray = gray,
+                thresh = thresh,
+                mask = mask,
+                lines = linesOverlayImage
+            )
+        }
+    }
+
+    private fun createLinesOverlayImage(rawXBelts: List<Int>, rawYBelts: List<Int>, gray: Mat): Mat {
+        val linesDrawing = Mat.zeros(gray.size(), CvType.CV_8UC3)
 
         // 2. horizontal on RED
         for (y in rawYBelts) {
             val pt1 = Point(0.0, y.toDouble())
-            val pt2 = Point(intersections.cols().toDouble(), y.toDouble())
-            Imgproc.line(linesDebugMat, pt1, pt2, Scalar(0.0, 0.0, 255.0), 2)
+            val pt2 = Point(gray.cols().toDouble(), y.toDouble())
+            Imgproc.line(linesDrawing, pt1, pt2, Scalar(0.0, 0.0, 255.0), 2)
         }
 
         // vertical BLUE
         for (x in rawXBelts) {
             val pt1 = Point(x.toDouble(), 0.0)
-            val pt2 = Point(x.toDouble(), intersections.rows().toDouble())
-            Imgproc.line(linesDebugMat, pt1, pt2, Scalar(255.0, 0.0, 0.0), 2)
+            val pt2 = Point(x.toDouble(), gray.rows().toDouble())
+            Imgproc.line(linesDrawing, pt1, pt2, Scalar(255.0, 0.0, 0.0), 2)
         }
 
-        // Cleanup
-        intersections.release()
+        val linesOverlayImage = gray.clone()
+        if (linesOverlayImage.channels() == 1) {
+            Imgproc.cvtColor(linesOverlayImage, linesOverlayImage, Imgproc.COLOR_GRAY2RGB)
+        }
+        val linesMask = Mat()
+        Imgproc.cvtColor(linesDrawing, linesMask, Imgproc.COLOR_BGR2GRAY)
+        Imgproc.threshold(linesMask, linesMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
+        linesDrawing.copyTo(linesOverlayImage, linesMask)
 
-        return Triple(cells, linesDebugMat, rotations)
+        linesDrawing.release()
+        linesMask.release()
+
+        return linesOverlayImage
     }
 
     private fun createBelts(horizontal: Mat, vertical: Mat): Pair<List<Int>, List<Int>> {
