@@ -91,6 +91,11 @@ android {
             isUniversalApk = false // Do not generate the giant 200MB combined file
         }
     }
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -121,7 +126,8 @@ dependencies {
 gradle.taskGraph.whenReady {
     val targetedTasks = allTasks.map { it.name.lowercase() }
     val internals = targetedTasks.filter { it.contains("internal") }
-    val isInternalAndRelease = internals.any { it.contains("release") || it.contains("production") || it.contains("bundle")}
+    val internalsNotTest = internals.filterNot { it.contains("unittest") || it.contains("androidtest")}
+    val isInternalAndRelease = internalsNotTest.any { it.contains("release") || it.contains("production")}
 
     if (isInternalAndRelease) {
         throw GradleException(
