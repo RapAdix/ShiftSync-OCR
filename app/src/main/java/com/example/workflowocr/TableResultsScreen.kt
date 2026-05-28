@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -862,21 +863,34 @@ fun TimePicker15(
     value: Int,                // minutes (e.g. 480 = 08:00)
     onChange: (Int) -> Unit
 ) {
-    val times = remember {
-        (0 until 24 * 60 step 15).toList()
+    val closingTime = LocalTableViewModel.current.universalSettings.workplaceClosingTime // e.g. 1 hour (01:00 AM)
+
+    val times = remember(closingTime) {
+        val baseDay = (0 until 24 * 60 step 15).toList()
+        // Calculate how many extra minutes past midnight we need to display
+        // If closingTime is 0 or before midnight, we use 0 to force at least the 00:00 slot
+        val extraMinutesMax = if (closingTime > 0) closingTime * 60 else 0
+        val extraTail = (0..extraMinutesMax step 15).toList()
+
+        baseDay + extraTail
     }
 
-    val initialIndex = times.indexOf(value).coerceAtLeast(0)
+    var selectedIndex by remember {
+        mutableStateOf(times.indexOf(value).coerceAtLeast(0))
+    }
 
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = initialIndex
+        initialFirstVisibleItemIndex = selectedIndex
     )
 
     LaunchedEffect(value) {
-        val index = times.indexOf(value)
-        if (index >= 0) {
-            if (index == 0) listState.animateScrollToItem(index)
-            else listState.animateScrollToItem(index - 1)
+        if (times.getOrNull(selectedIndex) != value) {
+            val targetIndex = times.indexOf(value)
+            if (targetIndex >= 0) {
+                selectedIndex = targetIndex
+                if (targetIndex == 0) listState.animateScrollToItem(targetIndex)
+                else listState.animateScrollToItem(targetIndex - 1)
+            }
         }
     }
 
@@ -893,11 +907,13 @@ fun TimePicker15(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                items(times) { minutes ->
+                itemsIndexed(times) { index, minutes ->
+                    // Match selected state based on modulo so 00:00 at the top
+                    // and 00:00 at the bottom both visually highlight correctly if selected!
                     val isSelected = minutes == value
 
                     val styledText = buildAnnotatedString {
-                        // HOUR
+                        // HOUR (Modulo 24 handles numbers that go over 1440 smoothly)
                         withStyle(
                             SpanStyle(
                                 fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
@@ -929,7 +945,10 @@ fun TimePicker15(
                     Text(
                         text = styledText,
                         modifier = Modifier
-                            .clickable { onChange(minutes) }
+                            .clickable {
+                                selectedIndex = index
+                                onChange(minutes)
+                            }
                             .padding(vertical = 8.dp),
                         color = if (isSelected)
                             MaterialTheme.colorScheme.primary
