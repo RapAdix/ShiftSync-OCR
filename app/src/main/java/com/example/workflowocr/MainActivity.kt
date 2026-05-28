@@ -20,6 +20,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
@@ -54,6 +56,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -114,6 +117,7 @@ val LocalTableViewModel = staticCompositionLocalOf<TableViewModel> {
 // Define the different "Planes" of application
 enum class Screen {
     SCAN_HUB,         // The main entry point with "Scan" and "Results" buttons
+    PROCESSING_PREVIEW,
     TABLE_RESULTS,    // The interactive list of extracted rows
     ATTENDANCE_COUNT, // How many people work at specific times
     SAMPLE_DETECTION, // OpenCV debug view
@@ -165,7 +169,10 @@ class MainActivity : ComponentActivity() {
                     var schedulesExpanded by remember { mutableStateOf(false) } // Track unfolding
 
                     var isDebugCapture by remember { mutableStateOf(false) }
-                    var debugBitmap by remember { mutableStateOf<Bitmap?>(null) }
+                    var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+                    var cellPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+                    var diagnosticBitmap by remember { mutableStateOf<Bitmap?>(null) }
+                    var processingErrorMsg by remember { mutableStateOf<String?>(null) }
 
                     val availableDates by tableViewModel.availableDates.collectAsState()
 
@@ -187,12 +194,30 @@ class MainActivity : ComponentActivity() {
                             val bitmap = ImageUtils.uriToBitmap(context, tempImageUri!!)
 
                             if (isDebugCapture) {
-                                debugBitmap = bitmap
+                                capturedBitmap = bitmap
                                 currentScreen = Screen.SAMPLE_DETECTION
                             } else {
-                                executeFullExtractionFlow(bitmap) {
-                                    currentScreen = Screen.TABLE_RESULTS
-                                }
+                                // 1. Immediately cache the raw photo and show it on screen
+                                capturedBitmap = bitmap
+                                cellPreviewBitmap = null
+                                diagnosticBitmap = null
+                                processingErrorMsg = null
+                                currentScreen = Screen.PROCESSING_PREVIEW
+
+                                // 2. Fire off background operations while user views the preview
+                                executeFullExtractionFlow(
+                                    bitmap = bitmap,
+                                    onSuccess = {
+                                        currentScreen = Screen.TABLE_RESULTS
+                                    },
+                                    setPreview = { cellPreview, debugImage, errorMsg ->
+                                        // Instead of navigating away, we simply supply the error artifacts
+                                        // to update the preview screen dynamically!
+                                        cellPreviewBitmap = cellPreview
+                                        diagnosticBitmap = debugImage
+                                        processingErrorMsg = errorMsg
+                                    }
+                                )
                             }
                         }
                         isDebugCapture = false
@@ -478,10 +503,24 @@ class MainActivity : ComponentActivity() {
                                 when (currentScreen) {
                                     Screen.SCAN_HUB -> ScanHubScreen(
                                         onStubRequest = {
-                                            // This is the functional "Make Picture" trigger
-                                            executeFullExtractionFlow(originalBitmap) {
-                                                currentScreen = Screen.TABLE_RESULTS
-                                            }
+                                            // For the stub button, we can simulate the immediate transition
+                                            capturedBitmap = originalBitmap
+                                            cellPreviewBitmap = null
+                                            diagnosticBitmap = null
+                                            processingErrorMsg = null
+                                            currentScreen = Screen.PROCESSING_PREVIEW
+
+                                            executeFullExtractionFlow(
+                                                bitmap = originalBitmap,
+                                                setPreview = { cellPreview, debugImage, errorMsg ->
+                                                    // If the stub triggers a Failure branch, capture everything
+                                                    // so the ProcessingPreviewScreen swaps from loading to debug views!
+                                                    cellPreviewBitmap = cellPreview
+                                                    diagnosticBitmap = debugImage
+                                                    processingErrorMsg = errorMsg
+                                                },
+                                                onSuccess = { currentScreen = Screen.TABLE_RESULTS }
+                                            )
                                         },
                                         onScanRequest = onScanRequest,
                                         onDebugScanRequest = {
@@ -489,11 +528,24 @@ class MainActivity : ComponentActivity() {
                                             onScanRequest()
                                         }
                                     )
+                                    Screen.PROCESSING_PREVIEW -> ProcessingPreviewScreen(
+                                        rawBitmap = cellPreviewBitmap?: capturedBitmap ?: originalBitmap,
+                                        diagnosticBitmap = diagnosticBitmap,
+                                        errorMessage = processingErrorMsg,
+                                        onRedoClicked = {
+                                            // Clear state configurations and boot back to launcher hub
+                                            cellPreviewBitmap = null
+                                            diagnosticBitmap = null
+                                            processingErrorMsg = null
+                                            currentScreen = Screen.SCAN_HUB
+                                            onScanRequest() // Directly re-trigger the camera app launcher!
+                                        }
+                                    )
                                     Screen.TABLE_RESULTS -> TableResultsScreen(
                                         tableViewModel
                                     )
                                     Screen.ATTENDANCE_COUNT -> AttendanceSummaryScreen(tableViewModel.extractedRows)
-                                    Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(debugBitmap?: originalBitmap)
+                                    Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(capturedBitmap?: originalBitmap)
                                     Screen.SETTINGS -> SettingsScreen(tableViewModel)
                                     Screen.ABOUT -> AboutScreen()
                                 }
@@ -512,7 +564,7 @@ class MainActivity : ComponentActivity() {
      * 3. Runs Heavy OCR in Background
      * 4. Auto-Redirects on success
      */
-    private fun executeFullExtractionFlow(bitmap: Bitmap, onFinished: () -> Unit) {
+    private fun executeFullExtractionFlow(bitmap: Bitmap, onSuccess: () -> Unit, setPreview: (Bitmap?, Bitmap?, String?) -> Unit) {
         scope.launch {
             val detection = withContext(Dispatchers.Default) {
                 // We will collect Mats here to ensure we release them all
@@ -538,6 +590,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            val boxedMat = TableDetector.drawCells(detection.gray, detection.cells)
+            val cellPreview = TableDetector.matToBitmap(boxedMat)
+            boxedMat.release()
             when (detection) {
                 is TableDetector.TableDetectionResult.Success -> {
                     // 1. Handle Successful Path
@@ -548,18 +603,20 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    setPreview(cellPreview.scaleForPreview(1000), null, null)
+
                     scope.launch {
                         val imageBitmap = TableDetector.matToBitmap(detection.gray)
                         val date = try {
                             TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeLayout)
                         } catch (e: TextProcessor.CouldNotDetermineDateException) {
                             tableViewModel.onDateSupplied = { manualDate ->
-                                proceedWithExtraction(manualDate, detection, imageBitmap, onFinished)
+                                proceedWithExtraction(manualDate, detection, imageBitmap, onSuccess)
                             }
                             return@launch
                         }
                         // If no exception, just run immediately
-                        proceedWithExtraction(date, detection, imageBitmap, onFinished)
+                        proceedWithExtraction(date, detection, imageBitmap, onSuccess)
                     }
                 }
 
@@ -572,11 +629,13 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    val linesBitmap = TableDetector.matToBitmap(detection.lines)
+                    setPreview(cellPreview.scaleForPreview(1000), linesBitmap.scaleForPreview(1000), "Cannot find table header row")
+
                     detection.gray.release()
                     detection.thresh.release()
                     detection.mask.release()
                     detection.lines.release()
-                    onFinished()
                 }
             }
         }
@@ -712,6 +771,138 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit, onDebugS
                 .height(70.dp)
         ) {
             Text("Put it into debug")
+        }
+    }
+}
+
+@Composable
+fun ProcessingPreviewScreen(
+    rawBitmap: Bitmap,
+    diagnosticBitmap: Bitmap?,
+    errorMessage: String?,
+    onRedoClicked: () -> Unit
+) {
+    val isFailed = diagnosticBitmap != null
+
+    // We wrap the main container column in a vertical scroll state.
+    // This prevents layout overflows when two massive images + buttons are rendered simultaneously.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Dynamic Status Title block
+        Text(
+            text = if (isFailed) "Table Detection Failed" else "Analyzing Document...",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (isFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+        )
+
+        if (isFailed) {
+            // Primary Redo Action Button
+            Button(
+                onClick = onRedoClicked,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("REDO / RETAKE SHEET PICTURE", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+
+        // 1. PRIMARY CANVAS: Displays the main photo (or photo with processed cells)
+        Text(
+            text = "Captured Sheet / Cell Preview",
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.align(Alignment.Start)
+        )
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(320.dp), // Fixed height so both fit on screen comfortably
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    bitmap = rawBitmap.asImageBitmap(),
+                    contentDescription = "Main Raw/Cell Preview Image Canvas",
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // LOADING STATE: Show loading overlay placeholder while thread works
+                if (!isFailed) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.3f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 4.dp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Running OpenCV Grid Tiling...",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. ADDITIONAL CONDITIONAL INFRASTRUCTURE (Only renders on failure)
+        if (isFailed) {
+            // Separator Title for clarity
+            Text(
+                text = "Computed Alignment Grid (Debug)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.align(Alignment.Start)
+            )
+
+            // ADDITIONAL DIAGNOSTIC IMAGE CARD
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(320.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Image(
+                        bitmap = diagnosticBitmap.asImageBitmap(),
+                        contentDescription = "Diagnostic Line Grid Matrix Layer",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+
+            // Explanatory Error Callout Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = errorMessage ?: "Unknown structural table parsing layout anomaly.",
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
         }
     }
 }
