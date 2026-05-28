@@ -207,7 +207,7 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         extractedRows[id] = row.copy(
             startTime = start,
             finishTime = end,
-            confirmedAnalysis = row.newAnalysis,
+            confirmedAnalysis = row.newAnalysis?: row.confirmedAnalysis,
             newAnalysis = null,
             oldModificationsSnippetPath = updatedOldModPath,
             newModificationsSnippetPath = null

@@ -261,8 +261,10 @@ class StorageManager(private val context: Context) {
         /**
          * Deletes the file at [oldPath] if it exists, and returns [newPath]
          * to be shifted into the old slot.
+         * Returns [oldPath] if [newPath] was empty.
          */
         fun rotateFile(oldPath: String?, newPath: String?): String? {
+            if (newPath.isNullOrEmpty()) return oldPath
             if (!oldPath.isNullOrEmpty() && oldPath != newPath) {
                 val file = File(oldPath)
                 if (file.exists()) {
