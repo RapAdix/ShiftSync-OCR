@@ -37,6 +37,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Build
@@ -116,11 +117,14 @@ val LocalTableViewModel = staticCompositionLocalOf<TableViewModel> {
 
 // Define the different "Planes" of application
 enum class Screen {
-    SCAN_HUB,         // The main entry point with "Scan" and "Results" buttons
-    PROCESSING_PREVIEW,
-    TABLE_RESULTS,    // The interactive list of extracted rows
-    ATTENDANCE_COUNT, // How many people work at specific times
-    SAMPLE_DETECTION, // OpenCV debug view
+    SCAN_HUB,              // The main entry point with "Scan" and "Results" buttons
+    PROCESSING_PREVIEW,    // A waiting screen with debug info shown after user makes a picture
+    TABLE_RESULTS,         // The interactive list of extracted rows
+    ATTENDANCE_COUNT,      // How many people work at specific times
+    SAMPLE_DETECTION,      // OpenCV debug view
+    COLUMN_OVERLAY_CAMERA, // Custom camera screen with a highlighted rectangle for fitting one table column
+    VLH_DASHBOARD,         // Screen with VLH's tables and a button to read projected GCs
+    VLH_SETUP_UTILITY,
     SETTINGS,
     ABOUT
 }
@@ -167,6 +171,8 @@ class MainActivity : ComponentActivity() {
                     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                     val composeScope = rememberCoroutineScope()
                     var schedulesExpanded by remember { mutableStateOf(false) } // Track unfolding
+
+                    val vlhCoordinator = remember { VlhWorkflowCoordinator() }
 
                     var isDebugCapture by remember { mutableStateOf(false) }
                     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -431,6 +437,15 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                                 NavigationDrawerItem(
+                                    label = { Text("VLH Dashboard") },
+                                    selected = currentScreen == Screen.VLH_DASHBOARD,
+                                    onClick = {
+                                        currentScreen = Screen.VLH_DASHBOARD
+                                        composeScope.launch { drawerState.close() }
+                                    },
+                                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "VLH Guidelines Matrix") }
+                                )
+                                NavigationDrawerItem(
                                     label = { Text("Settings (Hub)") },
                                     selected = currentScreen == Screen.SETTINGS,
                                     onClick = { currentScreen = Screen.SETTINGS; composeScope.launch { drawerState.close() } },
@@ -540,6 +555,28 @@ class MainActivity : ComponentActivity() {
                                             currentScreen = Screen.SCAN_HUB
                                             onScanRequest() // Directly re-trigger the camera app launcher!
                                         }
+                                    )
+                                    Screen.VLH_DASHBOARD -> VlhDashboardScreen(
+                                        coordinator = vlhCoordinator,
+                                        onNavigateToCamera = { currentScreen = Screen.COLUMN_OVERLAY_CAMERA },
+                                        onNavigateToSetup = { currentScreen = Screen.VLH_SETUP_UTILITY }
+                                    )
+                                    Screen.VLH_SETUP_UTILITY -> VlhSetupConfigScreen(
+                                        coordinator = vlhCoordinator,
+                                        onLaunchCamera = { currentScreen = Screen.COLUMN_OVERLAY_CAMERA },
+                                        onBack = { currentScreen = Screen.VLH_DASHBOARD }
+                                    )
+                                    Screen.COLUMN_OVERLAY_CAMERA -> CameraScreen(
+                                        onImageCaptured = { liveCapturedBitmap ->
+                                            vlhCoordinator.handleCapturedImage(
+                                                bitmap = liveCapturedBitmap,
+                                                onProcessingComplete = {
+                                                    // Bounce them back directly to the dashboard when done!
+                                                    currentScreen = Screen.VLH_DASHBOARD
+                                                }
+                                            )
+                                        },
+                                        onBackClicked = { currentScreen = Screen.VLH_DASHBOARD }
                                     )
                                     Screen.TABLE_RESULTS -> TableResultsScreen(
                                         tableViewModel
