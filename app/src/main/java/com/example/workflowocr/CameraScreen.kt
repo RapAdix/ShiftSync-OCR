@@ -1,13 +1,15 @@
 package com.example.workflowocr
 
 import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.util.Log
+import android.util.Rational
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
+import androidx.camera.core.ViewPort
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
@@ -50,6 +52,17 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+object CameraTargetGeometry {
+    // Horizontal sizing: The zone occupies 15% of the total layout width, perfectly centered
+    const val WIDTH_RATIO = 0.15f
+    const val LEFT_RATIO = (1.0f - WIDTH_RATIO) / 2f
+
+    // Vertical sizing: The zone runs from 7% down to 85% of the total layout height
+    const val TOP_RATIO = 0.07f
+    const val BOTTOM_RATIO = 0.85f
+    const val HEIGHT_RATIO = BOTTOM_RATIO - TOP_RATIO // 0.70f
+}
+
 @Composable
 fun CameraScreen(
     onImageCaptured: (Bitmap) -> Unit,
@@ -82,17 +95,33 @@ fun CameraScreen(
 
                     imageCapture = ImageCapture.Builder()
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                        // Force the capture to use the same rotation as the screen viewport
+                        .setTargetRotation(previewView.display.rotation)
                         .build()
 
                     val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
                     try {
                         cameraProvider.unbindAll()
+
+                        // Build a coordinate ViewPort tied to physical layout bounds
+                        val viewPort = previewView.viewPort ?: ViewPort.Builder(
+                            Rational(previewView.width, previewView.height),
+                            previewView.display.rotation
+                        ).setScaleType(ViewPort.FILL_CENTER).build()
+
+                        // Group the use cases together under this viewport context
+                        val useCaseGroup = UseCaseGroup.Builder()
+                            .addUseCase(preview)
+                            .addUseCase(imageCapture!!)
+                            .setViewPort(viewPort) // 🟢 Binds both use cases to the exact same aspect crop matrix
+                            .build()
+
+                        // Bind the group instead of independent use cases
                         cameraProvider.bindToLifecycle(
                             lifecycleOwner,
                             cameraSelector,
-                            preview,
-                            imageCapture
+                            useCaseGroup
                         )
                     } catch (exc: Exception) {
                         Log.e("CameraZoneOverlay", "Use case binding failed", exc)
@@ -105,10 +134,11 @@ fun CameraScreen(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val canvasWidth = size.width
             val canvasHeight = size.height
-            val zoneWidth = canvasWidth * 0.35f
-            val zoneLeft = (canvasWidth - zoneWidth) / 2f
-            val zoneTop = canvasHeight * 0.15f
-            val zoneBottom = canvasHeight * 0.85f
+
+            val zoneWidth = canvasWidth * CameraTargetGeometry.WIDTH_RATIO
+            val zoneLeft = canvasWidth * CameraTargetGeometry.LEFT_RATIO
+            val zoneTop = canvasHeight * CameraTargetGeometry.TOP_RATIO
+            val zoneBottom = canvasHeight * CameraTargetGeometry.BOTTOM_RATIO
 
             drawRect(color = Color.Black.copy(alpha = 0.5f), size = size)
             drawRect(color = Color.Transparent, topLeft = Offset(zoneLeft, zoneTop), size = Size(zoneWidth, zoneBottom - zoneTop), blendMode = BlendMode.Clear)
@@ -167,14 +197,20 @@ fun CameraScreen(
                                 ContextCompat.getMainExecutor(context),
                                 object : ImageCapture.OnImageCapturedCallback() {
                                     override fun onCaptureSuccess(imageProxy: ImageProxy) {
-                                        val bitmap = imageProxy.toBitmapRotated()
-                                        imageProxy.close()
+                                        try {
+                                            val finalUprightBitmap = imageProxy.toBitmapCroppedRotated()
 
-                                        if (bitmap != null) {
-                                            onImageCaptured(bitmap)
-                                        } else {
-                                            // Reset if conversion failed
+                                            if (finalUprightBitmap != null) {
+                                                onImageCaptured(finalUprightBitmap)
+                                            } else {
+                                                isProcessing = false
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e("CameraZoneOverlay", "Crop-then-rotate transformation sequence failed", e)
                                             isProcessing = false
+                                        } finally {
+                                            // Essential to prevent memory leakage
+                                            imageProxy.close()
                                         }
                                     }
 
@@ -200,21 +236,53 @@ fun CameraScreen(
     }
 }
 
-fun ImageProxy.toBitmapRotated(): Bitmap? {
+fun ImageProxy.toBitmapCroppedRotated(): Bitmap? {
+    // 1. Extract the RAW, UNROTATED bitmap from the byte array first
     val buffer = planes[0].buffer
     val bytes = ByteArray(buffer.remaining())
     buffer.get(bytes)
 
-    val originalBitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+    val rawBitmap =
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
 
-    // Correct physical sensor rotation matrix assignments automatically
-    if (imageInfo.rotationDegrees != 0) {
-        val matrix = Matrix().apply { postRotate(imageInfo.rotationDegrees.toFloat()) }
-        return Bitmap.createBitmap(
-            originalBitmap, 0, 0,
-            originalBitmap.width, originalBitmap.height,
-            matrix, true
-        )
+    // 2. Get the Crop Rectangle calculated by CameraX ViewPort
+    val rect = cropRect
+    val rotationDegrees = imageInfo.rotationDegrees
+
+    // 3. STEP A: Crop the image while it is still in its raw orientation
+    // This ensures CameraX's cropRect mapping coordinates line up flawlessly
+    val safeLeft = rect.left.coerceIn(0, rawBitmap.width - 1)
+    val safeTop = rect.top.coerceIn(0, rawBitmap.height - 1)
+    val safeWidth = rect.width().coerceIn(1, rawBitmap.width - safeLeft)
+    val safeHeight = rect.height().coerceIn(1, rawBitmap.height - safeTop)
+
+    val croppedRawBitmap = Bitmap.createBitmap(
+        rawBitmap,
+        safeLeft,
+        safeTop,
+        safeWidth,
+        safeHeight
+    )
+
+    rawBitmap.recycle()
+
+    // 4. STEP B: Now rotate ONLY the cropped slice into portrait orientation
+    return if (rotationDegrees != 0) {
+        val matrix = android.graphics.Matrix().apply {
+            postRotate(rotationDegrees.toFloat())
+        }
+        Bitmap.createBitmap(
+            croppedRawBitmap,
+            0, 0,
+            croppedRawBitmap.width,
+            croppedRawBitmap.height,
+            matrix,
+            true
+        ).also {
+            // Clean up intermediate cropped bitmap allocation
+            if (it != croppedRawBitmap) croppedRawBitmap.recycle()
+        }
+    } else {
+        croppedRawBitmap
     }
-    return originalBitmap
 }

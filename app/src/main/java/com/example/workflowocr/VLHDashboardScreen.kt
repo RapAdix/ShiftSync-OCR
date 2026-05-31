@@ -43,6 +43,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 enum class DayType { WEEKDAY, WEEKEND }
 
@@ -50,7 +53,7 @@ data class VlhColumnConfig(
     val id: Int,                 // 0 to 5 (The 6 columns)
     var name: String = "",        // e.g., "05:00 - 10:30"
     val maxRows: Int = 25,
-    val scannedRows: MutableList<String> = mutableStateListOf()
+    val scannedRows: MutableList<Int> = mutableStateListOf()
 )
 
 class VlhTableState(val type: DayType) {
@@ -104,30 +107,41 @@ class VlhWorkflowCoordinator {
     /**
      * Unified processor fed straight out of your Custom CameraX Viewfinder interface thread
      */
-    fun handleCapturedImage(bitmap: Bitmap, onProcessingComplete: () -> Unit) {
+    fun handleCapturedImage(
+        bitmap: Bitmap,
+        scope: CoroutineScope,
+        onProcessingComplete: () -> Unit
+    ) {
+        // Scale the percentage boxes to fit the exact width/height of the captured image's box
+        val x = (bitmap.width * CameraTargetGeometry.LEFT_RATIO).toInt()
+        val y = (bitmap.height * CameraTargetGeometry.TOP_RATIO).toInt()
+        val w = (bitmap.width * CameraTargetGeometry.WIDTH_RATIO).toInt()
+        val h = (bitmap.height * CameraTargetGeometry.HEIGHT_RATIO).toInt()
+
         if (isConfiguringMasterTable) {
             val day = targetingDayType ?: return
             val colId = targetingColumnId ?: return
             val targetTable = if (day == DayType.WEEKDAY) weekdayTable else weekendTable
 
-            // Execute OpenCV Single Column Line OCR Matrix logic on the bitmap sequence
-            // val parsedDigitsList = DigitExtractor.extractColumnData(bitmap)
-            val parsedDigitsList = listOf("12", "45", "7", "22") // Mocked engine extraction return
+            scope.launch {
+                val integerRowsList = TextProcessor.extractIntRows(bitmap, x, y, w, h)
 
-            targetTable.columns[colId].scannedRows.clear()
-            targetTable.columns[colId].scannedRows.addAll(parsedDigitsList)
+                targetTable.columns[colId].scannedRows.clear()
+                targetTable.columns[colId].scannedRows.addAll(integerRowsList)
+
+                // Reset tracking context safely on the main thread after processing yields results
+                launch(Dispatchers.Main) {
+                    targetingDayType = null
+                    targetingColumnId = null
+                    onProcessingComplete()
+                }
+            }
         } else {
-            // BIG BUTTON WORKFLOW: Run deep parsing matrix routines using the active configuration maps
-            val activeTemplate = if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
-
-            // Execute advanced structural calculations using activeTemplate timeframes and data matrix structures...
-            // Processing Engine Pipeline invocation using (bitmap, activeTemplate)
+            // BIG BUTTON WORKFLOW ...
+            targetingDayType = null
+            targetingColumnId = null
+            onProcessingComplete()
         }
-
-        // Reset targeting contexts gracefully
-        targetingDayType = null
-        targetingColumnId = null
-        onProcessingComplete()
     }
 }
 
@@ -259,7 +273,7 @@ fun VlhDashboardScreen(
                                 // Render Scanned operational strings
                                 column.scannedRows.forEach { dataValue ->
                                     Box(modifier = Modifier.height(28.dp), contentAlignment = Alignment.Center) {
-                                        Text(text = dataValue, style = MaterialTheme.typography.bodyLarge)
+                                        Text(text = dataValue.toString(), style = MaterialTheme.typography.bodyLarge)
                                     }
                                 }
 

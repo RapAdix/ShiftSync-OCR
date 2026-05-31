@@ -570,6 +570,7 @@ class MainActivity : ComponentActivity() {
                                         onImageCaptured = { liveCapturedBitmap ->
                                             vlhCoordinator.handleCapturedImage(
                                                 bitmap = liveCapturedBitmap,
+                                                scope = scope,
                                                 onProcessingComplete = {
                                                     // Bounce them back directly to the dashboard when done!
                                                     currentScreen = Screen.VLH_DASHBOARD

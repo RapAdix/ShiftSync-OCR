@@ -71,6 +71,45 @@ object TextProcessor {
         }
     }
 
+    suspend fun extractIntRows(
+        bitmap: Bitmap,
+        x: Int,
+        y: Int,
+        w: Int,
+        h: Int
+    ): List<Int> = withContext(Dispatchers.IO) {
+        // Safely crop out only the column zone
+        val targetX = x.coerceIn(0, bitmap.width - 1)
+        val targetY = y.coerceIn(0, bitmap.height - 1)
+        val targetW = w.coerceIn(1, bitmap.width - targetX)
+        val targetH = h.coerceIn(1, bitmap.height - targetY)
+
+        val croppedColumn = Bitmap.createBitmap(bitmap, targetX, targetY, targetW, targetH)
+
+        val inputImage = InputImage.fromBitmap(croppedColumn, 0)
+
+        // Await text recognition results asynchronously
+        val rawOcrText = suspendCancellableCoroutine<String> { cont ->
+            recognizer.process(inputImage)
+                .addOnSuccessListener { visionText ->
+                    cont.resume(visionText.text) {  }
+                }
+                .addOnFailureListener { e ->
+                    cont.resume("") {  }
+                }
+        }
+
+        rawOcrText.lines()
+            .map { line ->
+                val fixedString = line.trim().coerceDigits()
+
+                // Clean out remaining alphabet noise or punctuation marks entirely
+                fixedString.filter { it.isDigit() }
+            }
+            .filter { it.isNotEmpty() }   // Discard empty background spacer rows
+            .mapNotNull { it.toIntOrNull() } // Convert clean strings to real Int primitives safely
+    }
+
     private fun getRectForCell(cell: TableDetector.TableCell) : Rect {
         val cellW = (Math.abs(cell.topRight.x - cell.topLeft.x) +
                 Math.abs(cell.bottomRight.x - cell.bottomLeft.x)) / 2.0
@@ -115,20 +154,22 @@ object TextProcessor {
         return refinedGrid
     }
 
-    private fun repairTimeCols(text: String): String {
-        // 1. Clean whitespace
-        var cleaned = text.replace(" ", "").trim()
-
-        // 2. Common hallucinations
-        cleaned = cleaned
-            .replace("S", "5")
+    private fun String.coerceDigits(): String {
+        return this.replace("S", "5")
             .replace("s", "5")
             .replace("G", "6")
             .replace("p", "0")
             .replace("O", "0")
             .replace("o", "0")
             .replace("B", "8")
-            .replace(".", ":") // Common for ':' to be seen as '.'
+    }
+
+    private fun repairTimeCols(text: String): String {
+        // 1. Clean whitespace
+        var cleaned = text.replace(" ", "").trim()
+
+        // 2. Common hallucinations
+        cleaned = cleaned.coerceDigits().replace(".", ":") // Common for ':' to be seen as '.'
 
         // 3. Force format logic (example: 12:00)
         val digits = cleaned.filter { it.isDigit() }
