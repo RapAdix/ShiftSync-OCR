@@ -122,9 +122,7 @@ enum class Screen {
     TABLE_RESULTS,         // The interactive list of extracted rows
     ATTENDANCE_COUNT,      // How many people work at specific times
     SAMPLE_DETECTION,      // OpenCV debug view
-    COLUMN_OVERLAY_CAMERA, // Custom camera screen with a highlighted rectangle for fitting one table column
-    VLH_DASHBOARD,         // Screen with VLH's tables and a button to read projected GCs
-    VLH_SETUP_UTILITY,
+    VLH_MANAGEMENT,        // VLH table, GC's scanning, Crew required
     SETTINGS,
     ABOUT
 }
@@ -171,8 +169,6 @@ class MainActivity : ComponentActivity() {
                     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                     val composeScope = rememberCoroutineScope()
                     var schedulesExpanded by remember { mutableStateOf(false) } // Track unfolding
-
-                    val vlhCoordinator = remember { VlhWorkflowCoordinator(tableViewModel.storageManager, scope) }
 
                     var isDebugCapture by remember { mutableStateOf(false) }
                     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -438,9 +434,9 @@ class MainActivity : ComponentActivity() {
                                 }
                                 NavigationDrawerItem(
                                     label = { Text("VLH Dashboard") },
-                                    selected = currentScreen == Screen.VLH_DASHBOARD,
+                                    selected = currentScreen == Screen.VLH_MANAGEMENT,
                                     onClick = {
-                                        currentScreen = Screen.VLH_DASHBOARD
+                                        currentScreen = Screen.VLH_MANAGEMENT
                                         composeScope.launch { drawerState.close() }
                                     },
                                     icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "VLH Guidelines Matrix") }
@@ -556,28 +552,13 @@ class MainActivity : ComponentActivity() {
                                             onScanRequest() // Directly re-trigger the camera app launcher!
                                         }
                                     )
-                                    Screen.VLH_DASHBOARD -> VlhDashboardScreen(
-                                        coordinator = vlhCoordinator,
-                                        onNavigateToCamera = { currentScreen = Screen.COLUMN_OVERLAY_CAMERA },
-                                        onNavigateToSetup = { currentScreen = Screen.VLH_SETUP_UTILITY }
-                                    )
-                                    Screen.VLH_SETUP_UTILITY -> VlhSetupConfigScreen(
-                                        coordinator = vlhCoordinator,
-                                        onLaunchCamera = { currentScreen = Screen.COLUMN_OVERLAY_CAMERA },
-                                        onBack = { currentScreen = Screen.VLH_DASHBOARD }
-                                    )
-                                    Screen.COLUMN_OVERLAY_CAMERA -> CameraScreen(
-                                        onImageCaptured = { liveCapturedBitmap ->
-                                            vlhCoordinator.handleCapturedImage(
-                                                bitmap = liveCapturedBitmap,
-                                                onProcessingComplete = {
-                                                    // Bounce them back directly to the dashboard when done!
-                                                    currentScreen = Screen.VLH_DASHBOARD
-                                                }
-                                            )
-                                        },
-                                        onBackClicked = { currentScreen = Screen.VLH_DASHBOARD }
-                                    )
+                                    Screen.VLH_MANAGEMENT -> {
+                                        VlhManagementScreen(
+                                            storageManager = tableViewModel.storageManager,
+                                            backgroundScope = scope,
+                                            onBackToMainHub = { currentScreen = Screen.SCAN_HUB }
+                                        )
+                                    }
                                     Screen.TABLE_RESULTS -> TableResultsScreen(
                                         tableViewModel
                                     )

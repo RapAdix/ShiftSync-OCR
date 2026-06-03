@@ -167,6 +167,65 @@ class VlhWorkflowCoordinator(
     }
 }
 
+private enum class VlhSubScreen {
+    COLUMN_CAMERA_SCANNER, // Custom camera screen with a highlighted rectangle for fitting one table column
+    DASHBOARD,             // Screen with VLH's tables and a button to read projected GCs
+    SETUP_UTILITY,
+    OPERATIONAL_REPORTS    // Crew Required screen
+}
+
+@Composable
+fun VlhManagementScreen(
+    storageManager: StorageManager,
+    backgroundScope: CoroutineScope,
+    onBackToMainHub: () -> Unit
+) {
+    // 1. Maintain the coordinator instance securely at the root of this sub-flow
+    val coordinator = remember { VlhWorkflowCoordinator(storageManager, backgroundScope) }
+
+    // 2. Track internal navigation steps locally
+    var internalScreen by remember { mutableStateOf(VlhSubScreen.DASHBOARD) }
+
+    // 3. Keep your safe lifecycle listener active here
+    LaunchedEffect(coordinator) {
+        coordinator.collectStart()
+    }
+
+    // 4. Local Routing Switch Matrix
+    when (internalScreen) {
+        VlhSubScreen.DASHBOARD -> {
+            VlhDashboardScreen(
+                coordinator = coordinator,
+                onNavigateToCamera = { internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER },
+                onNavigateToSetup = { internalScreen = VlhSubScreen.SETUP_UTILITY }
+            )
+        }
+        VlhSubScreen.SETUP_UTILITY -> VlhSetupConfigScreen(
+            coordinator = coordinator,
+            onLaunchCamera = { internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER },
+            onBack = { internalScreen = VlhSubScreen.DASHBOARD }
+        )
+        VlhSubScreen.COLUMN_CAMERA_SCANNER -> {
+            CameraScreen(
+                onImageCaptured = { bitmap ->
+                    coordinator.handleCapturedImage(bitmap) {
+                        // Execution callback: Redirect UI paths based on active processing engine selection
+                        if (coordinator.isConfiguringMasterTable) {
+                            internalScreen = VlhSubScreen.DASHBOARD
+                        } else {
+                            internalScreen = VlhSubScreen.OPERATIONAL_REPORTS
+                        }
+                    }
+                },
+                onBackClicked = { internalScreen = VlhSubScreen.DASHBOARD }
+            )
+        }
+        VlhSubScreen.OPERATIONAL_REPORTS -> {
+            internalScreen = VlhSubScreen.DASHBOARD
+        }
+    }
+}
+
 @Composable
 fun VlhDashboardScreen(
     coordinator: VlhWorkflowCoordinator,
