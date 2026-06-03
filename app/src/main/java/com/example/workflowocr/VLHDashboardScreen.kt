@@ -33,8 +33,8 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,19 +46,23 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 
 enum class DayType { WEEKDAY, WEEKEND }
 
+@Serializable
 data class VlhColumnConfig(
     val id: Int,                 // 0 to 5 (The 6 columns)
     var name: String = "",        // e.g., "05:00 - 10:30"
     val maxRows: Int = 25,
-    val scannedRows: MutableList<Int> = mutableStateListOf()
+    val scannedRows: List<Int> = emptyList()
 )
 
-class VlhTableState(val type: DayType) {
-    // Initialize the 6 core columns dynamically
-    val columns = List(6) { id ->
+@Serializable
+data class VlhTableState(
+    val type: DayType,
+    val columns: List<VlhColumnConfig> = List(6) { id ->
         VlhColumnConfig(
             id = id,
             name = when(id) {
@@ -68,22 +72,35 @@ class VlhTableState(val type: DayType) {
             }
         )
     }
-}
+)
 
-class VlhWorkflowCoordinator {
-    // 1. Core Persistent Storage State Structures
-    val weekdayTable = VlhTableState(DayType.WEEKDAY)
-    val weekendTable = VlhTableState(DayType.WEEKEND)
+class VlhWorkflowCoordinator(
+    private val storageManager: StorageManager,
+    private val backgroundScope: CoroutineScope
+) {
+    // Core Persistent Storage State Structures
+    var weekdayTable by mutableStateOf(VlhTableState(DayType.WEEKDAY))
+    var weekendTable by mutableStateOf(VlhTableState(DayType.WEEKEND))
 
-    // 2. UI View State Tracking
+    // UI View State Tracking
     var activeDisplayTab by mutableStateOf(DayType.WEEKDAY)
 
-    // 3. Target State Configuration context (Used when clicking the Gear workflow setup)
+    /**
+     * Managed by Screen's LaunchedEffect coroutine scope context.
+     * Auto-cancels background flow listening cycles instantly when screen leaves view.
+     */
+    suspend fun collectStart() {
+        storageManager.vlhTablesFlow.collect { (weekdayData, weekendData) ->
+            weekdayTable = weekdayData
+            weekendTable = weekendData
+        }
+    }
+
     var targetingDayType by mutableStateOf<DayType?>(null)
     var targetingColumnId by mutableStateOf<Int?>(null)
 
     // Tracks if the camera capture session is processing a structural Master Table configuration,
-    // or scanning an external standalone operational document block!
+    // or scanning an external standalone operational document block
     var isConfiguringMasterTable by mutableStateOf(true)
 
     /**
@@ -105,14 +122,10 @@ class VlhWorkflowCoordinator {
     }
 
     /**
-     * Unified processor fed straight out of your Custom CameraX Viewfinder interface thread
+     * Differentiate for VLH table update and for calculating people needed depending on the GC's and the VLH
      */
-    fun handleCapturedImage(
-        bitmap: Bitmap,
-        scope: CoroutineScope,
-        onProcessingComplete: () -> Unit
-    ) {
-        // Scale the percentage boxes to fit the exact width/height of the captured image's box
+    fun handleCapturedImage(bitmap: Bitmap, onProcessingComplete: () -> Unit) {
+        // Calculate coordinates relative to the resolution dimensions of the incoming bitmap image proxy
         val x = (bitmap.width * CameraTargetGeometry.LEFT_RATIO).toInt()
         val y = (bitmap.height * CameraTargetGeometry.TOP_RATIO).toInt()
         val w = (bitmap.width * CameraTargetGeometry.WIDTH_RATIO).toInt()
@@ -121,16 +134,25 @@ class VlhWorkflowCoordinator {
         if (isConfiguringMasterTable) {
             val day = targetingDayType ?: return
             val colId = targetingColumnId ?: return
-            val targetTable = if (day == DayType.WEEKDAY) weekdayTable else weekendTable
 
-            scope.launch {
-                val integerRowsList = TextProcessor.extractIntRows(bitmap, x, y, w, h)
+            // Use the long-lived background scope so this block survives screen swaps safely
+            backgroundScope.launch {
+                val integerRowsList = withContext(Dispatchers.IO) {
+                    TextProcessor.extractIntRows(bitmap, x, y, w, h)
+                }
 
-                targetTable.columns[colId].scannedRows.clear()
-                targetTable.columns[colId].scannedRows.addAll(integerRowsList)
+                val currentTable = if (day == DayType.WEEKDAY) weekdayTable else weekendTable
+
+                // Unidirectional updates: Update column configurations inside our immutable list data model
+                val updatedColumns = currentTable.columns.map { column ->
+                    if (column.id == colId) column.copy(scannedRows = integerRowsList) else column
+                }
+                val updatedTable = currentTable.copy(columns = updatedColumns)
+
+                storageManager.saveVlhTable(updatedTable)
 
                 // Reset tracking context safely on the main thread after processing yields results
-                launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     targetingDayType = null
                     targetingColumnId = null
                     onProcessingComplete()
@@ -151,6 +173,10 @@ fun VlhDashboardScreen(
     onNavigateToCamera: () -> Unit,
     onNavigateToSetup: () -> Unit
 ) {
+    LaunchedEffect(coordinator) {
+        coordinator.collectStart()
+    }
+
     val tabs = listOf(DayType.WEEKDAY, DayType.WEEKEND)
 
     Column(modifier = Modifier.fillMaxSize()) {

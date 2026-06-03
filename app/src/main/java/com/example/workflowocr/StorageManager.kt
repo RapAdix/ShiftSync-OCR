@@ -25,6 +25,9 @@ class StorageManager(private val context: Context) {
     private val PRESET_TYPE_KEY = stringPreferencesKey("preset_type")
     private val LAYOUT_JSON_KEY = stringPreferencesKey("layout_json")
     private val UNIVERSAL_JSON_KEY = stringPreferencesKey("universal_json")
+    private val WEEKDAY_TABLE_KEY = stringPreferencesKey("vlh_weekday_table")
+    private val WEEKEND_TABLE_KEY = stringPreferencesKey("vlh_weekend_table")
+
     // Configured to ignore unknown keys - in case fields are added to ProcessorRow later
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -72,6 +75,34 @@ class StorageManager(private val context: Context) {
             if (type == PresetType.CUSTOM && layout != null) {
                 preferences[LAYOUT_JSON_KEY] = Json.encodeToString(layout)
             }
+        }
+    }
+
+    val vlhTablesFlow: Flow<Pair<VlhTableState, VlhTableState>> = context.dataStore.data.map { preferences ->
+        val weekdayJson = preferences[WEEKDAY_TABLE_KEY]
+        val weekendJson = preferences[WEEKEND_TABLE_KEY]
+
+        val weekdayData = if (weekdayJson != null) {
+            json.decodeFromString<VlhTableState>(weekdayJson)
+        } else {
+            // Fallback factory generation defaults if disk sectors are unallocated
+            VlhTableState(DayType.WEEKDAY)
+        }
+
+        val weekendData = if (weekendJson != null) {
+            json.decodeFromString<VlhTableState>(weekendJson)
+        } else {
+            VlhTableState(DayType.WEEKEND)
+        }
+
+        Pair(weekdayData, weekendData)
+    }
+
+    // Asynchronous atomic write mechanics
+    suspend fun saveVlhTable(tableData: VlhTableState) {
+        context.dataStore.edit { preferences ->
+            val targetKey = if (tableData.type == DayType.WEEKDAY) WEEKDAY_TABLE_KEY else WEEKEND_TABLE_KEY
+            preferences[targetKey] = json.encodeToString(tableData)
         }
     }
 

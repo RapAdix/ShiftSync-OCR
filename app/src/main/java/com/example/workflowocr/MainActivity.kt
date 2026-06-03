@@ -172,7 +172,7 @@ class MainActivity : ComponentActivity() {
                     val composeScope = rememberCoroutineScope()
                     var schedulesExpanded by remember { mutableStateOf(false) } // Track unfolding
 
-                    val vlhCoordinator = remember { VlhWorkflowCoordinator() }
+                    val vlhCoordinator = remember { VlhWorkflowCoordinator(tableViewModel.storageManager, scope) }
 
                     var isDebugCapture by remember { mutableStateOf(false) }
                     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -570,7 +570,6 @@ class MainActivity : ComponentActivity() {
                                         onImageCaptured = { liveCapturedBitmap ->
                                             vlhCoordinator.handleCapturedImage(
                                                 bitmap = liveCapturedBitmap,
-                                                scope = scope,
                                                 onProcessingComplete = {
                                                     // Bounce them back directly to the dashboard when done!
                                                     currentScreen = Screen.VLH_DASHBOARD
