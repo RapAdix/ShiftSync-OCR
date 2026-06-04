@@ -13,14 +13,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -32,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -103,6 +111,10 @@ class VlhWorkflowCoordinator(
     // or scanning an external standalone operational document block
     var isConfiguringMasterTable by mutableStateOf(true)
 
+    // Temporary holders for the standalone operational scan document workflow
+    var scannedGcsList by mutableStateOf<List<Int>>(emptyList())
+    var selectedStartHour by mutableStateOf(6) // Default starting alignment offset
+
     /**
      * Prepares configuration tracking states before opening up the camera overlay target screen
      */
@@ -159,10 +171,75 @@ class VlhWorkflowCoordinator(
                 }
             }
         } else {
-            // BIG BUTTON WORKFLOW ...
-            targetingDayType = null
-            targetingColumnId = null
-            onProcessingComplete()
+            backgroundScope.launch {
+                val extractedDigits = withContext(Dispatchers.IO) {
+                    TextProcessor.extractIntRows(bitmap, x, y, w, h)
+                }
+
+                withContext(Dispatchers.Main) {
+                    // Save the raw text numbers into memory
+                    scannedGcsList = extractedDigits
+
+                    targetingDayType = null
+                    targetingColumnId = null
+                    onProcessingComplete()
+                }
+            }
+        }
+    }
+
+    /**
+     * Calculates the output index mapping for a specific hour frame against our saved Master Tables
+     */
+    fun calculateResultIndex(hour: Int, gcValue: Int): Int? {
+        val activeMasterTable = if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
+
+        // Find which column configuration contains this physical hour segment
+        val matchedColumn = activeMasterTable.columns.find { column ->
+            TimeframeValidator.containsHour(column.name, hour)
+        } ?: return null // No matching timeline configuration found on disk
+
+        // 3Scan the column's rows backwards to find the highest number smaller than/equal to GC
+        // Rows are safely assumed to be sorted natively [12, 22, 45, 76...]
+        val rows = matchedColumn.scannedRows
+        for (i in rows.indices.reversed()) {
+            if (rows[i] <= gcValue) {
+                return i // Returns the exact index matching your rules
+            }
+        }
+
+        return null // Returns null if the GC is smaller than even the lowest entry
+    }
+
+    private object TimeframeValidator {
+        // Matches 24-hour formats with :00 or :30 precision (e.g., "05:00 - 08:30" or "14:30 - 22:00")
+        private val timeSpanRegex = Regex("""^(0[0-9]|1[0-9]|2[0-3]):(00|30)\s*-\s*(0[0-9]|1[0-9]|2[0-3]):(00|30)$""")
+
+        fun isValidTimeframe(input: String): Boolean {
+            return timeSpanRegex.matches(input.trim())
+        }
+
+        /**
+         * Optional: Parses a string like "05:00 - 08:30" into a manageable range of absolute integers
+         * representing hours to easily check which hour falls into which column config loop.
+         */
+        fun containsHour(timeframe: String, hour: Int): Boolean {
+            if (!isValidTimeframe(timeframe)) return false
+            return try {
+                val parts = timeframe.split("-").map { it.trim() }
+                val startHour = parts[0].split(":")[0].toInt()
+                val endHour = parts[1].split(":")[0].toInt()
+
+                // Handle standard wrapping or linear ranges
+                if (startHour <= endHour) {
+                    hour in startHour until endHour
+                } else {
+                    // If it crosses midnight (e.g., 22:00 - 04:00)
+                    hour >= startHour || hour < endHour
+                }
+            } catch (e: Exception) {
+                false
+            }
         }
     }
 }
@@ -221,7 +298,13 @@ fun VlhManagementScreen(
             )
         }
         VlhSubScreen.OPERATIONAL_REPORTS -> {
-            internalScreen = VlhSubScreen.DASHBOARD
+            OperationalScanResultsView(
+                coordinator = coordinator,
+                onDismiss = {
+                    internalScreen = VlhSubScreen.DASHBOARD
+                    coordinator.scannedGcsList = emptyList()
+                }
+            )
         }
     }
 }
@@ -257,7 +340,7 @@ fun VlhDashboardScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "${coordinator.activeDisplayTab.name} OVERVIEW CONFIG",
+                text = coordinator.activeDisplayTab.name,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold
             )
@@ -469,6 +552,108 @@ fun VlhSetupConfigScreen(
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Launch Scanner")
+            }
+        }
+    }
+}
+
+@Composable
+fun OperationalScanResultsView(
+    coordinator: VlhWorkflowCoordinator,
+    onDismiss: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("Operational Document Results", style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = "Use the buttons below to align the starting time if the first row doesn't match 06:00.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 🟢 TIME OFFSET SCROLLER: Let's users shift hours forward or backward
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { coordinator.selectedStartHour = (coordinator.selectedStartHour - 1).coerceAtLeast(0) }) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Shift Time Down")
+                }
+                Text(
+                    text = "Starting Hour: ${coordinator.selectedStartHour}:00",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                IconButton(onClick = { coordinator.selectedStartHour = (coordinator.selectedStartHour + 1).coerceAtMost(23) }) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Shift Time Up")
+                }
+            }
+
+            Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // 🟢 THE THREE-COLUMN DATA GRID MATRIX
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                // Header Titles
+                item {
+                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                        Text("Time Frame", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                        Text("Scanned GC", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                        Text("Vlh Index Result", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+                    }
+                }
+
+                // Dynamic Data Output Columns
+                itemsIndexed(coordinator.scannedGcsList) { index, gcValue ->
+                    // Calculate the shifting hour slot based on the index position offset
+                    val currentHour = (coordinator.selectedStartHour + index) % 24
+                    val timeString = String.format("%02d:00 - %02d:00", currentHour, (currentHour + 1) % 24)
+
+                    // Execute our math engine lookup
+                    val resultIndex = coordinator.calculateResultIndex(currentHour, gcValue)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left Column: Dim, less visible time marker frames
+                        Text(
+                            text = timeString,
+                            modifier = Modifier.weight(1.2f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f) // 🟢 Subdued visibility accent
+                        )
+
+                        // Middle Column (Matches header weight 0.8f)
+                        Text(
+                            text = gcValue.toString(),
+                            modifier = Modifier.weight(0.8f),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
+                        )
+
+                        // Right Column (Matches header weight 1.0f)
+                        Text(
+                            text = resultIndex?.toString() ?: "N/A",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = if (resultIndex != null) MaterialTheme.colorScheme.primary else Color.Red,
+                            textAlign = TextAlign.End
+                        )
+                    }
+                }
+            }
+
+            // Bottom Action Controls
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Discard") }
             }
         }
     }
