@@ -26,8 +26,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedFilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -74,8 +77,12 @@ data class VlhTableState(
         VlhColumnConfig(
             id = id,
             name = when(id) {
-                0 -> "05:00 - 08:00"
-                1 -> "08:00 - 12:00"
+                0 -> "05:00-10:30"
+                1 -> "10:30-14:00"
+                2 -> "14:00-17:00"
+                3 -> "17:00-20:00"
+                4 -> "20:00-24:00"
+                5 -> "00:00-05:00"
                 else -> "Column ${id + 1}"
             }
         )
@@ -83,7 +90,7 @@ data class VlhTableState(
 )
 
 class VlhWorkflowCoordinator(
-    private val storageManager: StorageManager,
+    private val viewModel: TableViewModel,
     private val backgroundScope: CoroutineScope
 ) {
     // Core Persistent Storage State Structures
@@ -98,7 +105,7 @@ class VlhWorkflowCoordinator(
      * Auto-cancels background flow listening cycles instantly when screen leaves view.
      */
     suspend fun collectStart() {
-        storageManager.vlhTablesFlow.collect { (weekdayData, weekendData) ->
+        viewModel.storageManager.vlhTablesFlow.collect { (weekdayData, weekendData) ->
             weekdayTable = weekdayData
             weekendTable = weekendData
         }
@@ -113,7 +120,7 @@ class VlhWorkflowCoordinator(
 
     // Temporary holders for the standalone operational scan document workflow
     var scannedGcsList by mutableStateOf<List<Int>>(emptyList())
-    var selectedStartHour by mutableStateOf(6) // Default starting alignment offset
+    var selectedStartHour by mutableStateOf(viewModel.universalSettings.workplaceOpeningTime) // Default starting alignment offset
 
     /**
      * Prepares configuration tracking states before opening up the camera overlay target screen
@@ -161,7 +168,7 @@ class VlhWorkflowCoordinator(
                 }
                 val updatedTable = currentTable.copy(columns = updatedColumns)
 
-                storageManager.saveVlhTable(updatedTable)
+                viewModel.storageManager.saveVlhTable(updatedTable)
 
                 // Reset tracking context safely on the main thread after processing yields results
                 withContext(Dispatchers.Main) {
@@ -253,22 +260,20 @@ private enum class VlhSubScreen {
 
 @Composable
 fun VlhManagementScreen(
-    storageManager: StorageManager,
     backgroundScope: CoroutineScope,
     onBackToMainHub: () -> Unit
 ) {
-    // 1. Maintain the coordinator instance securely at the root of this sub-flow
-    val coordinator = remember { VlhWorkflowCoordinator(storageManager, backgroundScope) }
+    val viewModel = LocalTableViewModel.current
+    val coordinator = remember { VlhWorkflowCoordinator(viewModel, backgroundScope) }
 
-    // 2. Track internal navigation steps locally
     var internalScreen by remember { mutableStateOf(VlhSubScreen.DASHBOARD) }
 
-    // 3. Keep your safe lifecycle listener active here
+    // Keep safe lifecycle listener active here
     LaunchedEffect(coordinator) {
         coordinator.collectStart()
     }
 
-    // 4. Local Routing Switch Matrix
+    // Local Routing Switch Matrix
     when (internalScreen) {
         VlhSubScreen.DASHBOARD -> {
             VlhDashboardScreen(
@@ -424,12 +429,39 @@ fun VlhDashboardScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             // Sticky Header Span Title
-                            Text(
-                                text = column.name,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Black,
-                                maxLines = 1
-                            )
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                // Safely break up the stored string ("10:30 - 14:00" or fallback defaults)
+                                val timeParts = remember(column.name) { column.name.split("-") }
+                                val startTimeStr = timeParts.getOrNull(0)?.trim() ?: ""
+                                val endTimeStr = timeParts.getOrNull(1)?.trim() ?: ""
+
+                                // Line 1: Start time aligned to the left side of the column container
+                                Text(
+                                    text = if (startTimeStr.isNotEmpty()) "$startTimeStr-" else column.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Black,
+                                    maxLines = 1,
+                                    modifier = Modifier.align(Alignment.Start)
+                                )
+
+                                // Line 2: End time cleanly staggered and pushed over to the right side
+                                if (endTimeStr.isNotEmpty()) {
+                                    Text(
+                                        text = endTimeStr,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = 1,
+                                        modifier = Modifier
+                                            .align(Alignment.End)
+                                    )
+                                } else {
+                                    // Fallback row balancing layout if the name isn't a split range
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                }
+                            }
 
                             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
@@ -475,19 +507,46 @@ fun VlhDashboardScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VlhSetupConfigScreen(
     coordinator: VlhWorkflowCoordinator,
     onLaunchCamera: () -> Unit,
     onBack: () -> Unit
 ) {
-    var selectedDay by remember { mutableStateOf(DayType.WEEKDAY) }
+    var selectedDay by remember { mutableStateOf(coordinator.activeDisplayTab) }
     var selectedColId by remember { mutableStateOf(0) }
 
     val targetTable = if (selectedDay == DayType.WEEKDAY) coordinator.weekdayTable else coordinator.weekendTable
     val activeCol = targetTable.columns[selectedColId]
 
-    var timeSpanString by remember(selectedDay, selectedColId) { mutableStateOf(activeCol.name) }
+    // Generate pre-baked 30-minute intervals: ["00:00", "00:30", "01:00" ... "24:00"]
+    val timeOptions = remember {
+        List(49) { index ->
+            val hour = index / 2
+            val minute = if (index % 2 == 0) "00" else "30"
+            String.format("%02d:%s", hour, minute)
+        }
+    }
+
+    // Parse the existing string context safely to populate the initial dropdown selection states
+    var startTime by remember(selectedDay, selectedColId) {
+        mutableStateOf(activeCol.name.split("-").firstOrNull()?.trim() ?: "05:00")
+    }
+    var endTime by remember(selectedDay, selectedColId) {
+        mutableStateOf(activeCol.name.split("-").lastOrNull()?.trim() ?: "08:00")
+    }
+
+    // Dropdown expansion UI states
+    var startExpanded by remember { mutableStateOf(false) }
+    var endExpanded by remember { mutableStateOf(false) }
+
+    // Dynamic validation condition: Ensure the end time happens after the start time
+    val isValidRange = remember(startTime, endTime) {
+        val startIdx = timeOptions.indexOf(startTime)
+        val endIdx = timeOptions.indexOf(endTime)
+        startIdx < endIdx // Chronological check
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -511,10 +570,8 @@ fun VlhSetupConfigScreen(
 
                 Text(text = "2. Target Matrix Column Allocation", fontWeight = FontWeight.Bold)
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp) // Generous spacing looks great when scrollable
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     List(6) { it }.forEach { idx ->
                         ElevatedFilterChip(
@@ -525,13 +582,82 @@ fun VlhSetupConfigScreen(
                     }
                 }
 
-                Text(text = "3. Adjust Structural Time Bounds", fontWeight = FontWeight.Bold)
-                OutlinedTextField(
-                    value = timeSpanString,
-                    onValueChange = { timeSpanString = it },
-                    label = { Text("Time Frame Span (e.g., 10:30 - 14:00)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Text(text = "3. Adjust Structural Time Bounds (30-min precision)", fontWeight = FontWeight.Bold)
+
+                // DROPDOWN FIELDS ROW
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Start Time Selection Dropdown Box
+                    ExposedDropdownMenuBox(
+                        expanded = startExpanded,
+                        onExpandedChange = { startExpanded = !startExpanded },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            readOnly = true,
+                            value = startTime,
+                            onValueChange = {},
+                            label = { Text("Start") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = startExpanded) },
+                            modifier = Modifier.menuAnchor()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = startExpanded,
+                            onDismissRequest = { startExpanded = false }
+                        ) {
+                            timeOptions.forEach { selection ->
+                                DropdownMenuItem(
+                                    text = { Text(selection) },
+                                    onClick = {
+                                        startTime = selection
+                                        startExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // End Time Selection Dropdown Box
+                    ExposedDropdownMenuBox(
+                        expanded = endExpanded,
+                        onExpandedChange = { endExpanded = !endExpanded },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            readOnly = true,
+                            value = endTime,
+                            onValueChange = {},
+                            label = { Text("End") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = endExpanded) },
+                            isError = !isValidRange, // Visual cue if range is inverted
+                            modifier = Modifier.menuAnchor()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = endExpanded,
+                            onDismissRequest = { endExpanded = false }
+                        ) {
+                            timeOptions.forEach { selection ->
+                                DropdownMenuItem(
+                                    text = { Text(selection) },
+                                    onClick = {
+                                        endTime = selection
+                                        endExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (!isValidRange) {
+                    Text(
+                        text = "End time must be later than start time.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
 
@@ -543,12 +669,12 @@ fun VlhSetupConfigScreen(
             }
             Button(
                 onClick = {
-                    // Update the time parameters safely inside the data architecture
-                    activeCol.name = timeSpanString
+                    val combinedTimeSpan = "$startTime- $endTime"
+                    activeCol.name = combinedTimeSpan
 
-                    // Boot up the camera feed capture pipeline automatically
                     coordinator.initiateColumnUpdate(selectedDay, selectedColId, onLaunchCamera)
                 },
+                enabled = isValidRange, // 🟢 Button locks if validation parameters fail
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Launch Scanner")
@@ -562,19 +688,18 @@ fun OperationalScanResultsView(
     coordinator: VlhWorkflowCoordinator,
     onDismiss: () -> Unit
 ) {
+    val openingTime = LocalTableViewModel.current.universalSettings.workplaceOpeningTime
     Card(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp, 0.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(8.dp, 0.dp)) {
             Text("Operational Document Results", style = MaterialTheme.typography.titleLarge)
             Text(
-                text = "Use the buttons below to align the starting time if the first row doesn't match 06:00.",
+                text = "Use the buttons below to align the starting time if the first row doesn't match $openingTime:00.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
-
-            Spacer(modifier = Modifier.height(12.dp))
 
             // 🟢 TIME OFFSET SCROLLER: Let's users shift hours forward or backward
             Row(
@@ -595,16 +720,19 @@ fun OperationalScanResultsView(
                 }
             }
 
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider()
 
-            // 🟢 THE THREE-COLUMN DATA GRID MATRIX
+            // THE THREE-COLUMN DATA GRID MATRIX
             LazyColumn(modifier = Modifier.weight(1f)) {
                 // Header Titles
                 item {
-                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text("Time Frame", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
                         Text("Scanned GC", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                        Text("Vlh Index Result", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+                        Text("Crew required", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
                     }
                 }
 
@@ -626,7 +754,7 @@ fun OperationalScanResultsView(
                             text = timeString,
                             modifier = Modifier.weight(1.2f),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f) // 🟢 Subdued visibility accent
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f) // Subdued visibility accent
                         )
 
                         // Middle Column (Matches header weight 0.8f)

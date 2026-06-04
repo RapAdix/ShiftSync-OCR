@@ -554,7 +554,6 @@ class MainActivity : ComponentActivity() {
                                     )
                                     Screen.VLH_MANAGEMENT -> {
                                         VlhManagementScreen(
-                                            storageManager = tableViewModel.storageManager,
                                             backgroundScope = scope,
                                             onBackToMainHub = { currentScreen = Screen.SCAN_HUB }
                                         )
