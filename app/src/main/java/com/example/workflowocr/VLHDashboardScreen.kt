@@ -2,23 +2,36 @@ package com.example.workflowocr
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
@@ -38,22 +51,32 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -218,6 +241,40 @@ class VlhWorkflowCoordinator(
         return null // Returns null if the GC is smaller than even the lowest entry
     }
 
+    // Context state for the column editing view overlay
+    var editingDayType by mutableStateOf<DayType?>(null)
+    var editingColumnId by mutableStateOf<Int?>(null)
+
+    /**
+     * Returns the column configuration currently being updated in the editor screen
+     */
+    fun getActiveEditingColumn(): VlhColumnConfig? {
+        val day = editingDayType ?: return null
+        val colId = editingColumnId ?: return null
+        val table = if (day == DayType.WEEKDAY) weekdayTable else weekendTable
+        return table.columns.getOrNull(colId)
+    }
+
+    /**
+     * Overwrites the target column data structure entirely with a locally modified list,
+     * flushing the elements out onto disk storage synchronously.
+     */
+    fun updateFullColumnData(updatedList: List<Int>) {
+        val day = editingDayType ?: return
+        val colId = editingColumnId ?: return
+        val currentTable = if (day == DayType.WEEKDAY) weekdayTable else weekendTable
+
+        val updatedColumns = currentTable.columns.map { column ->
+            if (column.id == colId) {
+                column.copy(scannedRows = updatedList.toMutableList())
+            } else column
+        }
+
+        backgroundScope.launch {
+            viewModel.storageManager.saveVlhTable(currentTable.copy(columns = updatedColumns))
+        }
+    }
+
     private object TimeframeValidator {
         // Matches 24-hour formats with :00 or :30 precision (e.g., "05:00 - 08:30" or "14:30 - 22:00")
         private val timeSpanRegex = Regex("""^(0[0-9]|1[0-9]|2[0-3]):(00|30)\s*-\s*(0[0-9]|1[0-9]|2[0-3]):(00|30)$""")
@@ -255,7 +312,8 @@ private enum class VlhSubScreen {
     COLUMN_CAMERA_SCANNER, // Custom camera screen with a highlighted rectangle for fitting one table column
     DASHBOARD,             // Screen with VLH's tables and a button to read projected GCs
     SETUP_UTILITY,
-    OPERATIONAL_REPORTS    // Crew Required screen
+    OPERATIONAL_REPORTS,   // Crew Required screen
+    COLUMN_EDITOR          // Edit VLH column manually
 }
 
 @Composable
@@ -279,7 +337,12 @@ fun VlhManagementScreen(
             VlhDashboardScreen(
                 coordinator = coordinator,
                 onNavigateToCamera = { internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER },
-                onNavigateToSetup = { internalScreen = VlhSubScreen.SETUP_UTILITY }
+                onNavigateToSetup = { internalScreen = VlhSubScreen.SETUP_UTILITY },
+                onColumnClicked = { dayType, columnId ->
+                    coordinator.editingDayType = dayType
+                    coordinator.editingColumnId = columnId
+                    internalScreen = VlhSubScreen.COLUMN_EDITOR
+                }
             )
         }
         VlhSubScreen.SETUP_UTILITY -> VlhSetupConfigScreen(
@@ -311,6 +374,16 @@ fun VlhManagementScreen(
                 }
             )
         }
+        VlhSubScreen.COLUMN_EDITOR -> {
+            VlhColumnEditorScreen(
+                coordinator = coordinator,
+                onDismiss = {
+                    coordinator.editingColumnId = null
+                    coordinator.editingDayType = null
+                    internalScreen = VlhSubScreen.DASHBOARD
+                }
+            )
+        }
     }
 }
 
@@ -318,7 +391,8 @@ fun VlhManagementScreen(
 fun VlhDashboardScreen(
     coordinator: VlhWorkflowCoordinator,
     onNavigateToCamera: () -> Unit,
-    onNavigateToSetup: () -> Unit
+    onNavigateToSetup: () -> Unit,
+    onColumnClicked: (DayType, Int) -> Unit
 ) {
     LaunchedEffect(coordinator) {
         coordinator.collectStart()
@@ -380,18 +454,17 @@ fun VlhDashboardScreen(
                 Column(
                     modifier = Modifier
                         .width(indexColumnWidth)
-                    // 🟢 FIX 1: Removed the top padding from here so the container occupies full height
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .verticalScroll(tableScrollState), // Linked to main scroll engine
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(3.9.dp)
                     ) {
                         // Place an invisible spacer inside the scroll view.
                         // This pushes the numbers down initially but lets them scroll up seamlessly
-                        Spacer(modifier = Modifier.height(30.dp))
+                        Spacer(modifier = Modifier.height(40.dp))
 
                         repeat(totalRowsCount) { index ->
                             Box(
@@ -425,6 +498,12 @@ fun VlhDashboardScreen(
                             modifier = Modifier
                                 .weight(1f) // Forces every single column to occupy identical widths
                                 .border(1.dp, Color.LightGray.copy(alpha = 0.5f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null // Quiet, un-indented click interactions
+                                ) {
+                                    onColumnClicked(coordinator.activeDisplayTab, column.id)
+                                }
                                 .padding(4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
@@ -782,6 +861,204 @@ fun OperationalScanResultsView(
             // Bottom Action Controls
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Discard") }
+            }
+        }
+    }
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun VlhColumnEditorScreen(
+    coordinator: VlhWorkflowCoordinator,
+    onDismiss: () -> Unit
+) {
+    val column = coordinator.getActiveEditingColumn() ?: return
+
+    val localRowsList = remember<SnapshotStateList<Int>>(column.scannedRows) {
+        mutableStateListOf<Int>().apply { addAll(column.scannedRows) }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Edit Column ${column.id + 1} (${column.name})", style = MaterialTheme.typography.titleMedium) },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Discard changes")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally // Keep the overall page structure centered
+        ) {
+
+            // Group the content in a container limited to 60% width
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+
+                OutlinedButton(
+                    onClick = { localRowsList.add(0, 0) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Insert at Row 1 (Front)", fontSize = 13.sp)
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(localRowsList) { index, value ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp), // Fixed height row line
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Left index tracking number label
+                            Text(
+                                text = "${index + 1}.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Gray,
+                                modifier = Modifier.width(32.dp)
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .padding(vertical = 2.dp)
+                                    .border(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                BasicTextField(
+                                    value = if (value == 0) "" else value.toString(),
+                                    onValueChange = { inputString ->
+                                        val cleanedNumber = inputString.filter { it.isDigit() }.toIntOrNull() ?: 0
+                                        localRowsList[index] = cleanedNumber
+                                    },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    textStyle = TextStyle(
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    singleLine = true,
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    decorationBox = { innerTextField ->
+                                        if (value == 0) {
+                                            Text(
+                                                text = "0",
+                                                style = TextStyle(
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    textAlign = TextAlign.Center,
+                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                                                ),
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Action Elements Matrix
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp) // Slightly wider box container to prevent clipping during offsets
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) { localRowsList.add(index + 1, 0) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        // The Curved Arrow (Placed first so it can sit slightly under/behind the plus if overlapping)
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Reply,
+                                            contentDescription = null,
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier
+                                                .size(14.dp)
+                                                .rotate(270f) // Points downward
+                                                .offset(
+                                                    x = (-6).dp,  // Pulls the arrow downward so its beginning sits near the plus's vertical midpoint
+                                                    y = (-1).dp   // Pushes the arrow horizontally farther left from the plus sign
+                                                )
+                                        )
+                                        // The plus icon
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Insert Row Below",
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier
+                                                .size(26.dp) // Large prominent touch target
+                                                .offset(x = 4.dp) // Balances out the layout within the parent 40.dp container
+                                        )
+                                    }
+                                }
+
+                                // Delete Trash Row Button
+                                IconButton(
+                                    onClick = { localRowsList.removeAt(index) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete Row",
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Save confirmation panel scaled to match the layout grid width rules
+            Button(
+                onClick = {
+                    coordinator.updateFullColumnData(localRowsList.toList())
+                    onDismiss()
+                },
+                modifier = Modifier
+                    .fillMaxWidth(0.6f) // Locks bottom button size to the 60% frame context
+                    .height(48.dp)
+                    .padding(bottom = 8.dp)
+            ) {
+                Text("Confirm & Save", fontWeight = FontWeight.Bold)
             }
         }
     }
