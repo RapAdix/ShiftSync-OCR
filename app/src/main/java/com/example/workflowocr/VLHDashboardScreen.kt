@@ -142,7 +142,7 @@ class VlhWorkflowCoordinator(
     var isConfiguringMasterTable by mutableStateOf(true)
 
     // Temporary holders for the standalone operational scan document workflow
-    var scannedGcsList by mutableStateOf<List<Int>>(emptyList())
+    val scannedGcsList: SnapshotStateList<Int> = mutableStateListOf()
     var selectedStartHour by mutableStateOf(viewModel.universalSettings.workplaceOpeningTime) // Default starting alignment offset
 
     /**
@@ -208,7 +208,8 @@ class VlhWorkflowCoordinator(
 
                 withContext(Dispatchers.Main) {
                     // Save the raw text numbers into memory
-                    scannedGcsList = extractedDigits
+                    scannedGcsList.clear()
+                    scannedGcsList.addAll(extractedDigits)
 
                     targetingDayType = null
                     targetingColumnId = null
@@ -370,7 +371,7 @@ fun VlhManagementScreen(
                 coordinator = coordinator,
                 onDismiss = {
                     internalScreen = VlhSubScreen.DASHBOARD
-                    coordinator.scannedGcsList = emptyList()
+                    coordinator.scannedGcsList.clear()
                 }
             )
         }
@@ -790,12 +791,14 @@ fun VlhSetupConfigScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OperationalScanResultsView(
     coordinator: VlhWorkflowCoordinator,
     onDismiss: () -> Unit
 ) {
     val openingTime = LocalTableViewModel.current.universalSettings.workplaceOpeningTime
+
     Card(
         modifier = Modifier.fillMaxSize().padding(16.dp, 0.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -808,7 +811,7 @@ fun OperationalScanResultsView(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
 
-            // 🟢 TIME OFFSET SCROLLER: Let's users shift hours forward or backward
+            // TIME OFFSET SCROLLER: Let's users shift hours forward or backward
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -835,11 +838,41 @@ fun OperationalScanResultsView(
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Text("Time Frame", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-                        Text("Scanned GC", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                        Text("Crew required", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+                        Text(
+                            text = "Time Frame",
+                            modifier = Modifier.width(96.dp), // Fixed explicit width forces single-row layout
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+
+                        // Split layout into a Column so the button sits on a new line underneath the label
+                        Column(
+                            modifier = Modifier.weight(1.6f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("Scanned GC", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                            IconButton(
+                                onClick = { coordinator.scannedGcsList.add(0, 0) },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Insert at Front",
+                                    tint = Color(0xFF2E7D32),
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Crew required",
+                            modifier = Modifier.weight(1.0f),
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.End
+                        )
                     }
                 }
 
@@ -848,39 +881,130 @@ fun OperationalScanResultsView(
                     // Calculate the shifting hour slot based on the index position offset
                     val currentHour = (coordinator.selectedStartHour + index) % 24
                     val timeString = String.format("%02d:00 - %02d:00", currentHour, (currentHour + 1) % 24)
-                    
                     val crewNeeded = coordinator.calculateResultIndex(currentHour, gcValue)?.let { it + 1 }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(38.dp), // Fixed structural height matching the layout grid
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Left Column: Dim, less visible time marker frames
+                        // Left Column: Subdued Time Frame
                         Text(
                             text = timeString,
-                            modifier = Modifier.weight(1.2f),
+                            modifier = Modifier.width(96.dp), // Matches fixed width layout matrix rules perfectly
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f) // Subdued visibility accent
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                         )
 
-                        // Middle Column (Matches header weight 0.8f)
-                        Text(
-                            text = gcValue.toString(),
-                            modifier = Modifier.weight(0.8f),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center
-                        )
+                        // Middle Column: In-Place Editable Input Field Box + Combined Actions
+                        Row(
+                            modifier = Modifier.weight(1.6f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(52.dp) // Narrowed down: comfortably fits a 3-digit entry
+                                    .fillMaxHeight()
+                                    .padding(vertical = 2.dp, horizontal = 4.dp)
+                                    .border(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                BasicTextField(
+                                    value = if (gcValue == 0) "" else gcValue.toString(),
+                                    onValueChange = { inputString ->
+                                        val cleanedNumber = inputString.filter { it.isDigit() }.toIntOrNull() ?: 0
+                                        coordinator.scannedGcsList[index] = cleanedNumber
+                                    },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    textStyle = TextStyle(
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    singleLine = true,
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    decorationBox = { innerTextField ->
+                                        if (gcValue == 0) {
+                                            Text(
+                                                text = "0",
+                                                style = TextStyle(
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    textAlign = TextAlign.Center,
+                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                                                ),
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                )
+                            }
 
-                        // Right Column (Matches header weight 1.0f)
-                        Text(
-                            text = crewNeeded?.toString() ?: "N/A",
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = if (crewNeeded != null) MaterialTheme.colorScheme.primary else Color.Red,
-                            textAlign = TextAlign.End
-                        )
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { coordinator.scannedGcsList.add(index + 1, 0) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Reply,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2E7D32),
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .rotate(270f)
+                                            .offset(x = (-5).dp, y = (-1).dp)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Insert Below",
+                                        tint = Color(0xFF2E7D32),
+                                        modifier = Modifier.size(22.dp).offset(x = 3.dp)
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = { coordinator.scannedGcsList.removeAt(index) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete Row",
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        // Right Column: Crew Output
+                        Row(
+                            modifier = Modifier.weight(1.0f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Text(
+                                text = crewNeeded?.toString() ?: "N/A",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (crewNeeded != null) MaterialTheme.colorScheme.primary else Color.Red,
+                                textAlign = TextAlign.End
+                            )
+                        }
                     }
                 }
             }
