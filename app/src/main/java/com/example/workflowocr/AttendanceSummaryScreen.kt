@@ -42,7 +42,7 @@ data class HourGroup(
 @Composable
 fun AttendanceSummaryScreen(rowsMap: Map<String, ProcessorRow>) {
     val employees by remember {
-        derivedStateOf { rowsMap.values.sortedBy { it.id } }
+        derivedStateOf { rowsMap.values.filterNot { it.isAbsent }.sortedBy { it.id } }
     }
     val settings = LocalTableViewModel.current.universalSettings
     val summary = remember(employees) { calculateHourlySummary(employees, settings.workplaceOpeningTime, settings.workplaceClosingTime) }

@@ -99,6 +99,7 @@ data class ProcessorRow(
     val finishTimeSnippetPath: String? = null,
     val oldModificationsSnippetPath: String? = null, // the remaining part of the row
     val newModificationsSnippetPath: String? = null,
+    val isAbsent: Boolean = false
 ) {
     fun isManualEntry(): Boolean = id.startsWith(MANUAL_ID_PREFIX)
 
@@ -194,7 +195,7 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startEditing(id: String) { editingRowId = id }
     fun stopEditing() { editingRowId = null }
-    fun saveRow(id: String, start: String, end: String) {
+    fun saveRow(id: String, start: String, end: String, isAbsent: Boolean) {
         val row = extractedRows[id] ?: return
 
         // Handle removal of no longer needed file
@@ -210,9 +211,9 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
             confirmedAnalysis = row.newAnalysis?: row.confirmedAnalysis,
             newAnalysis = null,
             oldModificationsSnippetPath = updatedOldModPath,
-            newModificationsSnippetPath = null
+            newModificationsSnippetPath = null,
+            isAbsent = isAbsent
         )
-        stopEditing()
         storageManager.saveRowsToDisk(extractedRows, currentWorkingDate)
     }
 
@@ -312,8 +313,9 @@ fun TableResultsScreen(viewModel: TableViewModel) {
         EditTimeDialog(
             row = row,
             onDismiss = { viewModel.stopEditing() },
-            onSave = { start, end ->
-                viewModel.saveRow(id, start, end)
+            onSave = { start, end, isAbsent ->
+                viewModel.saveRow(id, start, end, isAbsent)
+                viewModel.stopEditing()
             },
             onDelete = { viewModel.deleteRow(id) }
         )
@@ -537,10 +539,10 @@ fun TimeBadge(time: String, isAbsent: Boolean = false) {
 fun EditTimeDialog(
     row: ProcessorRow,
     onDismiss: () -> Unit,
-    onSave: (startTime: String, finishTime: String) -> Unit,
+    onSave: (startTime: String, finishTime: String, isAbsent: Boolean) -> Unit,
     onDelete: () -> Unit
 ) {
-    var isAbsent by remember { mutableStateOf(row.finishTime == row.startTime && row.hasValidTimes()) }
+    var isAbsent by remember { mutableStateOf(row.isAbsent || (row.finishTime == row.startTime && row.hasValidTimes())) }
     var start by remember {
         mutableStateOf(TimeUtils.round15(TimeUtils.parseTimeOrNull(row.startTime) ?: TimeUtils.currentTimeMinutes()))
     }
@@ -735,10 +737,7 @@ fun EditTimeDialog(
                         TextButton(onClick = onDismiss) { Text("Cancel") }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(onClick = {
-                            if (isAbsent)
-                                onSave(TimeUtils.minutesToTimeString(0), TimeUtils.minutesToTimeString(0))
-                            else
-                                onSave(TimeUtils.minutesToTimeString(start), TimeUtils.minutesToTimeString(end))
+                            onSave(TimeUtils.minutesToTimeString(start), TimeUtils.minutesToTimeString(end), isAbsent)
                         }) {
                             Text("Save")
                         }
@@ -1020,7 +1019,7 @@ fun ProcessorRow.hasRecentlyWrittenModifications(settings: TableLayout): Boolean
 
 // At some point appeared in the schedule but is not present.
 fun ProcessorRow.isRelevantButUltimatelyAbsent(): Boolean {
-    return hasValidTimes() && startTime == finishTime
+    return isAbsent || (hasValidTimes() && startTime == finishTime)
 }
 
 fun Point.move(dx: Double = 0.0, dy: Double = 0.0) = Point(this.x + dx, this.y + dy)
