@@ -89,7 +89,6 @@ enum class DayType { WEEKDAY, WEEKEND }
 data class VlhColumnConfig(
     val id: Int,                 // 0 to 5 (The 6 columns)
     var name: String = "",        // e.g., "05:00 - 10:30"
-    val maxRows: Int = 25,
     val scannedRows: List<Int> = emptyList()
 )
 
@@ -219,7 +218,7 @@ class VlhWorkflowCoordinator(
     }
 
     /**
-     * Calculates the output index mapping for a specific hour frame against our saved Master Tables
+     * Calculates the biggest index that has GC value smaller/equal than the provided gcValue, for a specific hour frame against our saved Master Tables
      */
     fun calculateResultIndex(hour: Int, gcValue: Int): Int? {
         val activeMasterTable = if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
@@ -229,12 +228,12 @@ class VlhWorkflowCoordinator(
             TimeframeValidator.containsHour(column.name, hour)
         } ?: return null // No matching timeline configuration found on disk
 
-        // 3Scan the column's rows backwards to find the highest number smaller than/equal to GC
-        // Rows are safely assumed to be sorted natively [12, 22, 45, 76...]
+        // Scan the column's rows backwards to find the highest number smaller than/equal to GC
+        // Rows are assumed to be sorted natively [12, 22, 45, 76...]
         val rows = matchedColumn.scannedRows
         for (i in rows.indices.reversed()) {
             if (rows[i] <= gcValue) {
-                return i // Returns the exact index matching your rules
+                return i
             }
         }
 
@@ -399,6 +398,7 @@ fun VlhDashboardScreen(
     }
 
     val tabs = listOf(DayType.WEEKDAY, DayType.WEEKEND)
+    val minRows = 20
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 1. Tabbed Header row matching active selection matrices
@@ -435,7 +435,9 @@ fun VlhDashboardScreen(
         val columnsData = remember(activeTable) { activeTable.columns }
 
         // Dynamic Row Finder: Looks across all 6 columns to find the maximum configured size defined in data models
-        val totalRowsCount = remember(columnsData) { columnsData.maxOfOrNull { it.maxRows } ?: 30 }
+        val totalRowsCount = remember(columnsData) {
+            (columnsData.maxOfOrNull { it.scannedRows.size } ?: 0).coerceAtLeast(minRows)
+        }
 
         val indexColumnWidth = 24.dp
         val tableScrollState = rememberScrollState()
@@ -557,7 +559,7 @@ fun VlhDashboardScreen(
                                 }
 
                                 // DYNAMIC PLACEHOLDERS: Calculated safely per individual column data boundaries
-                                val missingSlots = column.maxRows - column.scannedRows.size
+                                val missingSlots = minRows - column.scannedRows.size
                                 if (missingSlots > 0) {
                                     repeat(missingSlots) {
                                         Box(modifier = Modifier.height(28.dp), contentAlignment = Alignment.Center) {
@@ -820,9 +822,8 @@ fun OperationalScanResultsView(
                     // Calculate the shifting hour slot based on the index position offset
                     val currentHour = (coordinator.selectedStartHour + index) % 24
                     val timeString = String.format("%02d:00 - %02d:00", currentHour, (currentHour + 1) % 24)
-
-                    // Execute our math engine lookup
-                    val resultIndex = coordinator.calculateResultIndex(currentHour, gcValue)
+                    
+                    val crewNeeded = coordinator.calculateResultIndex(currentHour, gcValue)?.let { it + 1 }
 
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -847,11 +848,11 @@ fun OperationalScanResultsView(
 
                         // Right Column (Matches header weight 1.0f)
                         Text(
-                            text = resultIndex?.toString() ?: "N/A",
+                            text = crewNeeded?.toString() ?: "N/A",
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
-                            color = if (resultIndex != null) MaterialTheme.colorScheme.primary else Color.Red,
+                            color = if (crewNeeded != null) MaterialTheme.colorScheme.primary else Color.Red,
                             textAlign = TextAlign.End
                         )
                     }
