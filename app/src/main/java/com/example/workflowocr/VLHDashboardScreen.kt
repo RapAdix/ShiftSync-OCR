@@ -1,6 +1,7 @@
 package com.example.workflowocr
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -551,9 +552,34 @@ fun VlhDashboardScreen(
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                // Render Scanned operational strings
-                                column.scannedRows.forEach { dataValue ->
-                                    Box(modifier = Modifier.height(28.dp), contentAlignment = Alignment.Center) {
+                                column.scannedRows.forEachIndexed { rowIndex, dataValue ->
+                                    // Check if the previous item in this column is larger
+                                    val isValueDropping = rowIndex > 0 && column.scannedRows[rowIndex - 1] > dataValue
+
+                                    val cellBackgroundColor = if (isValueDropping) {
+                                        Color(0xFFFFF3E0) // Richer, warm pastel orange (Material Orange 50)
+                                    } else {
+                                        Color.Transparent
+                                    }
+
+                                    val cellBorderColor = if (isValueDropping) {
+                                        Color(0xFFFFB74D) // Sharp, vibrant amber border outline (Material Orange 300)
+                                    } else {
+                                        Color.Transparent
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(28.dp)
+                                            .background(color = cellBackgroundColor, shape = RoundedCornerShape(4.dp))
+                                            .border(
+                                                width = if (isValueDropping) 1.5.dp else 0.dp,
+                                                color = cellBorderColor,
+                                                shape = RoundedCornerShape(4.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
                                         Text(text = dataValue.toString(), style = MaterialTheme.typography.bodyLarge)
                                     }
                                 }
@@ -866,6 +892,7 @@ fun OperationalScanResultsView(
         }
     }
 }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VlhColumnEditorScreen(
@@ -924,10 +951,25 @@ fun VlhColumnEditorScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     itemsIndexed(localRowsList) { index, value ->
+                        // Check if previous row has a bigger value than the current row
+                        val isValueDropping = index > 0 && localRowsList[index - 1] > value
+
+                        val boxBackgroundColor = if (isValueDropping) {
+                            Color(0xFFFFF9C4) // Soft Pastel Yellow (Material Yellow 100)
+                        } else {
+                            Color.Transparent
+                        }
+
+                        val boxBorderColor = if (isValueDropping) {
+                            Color(0xFFFBC02D).copy(alpha = 0.6f) // Darker Amber border accent
+                        } else {
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(38.dp), // Fixed height row line
+                                .height(38.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Left index tracking number label
@@ -944,9 +986,10 @@ fun VlhColumnEditorScreen(
                                     .weight(1f)
                                     .fillMaxHeight()
                                     .padding(vertical = 2.dp)
+                                    .background(color = boxBackgroundColor, shape = RoundedCornerShape(4.dp))
                                     .border(
                                         width = 1.dp,
-                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                        color = boxBorderColor,
                                         shape = RoundedCornerShape(4.dp)
                                     ),
                                 contentAlignment = Alignment.Center
