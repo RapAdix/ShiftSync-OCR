@@ -116,15 +116,15 @@ val LocalTableViewModel = staticCompositionLocalOf<TableViewModel> {
 }
 
 // Define the different "Planes" of application
-enum class Screen {
-    SCAN_HUB,              // The main entry point with "Scan" and "Results" buttons
-    PROCESSING_PREVIEW,    // A waiting screen with debug info shown after user makes a picture
-    TABLE_RESULTS,         // The interactive list of extracted rows
-    ATTENDANCE_COUNT,      // How many people work at specific times
-    SAMPLE_DETECTION,      // OpenCV debug view
-    VLH_MANAGEMENT,        // VLH table, GC's scanning, Crew required
-    SETTINGS,
-    ABOUT
+enum class Screen(val displayName: String) {
+    SCAN_HUB("Scan Hub"),                   // The main entry point with "Scan" and "Results" buttons
+    PROCESSING_PREVIEW("Preview"),          // A waiting screen with debug info shown after user makes a picture
+    TABLE_RESULTS("Table Results"),         // The interactive list of extracted rows
+    ATTENDANCE_COUNT("Attendance"),         // How many people work at specific times
+    SAMPLE_DETECTION("SAMPLE_DETECTION"),   // OpenCV debug view
+    VLH_MANAGEMENT("VLH Management"),       // VLH table, GC's scanning, Crew required
+    SETTINGS("Settings"),
+    ABOUT("About")
 }
 
 val PaperWhite = Color(0xFFF5F5F0)
@@ -465,7 +465,18 @@ class MainActivity : ComponentActivity() {
                         Scaffold(
                             topBar = {
                                 TopAppBar(
-                                    title = { Text(currentScreen.name.replace("_", " ")) },
+                                    title = {
+                                        val baseTitle = currentScreen.displayName
+
+                                        // Conditionally append the current working date if on a table/summary screen
+                                        val fullTitle = if ((currentScreen == Screen.TABLE_RESULTS || currentScreen == Screen.ATTENDANCE_COUNT) && !tableViewModel.currentWorkingDate.isNullOrBlank()) {
+                                            "$baseTitle (${tableViewModel.currentWorkingDate})"
+                                        } else {
+                                            baseTitle
+                                        }
+
+                                        Text(text = fullTitle)
+                                    },
                                     navigationIcon = {
                                         IconButton(onClick = { composeScope.launch { drawerState.open() } }) {
                                             Icon(Icons.Default.Menu, contentDescription = "Menu")
