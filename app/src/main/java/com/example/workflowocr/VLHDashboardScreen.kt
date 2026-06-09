@@ -180,7 +180,7 @@ class VlhWorkflowCoordinator(
             // Use the long-lived background scope so this block survives screen swaps safely
             backgroundScope.launch {
                 val integerRowsList = withContext(Dispatchers.IO) {
-                    TextProcessor.extractIntRows(bitmap, x, y, w, h)
+                    TextProcessor.extractAndExtrapolateIntRows(bitmap, x, y, w, h)
                 }
 
                 val currentTable = if (day == DayType.WEEKDAY) weekdayTable else weekendTable
@@ -203,7 +203,7 @@ class VlhWorkflowCoordinator(
         } else {
             backgroundScope.launch {
                 val extractedDigits = withContext(Dispatchers.IO) {
-                    TextProcessor.extractIntRows(bitmap, x, y, w, h)
+                    TextProcessor.extractAndExtrapolateIntRows(bitmap, x, y, w, h)
                 }
 
                 withContext(Dispatchers.Main) {

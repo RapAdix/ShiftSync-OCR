@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.util.Log
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +14,7 @@ import org.opencv.core.Rect
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 object TextProcessor {
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -71,43 +73,130 @@ object TextProcessor {
         }
     }
 
-    suspend fun extractIntRows(
+    // A lightweight helper class to pair data with physical image coordinates
+    private data class SpatialDetection(
+        val value: Int,
+        val centerY: Float,
+        val boxHeight: Int
+    )
+
+    /**
+     * Extracts text from a cropped bitmap column using ML Kit, calculates the true
+     * structural row spacing using median distance analysis, fills missing intermediate
+     * rows with 0s, and pads empty space at the top of the image with leading zeros.
+     */
+    suspend fun extractAndExtrapolateIntRows(
         bitmap: Bitmap,
-        x: Int,
-        y: Int,
-        w: Int,
-        h: Int
+        x: Int, y: Int, w: Int, h: Int,
+        totalConfiguredMaxRows: Int = 100 // Safeguard limit to avoid over-allocating lines
     ): List<Int> = withContext(Dispatchers.IO) {
-        // Safely crop out only the column zone
+
         val targetX = x.coerceIn(0, bitmap.width - 1)
         val targetY = y.coerceIn(0, bitmap.height - 1)
         val targetW = w.coerceIn(1, bitmap.width - targetX)
         val targetH = h.coerceIn(1, bitmap.height - targetY)
 
         val croppedColumn = Bitmap.createBitmap(bitmap, targetX, targetY, targetW, targetH)
-
         val inputImage = InputImage.fromBitmap(croppedColumn, 0)
 
-        // Await text recognition results asynchronously
-        val rawOcrText = suspendCancellableCoroutine<String> { cont ->
+        val visionText = suspendCancellableCoroutine<Text?> { cont ->
             recognizer.process(inputImage)
-                .addOnSuccessListener { visionText ->
-                    cont.resume(visionText.text) {  }
-                }
+                .addOnSuccessListener { textStructure -> cont.resume(textStructure) { } }
                 .addOnFailureListener { e ->
-                    cont.resume("") {  }
+                    Log.e("TextProcessor", "OCR Processing crashed", e)
+                    cont.resume(null) { }
                 }
         }
 
-        rawOcrText.lines()
-            .map { line ->
-                val fixedString = line.trim().coerceDigits()
+        if (croppedColumn != bitmap) {
+            croppedColumn.recycle()
+        }
+        if (visionText == null || visionText.textBlocks.isEmpty()) {
+            Log.d("DEBUG", "extractAndExtrapolateIntRows: visionText is empty, exiting early")
+            return@withContext emptyList()
+        }
 
-                // Clean out remaining alphabet noise or punctuation marks entirely
-                fixedString.filter { it.isDigit() }
+        // Collect digits and harvest their absolute central Y pixel coordinates
+        val rawDetections = mutableListOf<SpatialDetection>()
+
+        visionText.textBlocks.flatMap { it.lines }.forEach { visionLine ->
+            val rawLineText = visionLine.text.trim()
+            val neutralizedText = rawLineText.coerceDigits()
+                .filter { it.isDigit() }
+
+            val parsedInt = neutralizedText.toIntOrNull()
+            val boundingBox = visionLine.boundingBox
+
+            if (parsedInt != null && boundingBox != null) {
+                val centerY = boundingBox.top + (boundingBox.height() / 2f)
+                rawDetections.add(SpatialDetection(parsedInt, centerY, boundingBox.height()))
             }
-            .filter { it.isNotEmpty() }   // Discard empty background spacer rows
-            .mapNotNull { it.toIntOrNull() } // Convert clean strings to real Int primitives safely
+        }
+
+        // Sort rows strictly from the top of the image to the bottom
+        val sortedDetections = rawDetections.sortedBy { it.centerY }
+        if (sortedDetections.isEmpty()) return@withContext emptyList()
+
+        // Calculate the MEDIAN distance between sequential rows
+        val distances = mutableListOf<Float>()
+        for (i in 0 until sortedDetections.size - 1) {
+            val deltaY = sortedDetections[i + 1].centerY - sortedDetections[i].centerY
+            if (deltaY > 5f) { // Ignore overlapping detections of the same line text bubble
+                distances.add(deltaY)
+            }
+        }
+
+        // Establish the calculated baseline stride height of a single cell grid row
+        val medianRowStrideHeight = if (distances.isNotEmpty()) {
+            distances.sorted()[distances.size / 2]
+        } else {
+            Log.d("TextProcessor", "Cannot extrapolate IntRows because there is only one number in the whole column")
+            return@withContext List(1) {sortedDetections[0].value}
+        }
+
+        Log.d("DEBUG", "Calculated Median Row Stride Height: $medianRowStrideHeight px")
+
+        // Filling Part One: Calculate how many missing 0s fit between top of image (Y=0) and first detected item
+        val firstDetection = sortedDetections.first()
+
+        // Image should be cropped tightly, dividing the space by the row stride reveals skipped leading lines
+        val leadingZerosCount = (firstDetection.centerY / medianRowStrideHeight).toInt()
+
+        val finalExtrapolatedRows = mutableListOf<Int>()
+        repeat(leadingZerosCount) {
+            finalExtrapolatedRows.add(0)
+        }
+
+        // Filling Part Two: Reconstruct intermediate gaps down the column chain sequentially
+        var expectedVirtualY = firstDetection.centerY
+
+        for (i in sortedDetections.indices) {
+            val currentDetection = sortedDetections[i]
+
+            // Calculate if a gap exists between our rolling virtual position tracker and the current detection
+            val pixelGap = currentDetection.centerY - expectedVirtualY
+
+            if (pixelGap >= (medianRowStrideHeight * 1.5f)) {
+                // Determine exactly how many zero slots were skipped over
+                val missingRowsCount = (pixelGap / medianRowStrideHeight).roundToInt()
+                repeat(missingRowsCount) {
+                    if (finalExtrapolatedRows.size < totalConfiguredMaxRows) {
+                        finalExtrapolatedRows.add(0)
+                    }
+                }
+            }
+
+            // Append the actual number ML Kit read successfully
+            if (finalExtrapolatedRows.size < totalConfiguredMaxRows) {
+                finalExtrapolatedRows.add(currentDetection.value)
+            }
+
+            // Lock tracking center directly onto the item we just processed
+            expectedVirtualY = currentDetection.centerY + medianRowStrideHeight
+        }
+
+        Log.d("DEBUG", "Final Processed Column List: $finalExtrapolatedRows")
+        return@withContext finalExtrapolatedRows
     }
 
     private fun getRectForCell(cell: TableDetector.TableCell) : Rect {
@@ -161,6 +250,8 @@ object TextProcessor {
             .replace("p", "0")
             .replace("O", "0")
             .replace("o", "0")
+            .replace("Q", "0")
+            .replace("D", "0")
             .replace("B", "8")
     }
 
