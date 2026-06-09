@@ -18,6 +18,9 @@ import kotlinx.serialization.json.Json
 import org.opencv.core.Point
 import java.io.File
 import java.io.FileOutputStream
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+import kotlin.math.abs
 
 private val Context.dataStore by preferencesDataStore(name = "app_preferences")
 
@@ -30,6 +33,15 @@ class StorageManager(private val context: Context) {
 
     // Configured to ignore unknown keys - in case fields are added to ProcessorRow later
     private val json = Json { ignoreUnknownKeys = true }
+
+    init {
+        // Clean up outdated tracking data instantly upon manager initialization
+        try {
+            purgeExpiredSensitiveData()
+        } catch (e: Exception) {
+            Log.e("Storage", "Initialization data purge failed", e)
+        }
+    }
 
     // Dynamic, safe reading pipeline
     val settingsStateFlow: Flow<Triple<PresetType, TableLayout, UniversalSettings>> = context.dataStore.data.map { preferences ->
@@ -152,6 +164,54 @@ class StorageManager(private val context: Context) {
         val folder = File(getDataDir(), date)
         if (folder.exists()) {
             folder.deleteRecursively() // Deletes folder, snippets, and json in one go
+        }
+    }
+
+    /**
+     * Parses all directory date keys and drops records falling outside retention bounds:
+     * - Must not be older than yesterday.
+     * - Must not look into the future further than 1 month.
+     */
+    private fun purgeExpiredSensitiveData() {
+        val currentLocalDate = LocalDate.now()
+        val availableDates = getAvailableDates() // Yields e.g., ["25-12", "05-01"]
+
+        availableDates.forEach { dateStr ->
+            val parts = dateStr.split("-")
+            val day = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
+            val month = parts.getOrNull(1)?.toIntOrNull() ?: return@forEach
+
+            // 1. Resolve which absolute calendar year this string naturally belongs to
+            val parsedDateInCurrentYear = try {
+                LocalDate.of(currentLocalDate.year, month, day)
+            } catch (e: Exception) {
+                return@forEach // Skip corrupt or impossible calendar combinations (e.g., 31-02)
+            }
+
+            // Project candidate options for boundaries calculation adjustments
+            val relativePastYearDate = parsedDateInCurrentYear.minusYears(1)
+            val relativeFutureYearDate = parsedDateInCurrentYear.plusYears(1)
+
+            // Find which absolute year choice is closest to today's real target timeframe
+            val bestFitTrueDate = listOf(relativePastYearDate, parsedDateInCurrentYear, relativeFutureYearDate)
+                .minByOrNull { abs(ChronoUnit.DAYS.between(currentLocalDate, it)) } ?: run {
+                    Log.d("Storage", "purgeExpiredSensitiveData: bestFitTrueDate is null for $dateStr")
+                    parsedDateInCurrentYear
+            }
+
+            // 2. Condition 1: Older than yesterday check rule validation
+            // (Case Current: January; Date1: December
+            val isOlderThanYesterday = bestFitTrueDate.isBefore(currentLocalDate.minusDays(1))
+
+            // 3. Condition 2: Future boundary retention checking rules
+            // (Case Current: December; Date1: January -> relative time must not exceed a 1-month span offset)
+            val isMoreThanMonthInFuture = bestFitTrueDate.isAfter(currentLocalDate.plusMonths(1))
+
+            // 4. Combined Evaluation Loop Core Execution
+            if (isOlderThanYesterday || isMoreThanMonthInFuture) {
+                Log.d("StoragePurge", "Purging expired data directory footprint: $dateStr (Resolved as: $bestFitTrueDate)")
+                deleteDataForDate(dateStr)
+            }
         }
     }
 
