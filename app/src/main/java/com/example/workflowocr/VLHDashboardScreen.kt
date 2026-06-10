@@ -1,6 +1,7 @@
 package com.example.workflowocr
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,10 +38,12 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,7 +76,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -145,6 +152,8 @@ class VlhWorkflowCoordinator(
     val scannedGcsList: SnapshotStateList<Int> = mutableStateListOf()
     var selectedStartHour by mutableStateOf(viewModel.universalSettings.workplaceOpeningTime) // Default starting alignment offset
 
+    var lastCapturedBitmap by mutableStateOf<Bitmap?>(null)
+
     /**
      * Prepares configuration tracking states before opening up the camera overlay target screen
      */
@@ -172,6 +181,14 @@ class VlhWorkflowCoordinator(
         val y = (bitmap.height * CameraTargetGeometry.TOP_RATIO).toInt()
         val w = (bitmap.width * CameraTargetGeometry.WIDTH_RATIO).toInt()
         val h = (bitmap.height * CameraTargetGeometry.HEIGHT_RATIO).toInt()
+
+        val targetX = x.coerceIn(0, bitmap.width - 1)
+        val targetY = y.coerceIn(0, bitmap.height - 1)
+        val targetW = w.coerceIn(1, bitmap.width - targetX)
+        val targetH = h.coerceIn(1, bitmap.height - targetY)
+
+        val croppedColumn = Bitmap.createBitmap(bitmap, targetX, targetY, targetW, targetH)
+        lastCapturedBitmap = croppedColumn
 
         if (isConfiguringMasterTable) {
             val day = targetingDayType ?: return
@@ -314,7 +331,8 @@ private enum class VlhSubScreen {
     DASHBOARD,             // Screen with VLH's tables and a button to read projected GCs
     SETUP_UTILITY,
     OPERATIONAL_REPORTS,   // Crew Required screen
-    COLUMN_EDITOR          // Edit VLH column manually
+    COLUMN_EDITOR,         // Edit VLH column manually
+    IMAGE_DISPLAY          // Show recently captured image for debug purposes
 }
 
 @Composable
@@ -343,7 +361,8 @@ fun VlhManagementScreen(
                     coordinator.editingDayType = dayType
                     coordinator.editingColumnId = columnId
                     internalScreen = VlhSubScreen.COLUMN_EDITOR
-                }
+                },
+                onNavigateToImageInspection = {internalScreen = VlhSubScreen.IMAGE_DISPLAY}
             )
         }
         VlhSubScreen.SETUP_UTILITY -> VlhSetupConfigScreen(
@@ -385,6 +404,13 @@ fun VlhManagementScreen(
                 }
             )
         }
+
+        VlhSubScreen.IMAGE_DISPLAY -> {
+            VlhImageInspectionScreen(
+                coordinator = coordinator,
+                onBackToDashboard = { internalScreen = VlhSubScreen.DASHBOARD }
+            )
+        }
     }
 }
 
@@ -393,7 +419,8 @@ fun VlhDashboardScreen(
     coordinator: VlhWorkflowCoordinator,
     onNavigateToCamera: () -> Unit,
     onNavigateToSetup: () -> Unit,
-    onColumnClicked: (DayType, Int) -> Unit
+    onColumnClicked: (DayType, Int) -> Unit,
+    onNavigateToImageInspection: () -> Unit
 ) {
     LaunchedEffect(coordinator) {
         coordinator.collectStart()
@@ -426,9 +453,22 @@ fun VlhDashboardScreen(
                 fontWeight = FontWeight.ExtraBold
             )
 
-            // The Setup "Gear" Button
-            IconButton(onClick = onNavigateToSetup) {
-                Icon(Icons.Default.Settings, contentDescription = "Configure Layout Definitions", tint = MaterialTheme.colorScheme.primary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // The Image Quality Verification Eye Button (Only visible if an image actually exists)
+                if (coordinator.lastCapturedBitmap != null) {
+                    IconButton(onClick = onNavigateToImageInspection) {
+                        Icon(
+                            imageVector = Icons.Default.Visibility,
+                            contentDescription = "Review Last Captured Scan Image",
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+
+                // The Setup "Gear" Button
+                IconButton(onClick = onNavigateToSetup) {
+                    Icon(Icons.Default.Settings, contentDescription = "Configure Layout Definitions", tint = MaterialTheme.colorScheme.primary)
+                }
             }
         }
 
@@ -1227,6 +1267,116 @@ fun VlhColumnEditorScreen(
                     .padding(bottom = 8.dp)
             ) {
                 Text("Confirm & Save", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun VlhImageInspectionScreen(
+    coordinator: VlhWorkflowCoordinator,
+    onBackToDashboard: () -> Unit
+) {
+    var debugExtractedResults by remember { mutableStateOf<List<Int>?>(null) }
+    val scrollState = rememberScrollState()
+
+    // Automatically trigger the debug process when the screen first loads
+    LaunchedEffect(Unit) {
+        val bitmap = coordinator.lastCapturedBitmap
+        if (bitmap != null) {
+            val integerRowsList = withContext(Dispatchers.IO) {
+                TextProcessor.extractAndExtrapolateIntRows(bitmap, 0, 0, bitmap.width, bitmap.height)
+            }
+            debugExtractedResults = integerRowsList
+        }
+    }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Verify Source Document Scan", style = MaterialTheme.typography.titleMedium) },
+                navigationIcon = {
+                    IconButton(onClick = onBackToDashboard) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Return to Dashboard")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(Color.Black) // Dark canvas helps see text contrast issues clearly
+                .verticalScroll(scrollState),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val bitmapSnapshot = coordinator.lastCapturedBitmap
+
+            if (bitmapSnapshot != null) {
+                Image(
+                    bitmap = bitmapSnapshot.asImageBitmap(),
+                    contentDescription = "Raw captured OCR target matrix frame",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 500.dp),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                Text(
+                    text = "No captured document snapshot found in memory cache.",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+
+            HorizontalDivider(color = Color.DarkGray, thickness = 1.dp, modifier = Modifier.padding(vertical = 16.dp))
+
+            // DEBUG VALUES DATA BOARD SECTION
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "--- DEBUG EXTRACTION PASSTHROUGH MATRIX ---",
+                    color = Color.Green,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val results = debugExtractedResults
+                if (results == null) {
+                    // Running state indicator spinner trace frame
+                    CircularProgressIndicator(
+                        color = Color.Green,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else if (results.isEmpty()) {
+                    Text(
+                        text = "OCR analysis completed. Zero numerical patterns matched.",
+                        color = Color.LightGray,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    // Render out the dynamic digits matrix row array items line-by-line
+                    results.forEachIndexed { index, targetValue ->
+                        Text(
+                            text = "Row [${String.format("%02d", index + 1)}]:   $targetValue",
+                            color = Color.Green,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontFamily = FontFamily.Monospace, // Monospace keeps decimal alignment tracks straight
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Extra breathing buffer at the absolute bottom of the scroll container
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
