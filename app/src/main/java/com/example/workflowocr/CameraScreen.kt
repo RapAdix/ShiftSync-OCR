@@ -44,9 +44,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
@@ -130,6 +136,7 @@ fun CameraScreen(
             }
         )
 
+        val textMeasurer = rememberTextMeasurer()
         // 2. Custom Target Guide Box Overlay
         Canvas(modifier = Modifier.fillMaxSize()) {
             val canvasWidth = size.width
@@ -140,10 +147,60 @@ fun CameraScreen(
             val zoneTop = canvasHeight * CameraTargetGeometry.TOP_RATIO
             val zoneBottom = canvasHeight * CameraTargetGeometry.BOTTOM_RATIO
 
+            // Border line metrics
+            val strokePx = 3.dp.toPx()
+            val gapOffsetPx = 9.dp.toPx()
+            val targetY = zoneTop + gapOffsetPx // Target level point height location
+
             drawRect(color = Color.Black.copy(alpha = 0.5f), size = size)
             drawRect(color = Color.Transparent, topLeft = Offset(zoneLeft, zoneTop), size = Size(zoneWidth, zoneBottom - zoneTop), blendMode = BlendMode.Clear)
-            drawLine(color = Color.Cyan, start = Offset(zoneLeft, zoneTop), end = Offset(zoneLeft, zoneBottom), strokeWidth = 3.dp.toPx())
-            drawLine(color = Color.Cyan, start = Offset(zoneLeft + zoneWidth, zoneTop), end = Offset(zoneLeft + zoneWidth, zoneBottom), strokeWidth = 3.dp.toPx())
+            drawLine(color = Color.Cyan, start = Offset(zoneLeft, zoneTop), end = Offset(zoneLeft, zoneBottom), strokeWidth = strokePx)
+            drawLine(color = Color.Cyan, start = Offset(zoneLeft + zoneWidth, zoneTop), end = Offset(zoneLeft + zoneWidth, zoneBottom), strokeWidth = strokePx)
+            drawLine(color = Color.Cyan, start = Offset(zoneLeft, zoneTop), end = Offset(zoneLeft + zoneWidth, zoneTop), strokeWidth = strokePx)
+
+            val arrowLength = 40.dp.toPx()
+            val arrowStartX = zoneLeft - arrowLength
+            val arrowEndX = zoneLeft - 2.dp.toPx() // Stops just short of hitting the cyan bounding border line
+
+            // Main arrow shaft horizontal line segments
+            drawLine(
+                color = Color.Cyan,
+                start = Offset(arrowStartX, targetY),
+                end = Offset(arrowEndX, targetY),
+                strokeWidth = 2.dp.toPx()
+            )
+
+            // Draw the arrowhead pointer polygon using a Path object vector structure
+            val arrowHeadSize = 6.dp.toPx()
+            val arrowHeadPath = Path().apply {
+                moveTo(arrowEndX, targetY) // Tip pointing right at the target grid row entry
+                lineTo(arrowEndX - arrowHeadSize, targetY - (arrowHeadSize * 0.7f))
+                lineTo(arrowEndX - arrowHeadSize, targetY + (arrowHeadSize * 0.7f))
+                close()
+            }
+            drawPath(path = arrowHeadPath, color = Color.Cyan)
+
+            val textString = "First row here"
+            val textStyle = TextStyle(
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Measure string dimensions to offset the layout perfectly next to the arrow tail
+            val textLayoutResult = textMeasurer.measure(textString, textStyle)
+            val textPaddingPx = 6.dp.toPx()
+
+            // Position text directly to the left of the arrow line track centered vertically
+            val textX = arrowStartX - textLayoutResult.size.width - textPaddingPx
+            val textY = targetY - (textLayoutResult.size.height / 2f)
+
+            drawText(
+                textMeasurer = textMeasurer,
+                text = textString,
+                topLeft = Offset(textX, textY),
+                style = textStyle
+            )
         }
 
         // 3. 🟢 THE SHUTTER FLASH LAYER
