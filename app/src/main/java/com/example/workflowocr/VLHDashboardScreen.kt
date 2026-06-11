@@ -90,6 +90,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import org.opencv.android.Utils
+import org.opencv.core.Mat
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 
 enum class DayType { WEEKDAY, WEEKEND }
 
@@ -1272,23 +1276,29 @@ fun VlhColumnEditorScreen(
     }
 }
 
+// -----------------
+// ----- DEBUG -----
+// -----------------
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VlhImageInspectionScreen(
     coordinator: VlhWorkflowCoordinator,
     onBackToDashboard: () -> Unit
 ) {
-    var debugExtractedResults by remember { mutableStateOf<List<Int>?>(null) }
+    var debugExtractedResults by remember { mutableStateOf<Pair<List<Int>, List<Int>>?>(null) }
     val scrollState = rememberScrollState()
 
     // Automatically trigger the debug process when the screen first loads
     LaunchedEffect(Unit) {
         val bitmap = coordinator.lastCapturedBitmap
         if (bitmap != null) {
-            val integerRowsList = withContext(Dispatchers.IO) {
-                TextProcessor.extractAndExtrapolateIntRows(bitmap, 0, 0, bitmap.width, bitmap.height)
+            val integerRowsListPairs = withContext(Dispatchers.IO) {
+                val optimizedBitmap = ImageOptimizer.preprocessForOcr(bitmap)
+                Pair (TextProcessor.extractAndExtrapolateIntRows(optimizedBitmap, 0, 0, optimizedBitmap.width, optimizedBitmap.height),
+                TextProcessor.extractAndExtrapolateIntRows(bitmap, 0, 0, bitmap.width, bitmap.height))
             }
-            debugExtractedResults = integerRowsList
+            debugExtractedResults = integerRowsListPairs
         }
     }
     Scaffold(
@@ -1356,22 +1366,71 @@ fun VlhImageInspectionScreen(
                         color = Color.Green,
                         modifier = Modifier.size(24.dp)
                     )
-                } else if (results.isEmpty()) {
+                } else if (results.first.isEmpty() && results.second.isEmpty()) {
                     Text(
-                        text = "OCR analysis completed. Zero numerical patterns matched.",
+                        text = "OCR analysis completed. Zero numerical patterns matched on both images.",
                         color = Color.LightGray,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 } else {
-                    // Render out the dynamic digits matrix row array items line-by-line
-                    results.forEachIndexed { index, targetValue ->
-                        Text(
-                            text = "Row [${String.format("%02d", index + 1)}]:   $targetValue",
-                            color = Color.Green,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontFamily = FontFamily.Monospace, // Monospace keeps decimal alignment tracks straight
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
+                    // Unpack both lists from the Pair data model
+                    val optimizedList = results.first
+                    val originalList = results.second
+
+                    // Grid Sub-Header Tracker
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Row Index", color = Color.Gray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(0.8f))
+                        Text("Optimized (OpenCV)", color = Color.Cyan, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1.1f), textAlign = TextAlign.Center)
+                        Text("Original (Raw)", color = Color.Magenta, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1.1f), textAlign = TextAlign.End)
+                    }
+
+                    // Loop up to the maximum total length to catch missing entries safely
+                    val maxRowsCount = maxOf(optimizedList.size, originalList.size)
+
+                    repeat(maxRowsCount) { index ->
+                        val optimizedVal = optimizedList.getOrNull(index)?.toString() ?: "-"
+                        val originalVal = originalList.getOrNull(index)?.toString() ?: "-"
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Left Column: Row Index
+                            Text(
+                                text = "Row [${String.format("%02d", index + 1)}]:",
+                                color = Color.Green,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.weight(0.8f)
+                            )
+
+                            // Middle Column: OpenCV Extraction results
+                            Text(
+                                text = optimizedVal,
+                                color = if (optimizedVal == "-") Color.Red else Color.Cyan,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.weight(1.1f)
+                            )
+
+                            // Right Column: Original Image results
+                            Text(
+                                text = originalVal,
+                                color = if (originalVal == "-") Color.Red else Color.Magenta,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.weight(1.1f)
+                            )
+                        }
                     }
                 }
 
@@ -1379,5 +1438,55 @@ fun VlhImageInspectionScreen(
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
+    }
+}
+
+object ImageOptimizer {
+
+    fun preprocessForOcr(sourceBitmap: Bitmap): Bitmap {
+        // Create OpenCV Mats
+        val srcMat = Mat()
+        val grayMat = Mat()
+        val destMat = Mat()
+
+        // 1. Convert native Bitmap to OpenCV Mat structure
+        Utils.bitmapToMat(sourceBitmap, srcMat)
+
+        // 2. Grayscale conversion (Removes distracting tint variations)
+        Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
+
+        // 3. Upscale image slightly if it is a narrow column (ML Kit needs letters to be at least 16x16px)
+        if (sourceBitmap.width < 300) {
+            val scaleFactor = 2.0
+            val targetSize = Size(grayMat.width() * scaleFactor, grayMat.height() * scaleFactor)
+            Imgproc.resize(grayMat, grayMat, targetSize, 0.0, 0.0, Imgproc.INTER_CUBIC)
+        }
+
+        // 4. Adaptive Thresholding (Converts background to pure white and digits to crisp black)
+        // This instantly eliminates shadow gradients and uneven room lighting
+        Imgproc.adaptiveThreshold(
+            grayMat,
+            destMat,
+            255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY,
+            21, // Block size (Adjust based on structural column line thickness)
+            4.0 // Constant subtracted from the mean
+        )
+
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
+        Imgproc.morphologyEx(destMat, destMat, Imgproc.MORPH_CLOSE, kernel)
+        Imgproc.GaussianBlur(destMat, destMat, Size(3.0, 3.0), 0.0)
+
+        // 6. Convert the output Mat container back into a useable Android Bitmap frame
+        val resultBitmap = Bitmap.createBitmap(destMat.width(), destMat.height(), Bitmap.Config.ARGB_8888)
+        Utils.matToBitmap(destMat, resultBitmap)
+
+        // Release native memory structures
+        srcMat.release()
+        grayMat.release()
+        destMat.release()
+
+        return resultBitmap
     }
 }
