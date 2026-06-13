@@ -247,20 +247,22 @@ class VlhWorkflowCoordinator(
         val activeMasterTable = if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
 
         // Find which column configuration contains this physical hour segment
-        val matchedColumn = activeMasterTable.columns.find { column ->
+        val matchedColumns = activeMasterTable.columns.filter { column ->
             TimeframeValidator.containsHour(column.name, hour)
-        } ?: return null // No matching timeline configuration found on disk
-
-        // Scan the column's rows backwards to find the highest number smaller than/equal to GC
-        // Rows are assumed to be sorted natively [12, 22, 45, 76...]
-        val rows = matchedColumn.scannedRows
-        for (i in rows.indices.reversed()) {
-            if (rows[i] <= gcValue) {
-                return i
-            }
         }
+        if (matchedColumns.isEmpty()) return null // No matching timeline configuration found on disk
 
-        return null // Returns null if the GC is smaller than even the lowest entry
+        val possibleIndices = matchedColumns.mapNotNull { (_, _, scannedRows) ->
+            // Scan the column's rows backwards to find the highest number smaller than/equal to GC
+            // Rows are assumed to be sorted natively [12, 22, 45, 76...]
+            for (i in scannedRows.indices.reversed()) {
+                if (scannedRows[i] <= gcValue) {
+                    return@mapNotNull i
+                }
+            }
+            return@mapNotNull null  // Returns null if the GC is smaller than even the lowest entry
+        }
+        return possibleIndices.maxOrNull()
     }
 
     // Context state for the column editing view overlay
@@ -299,14 +301,14 @@ class VlhWorkflowCoordinator(
 
     private object TimeframeValidator {
         // Matches 24-hour formats with :00 or :30 precision (e.g., "05:00 - 08:30" or "14:30 - 22:00")
-        private val timeSpanRegex = Regex("""^(0[0-9]|1[0-9]|2[0-3]):(00|30)\s*-\s*(0[0-9]|1[0-9]|2[0-3]):(00|30)$""")
+        private val timeSpanRegex = Regex("""^(0[0-9]|1[0-9]|2[0-3]):(00|30)\s*-\s*((?:0[0-9]|1[0-9]|2[0-3]):(?:00|30)|24:00)$""")
 
         fun isValidTimeframe(input: String): Boolean {
             return timeSpanRegex.matches(input.trim())
         }
 
         /**
-         * Optional: Parses a string like "05:00 - 08:30" into a manageable range of absolute integers
+         * Parses a string like "05:00 - 08:30" into a manageable range of absolute integers
          * representing hours to easily check which hour falls into which column config loop.
          */
         fun containsHour(timeframe: String, hour: Int): Boolean {
@@ -315,13 +317,15 @@ class VlhWorkflowCoordinator(
                 val parts = timeframe.split("-").map { it.trim() }
                 val startHour = parts[0].split(":")[0].toInt()
                 val endHour = parts[1].split(":")[0].toInt()
+                val endHourMinutes = parts[1].split(":")[1].toInt()
 
                 // Handle standard wrapping or linear ranges
                 if (startHour <= endHour) {
-                    hour in startHour until endHour
+                    hour in startHour until endHour ||
+                    (hour == endHour && endHourMinutes > 0) // Safe because for hour==0 & endHour==24 the minutes need to be 0
                 } else {
                     // If it crosses midnight (e.g., 22:00 - 04:00)
-                    hour >= startHour || hour < endHour
+                    hour >= startHour || hour < endHour || (hour == endHour && endHourMinutes > 0)
                 }
             } catch (e: Exception) {
                 false
