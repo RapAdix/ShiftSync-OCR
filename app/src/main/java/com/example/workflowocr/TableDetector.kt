@@ -9,6 +9,7 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Rect
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
@@ -628,6 +629,203 @@ object TableDetector {
         }
         Log.d("ERROR", "Deskewing the image failed")
         return null
+    }
+
+    fun detectTableCellsByLines(gray: Mat): Mat {
+        val thresh = ImageProcessor.createThresh(gray)
+        val (horizontal, vertical) = createHorizontalVertical(thresh)
+
+        val gridMask = Mat()
+        Core.add(horizontal, vertical, gridMask)
+
+        return LineDetector.extractTableBorders(gridMask)
+    }
+
+    fun detectTableCellsDynamic(gray: Mat, settings: TableLayout): TableDetectionResult {
+        val expectedCols = settings.expectedCols
+
+        val thresh = ImageProcessor.createThresh(gray)
+        val (horizontal, vertical) = createHorizontalVertical(thresh)
+
+        val gridMask = Mat()
+        Core.add(horizontal, vertical, gridMask)
+
+        // 2. Find Raw Contours
+        val contours = ArrayList<MatOfPoint>()
+        val hierarchy = Mat()
+        Imgproc.findContours(gridMask, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE)
+
+        val rawRects = contours.map { Imgproc.boundingRect(it) }
+            .filter { it.width > 4 && it.height > 4 }
+
+        if (rawRects.isEmpty()) {
+            return TableDetectionResult.Failure(emptyArray(), gray, thresh, gridMask, gray.clone(), Exception("No contours found"))
+        }
+
+        // Dynamic scale calculation for row height
+        val sortedHeights = rawRects.map { it.height }.sorted()
+        val representativeCellHeight = sortedHeights[(sortedHeights.size * 0.85).toInt().coerceIn(0, sortedHeights.size - 1)]
+        val yTolerance = representativeCellHeight * 0.35
+
+        // Filter out obvious noise
+        val cellCandidates = rawRects.filter { it.height > (representativeCellHeight * 0.25) }
+
+        // 3. Group into Rows
+        val sortedByY = cellCandidates.sortedBy { it.y }
+        val groupedRows = mutableListOf<MutableList<Rect>>()
+        if (sortedByY.isNotEmpty()) {
+            var currentRow = mutableListOf<Rect>()
+            currentRow.add(sortedByY[0])
+            groupedRows.add(currentRow)
+
+            for (i in 1 until sortedByY.size) {
+                val lastY = currentRow.last().y
+                val currentY = sortedByY[i].y
+
+                if (abs(currentY - lastY) <= yTolerance) {
+                    currentRow.add(sortedByY[i])
+                } else {
+                    currentRow = mutableListOf(sortedByY[i])
+                    groupedRows.add(currentRow)
+                }
+            }
+        }
+
+        // Keep only rows that match expected column count
+        val validRows = groupedRows.map { it.sortedBy { rect -> rect.x } }
+            .filter { it.size == expectedCols }
+
+        // 4. Map to TableCells
+        val cells = Array(validRows.size) { r ->
+            val rowItems = validRows[r]
+            Array(expectedCols) { c ->
+                val rect = rowItems[c]
+                TableCell(
+                    topLeft = Point(rect.x.toDouble(), rect.y.toDouble()),
+                    topRight = Point((rect.x + rect.width).toDouble(), rect.y.toDouble()),
+                    bottomLeft = Point(rect.x.toDouble(), (rect.y + rect.height).toDouble()),
+                    bottomRight = Point((rect.x + rect.width).toDouble(), (rect.y + rect.height).toDouble())
+                )
+            }
+        }
+
+        // Cleanup
+        horizontal.release()
+        vertical.release()
+        hierarchy.release()
+        contours.forEach { it.release() }
+
+        val overlay = drawCells(gray, cells)
+        return TableDetectionResult.Success(cells, gray, thresh, gridMask, overlay)
+    }
+
+    fun detectTableCellsByContours(gray: Mat, settings: TableLayout): TableDetectionResult {
+        val expectedCols = settings.expectedCols
+
+        val thresh = ImageProcessor.createThresh(gray)
+        val (horizontal, vertical) = createHorizontalVertical(thresh)
+
+        val gridMask = Mat()
+        Core.add(horizontal, vertical, gridMask)
+
+        // 5. Detect raw structural contours
+        val contours = ArrayList<MatOfPoint>()
+        val hierarchy = Mat()
+        Imgproc.findContours(gridMask, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE)
+
+        // Clean up morph operations early
+        horizontal.release()
+        vertical.release()
+
+        // 6. Convert raw contours to robust rectangular boundaries
+        val candidates = mutableListOf<Rect>()
+        for (contour in contours) {
+            val rect = Imgproc.boundingRect(contour)
+            // Filter out extreme noise (too thin, microscopic speckles, etc.)
+            if (rect.width > 20 && rect.height > 10) {
+                candidates.add(rect)
+            }
+        }
+        hierarchy.release()
+        contours.forEach { it.release() }
+
+        if (candidates.isEmpty()) {
+            thresh.release()
+            gridMask.release()
+            return TableDetectionResult.Failure(
+                cells = emptyArray(),
+                gray = gray,
+                thresh = Mat(),
+                mask = Mat(),
+                lines = gray.clone(),
+                exception = IllegalStateException("No valid grid cells detected via contours.")
+            )
+        }
+
+        // 7. Sort and Group detected cells into 2D Grid rows/columns using center coordinates
+        val sortedByY = candidates.sortedBy { it.y + (it.height / 2) }
+        val rows = mutableListOf<MutableList<Rect>>()
+
+        // Dynamically group rows by allowing vertical coordinate drift up to 50% of the median cell height
+        val medianHeight = sortedByY.map { it.height }.sorted()[sortedByY.size / 2]
+        val yTolerance = medianHeight * 0.25
+
+        var currentRow = mutableListOf<Rect>()
+        currentRow.add(sortedByY[0])
+        rows.add(currentRow)
+
+        for (i in 1 until sortedByY.size) {
+            val lastRectInRow = currentRow.last()
+            val lastCenterY = lastRectInRow.y + (lastRectInRow.height / 2)
+            val currentCenterY = sortedByY[i].y + (sortedByY[i].height / 2)
+
+            if (abs(currentCenterY - lastCenterY) <= yTolerance) {
+                currentRow.add(sortedByY[i])
+            } else {
+                currentRow = mutableListOf(sortedByY[i])
+                rows.add(currentRow)
+            }
+        }
+
+        // Sort every row horizontally (left-to-right) and filter rows not matching your layout target
+        val validatedRows = rows.map { row -> row.sortedBy { it.x } }
+            .filter { it.size == expectedCols } // Keep rows that matched exactly the expected column template count
+
+        // 8. Transform Rect boundaries into exact TableCell points
+        val cells = Array(validatedRows.size) { r ->
+            val rowItems = validatedRows[r]
+            Array(expectedCols) { c ->
+                val rect = rowItems[c]
+                TableCell(
+                    topLeft = Point(rect.x.toDouble(), rect.y.toDouble()),
+                    topRight = Point((rect.x + rect.width).toDouble(), rect.y.toDouble()),
+                    bottomLeft = Point(rect.x.toDouble(), (rect.y + rect.height).toDouble()),
+                    bottomRight = Point((rect.x + rect.width).toDouble(), (rect.y + rect.height).toDouble())
+                )
+            }
+        }
+
+        // Draw the green debug overlay to visually verify cell tracking quality
+        val linesOverlayImage = drawCells(gray, cells)
+
+        return if (cells.isEmpty()) {
+            TableDetectionResult.Failure(
+                cells = cells,
+                gray = gray,
+                thresh = thresh,
+                mask = gridMask,
+                lines = linesOverlayImage,
+                exception = MissingTopRowException("Failed to construct layout grid from contours.")
+            )
+        } else {
+            TableDetectionResult.Success(
+                cells = cells,
+                gray = gray,
+                thresh = thresh,
+                mask = gridMask,
+                lines = linesOverlayImage
+            )
+        }
     }
 
     // Create Debug image with marked rectangles.
