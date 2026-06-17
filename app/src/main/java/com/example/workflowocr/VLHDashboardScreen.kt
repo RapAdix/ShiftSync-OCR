@@ -117,7 +117,65 @@ data class VlhTableState(
             }
         )
     }
-)
+) {
+    companion object TimeframeValidator {
+        // Matches 24-hour formats with :00 or :30 precision (e.g., "05:00 - 08:30" or "14:30 - 22:00")
+        private val timeSpanRegex =
+            Regex("""^(0[0-9]|1[0-9]|2[0-3]):(00|30)\s*-\s*((?:0[0-9]|1[0-9]|2[0-3]):(?:00|30)|24:00)$""")
+
+        fun isValidTimeframe(input: String): Boolean {
+            return timeSpanRegex.matches(input.trim())
+        }
+
+        /**
+         * Parses a string like "05:00 - 08:30" into a manageable range of absolute integers
+         * representing hours to easily check which hour falls into which column config loop.
+         */
+        fun containsHour(timeframe: String, hour: Int): Boolean {
+            if (!isValidTimeframe(timeframe)) return false
+            return try {
+                val parts = timeframe.split("-").map { it.trim() }
+                val startHour = parts[0].split(":")[0].toInt()
+                val endHour = parts[1].split(":")[0].toInt()
+                val endHourMinutes = parts[1].split(":")[1].toInt()
+
+                // Handle standard wrapping or linear ranges
+                if (startHour <= endHour) {
+                    hour in startHour until endHour ||
+                            (hour == endHour && endHourMinutes > 0) // Safe because for hour==0 & endHour==24 the minutes need to be 0
+                } else {
+                    // If it crosses midnight (e.g., 22:00 - 04:00)
+                    hour >= startHour || hour < endHour || (hour == endHour && endHourMinutes > 0)
+                }
+            } catch (e: Exception) {
+                false
+            }
+        }
+    }
+
+    /**
+     * Calculates the biggest index that has GC value smaller/equal than the provided gcValue, for a specific hour frame against our saved Master Tables
+     */
+    fun calculateResultIndex(hour: Int, gcValue: Int): Int? {
+        // Find which column configuration contains this physical hour segment
+        val matchedColumns = columns.filter { column ->
+            TimeframeValidator.containsHour(column.name, hour)
+        }
+        if (matchedColumns.isEmpty()) return null // No matching timeline configuration found on disk
+
+        val possibleIndices = matchedColumns.mapNotNull { (_, _, scannedRows) ->
+            // Scan the column's rows backwards to find the highest number smaller than/equal to GC
+            // Rows are assumed to be sorted natively [12, 22, 45, 76...]
+            for (i in scannedRows.indices.reversed()) {
+                if (scannedRows[i] <= gcValue) {
+                    return@mapNotNull i
+                }
+            }
+            return@mapNotNull null  // Returns null if the GC is smaller than even the lowest entry
+        }
+        return possibleIndices.maxOrNull()
+    }
+}
 
 class VlhWorkflowCoordinator(
     private val viewModel: TableViewModel,
@@ -245,29 +303,10 @@ class VlhWorkflowCoordinator(
         }
     }
 
-    /**
-     * Calculates the biggest index that has GC value smaller/equal than the provided gcValue, for a specific hour frame against our saved Master Tables
-     */
     fun calculateResultIndex(hour: Int, gcValue: Int): Int? {
-        val activeMasterTable = if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
-
-        // Find which column configuration contains this physical hour segment
-        val matchedColumns = activeMasterTable.columns.filter { column ->
-            TimeframeValidator.containsHour(column.name, hour)
-        }
-        if (matchedColumns.isEmpty()) return null // No matching timeline configuration found on disk
-
-        val possibleIndices = matchedColumns.mapNotNull { (_, _, scannedRows) ->
-            // Scan the column's rows backwards to find the highest number smaller than/equal to GC
-            // Rows are assumed to be sorted natively [12, 22, 45, 76...]
-            for (i in scannedRows.indices.reversed()) {
-                if (scannedRows[i] <= gcValue) {
-                    return@mapNotNull i
-                }
-            }
-            return@mapNotNull null  // Returns null if the GC is smaller than even the lowest entry
-        }
-        return possibleIndices.maxOrNull()
+        val activeMasterTable =
+            if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
+        return activeMasterTable.calculateResultIndex(hour, gcValue)
     }
 
     // Context state for the column editing view overlay
@@ -301,40 +340,6 @@ class VlhWorkflowCoordinator(
 
         backgroundScope.launch {
             viewModel.storageManager.saveVlhTable(currentTable.copy(columns = updatedColumns))
-        }
-    }
-
-    private object TimeframeValidator {
-        // Matches 24-hour formats with :00 or :30 precision (e.g., "05:00 - 08:30" or "14:30 - 22:00")
-        private val timeSpanRegex = Regex("""^(0[0-9]|1[0-9]|2[0-3]):(00|30)\s*-\s*((?:0[0-9]|1[0-9]|2[0-3]):(?:00|30)|24:00)$""")
-
-        fun isValidTimeframe(input: String): Boolean {
-            return timeSpanRegex.matches(input.trim())
-        }
-
-        /**
-         * Parses a string like "05:00 - 08:30" into a manageable range of absolute integers
-         * representing hours to easily check which hour falls into which column config loop.
-         */
-        fun containsHour(timeframe: String, hour: Int): Boolean {
-            if (!isValidTimeframe(timeframe)) return false
-            return try {
-                val parts = timeframe.split("-").map { it.trim() }
-                val startHour = parts[0].split(":")[0].toInt()
-                val endHour = parts[1].split(":")[0].toInt()
-                val endHourMinutes = parts[1].split(":")[1].toInt()
-
-                // Handle standard wrapping or linear ranges
-                if (startHour <= endHour) {
-                    hour in startHour until endHour ||
-                    (hour == endHour && endHourMinutes > 0) // Safe because for hour==0 & endHour==24 the minutes need to be 0
-                } else {
-                    // If it crosses midnight (e.g., 22:00 - 04:00)
-                    hour >= startHour || hour < endHour || (hour == endHour && endHourMinutes > 0)
-                }
-            } catch (e: Exception) {
-                false
-            }
         }
     }
 }
