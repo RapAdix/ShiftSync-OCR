@@ -90,10 +90,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import org.opencv.android.Utils
-import org.opencv.core.Mat
-import org.opencv.core.Size
-import org.opencv.imgproc.Imgproc
 
 enum class DayType { WEEKDAY, WEEKEND }
 
@@ -127,6 +123,7 @@ class VlhWorkflowCoordinator(
     private val viewModel: TableViewModel,
     private val backgroundScope: CoroutineScope
 ) {
+    private val minimumRowsReturnedByOcrColumn: Int = 8
     // Core Persistent Storage State Structures
     var weekdayTable by mutableStateOf(VlhTableState(DayType.WEEKDAY))
     var weekendTable by mutableStateOf(VlhTableState(DayType.WEEKEND))
@@ -224,7 +221,15 @@ class VlhWorkflowCoordinator(
         } else {
             backgroundScope.launch {
                 val extractedDigits = withContext(Dispatchers.IO) {
-                    TextProcessor.extractAndExtrapolateIntRows(bitmap, x, y, w, h)
+                    val rows = TextProcessor.extractAndExtrapolateIntRows(bitmap, x, y, w, h)
+                    if (rows.size < minimumRowsReturnedByOcrColumn) {
+                        // If it is a picture of a computer screen -> try this denoising
+                        val cleanedBitmap = ImageProcessor.reduceMoireNoise(croppedColumn, true)
+                        val rowsCleaned = TextProcessor.extractAndExtrapolateIntRows(cleanedBitmap, 0, 0, cleanedBitmap.width, cleanedBitmap.height)
+                        if (rows.size > rowsCleaned.size) rows else rowsCleaned
+                    } else {
+                        rows
+                    }
                 }
 
                 withContext(Dispatchers.Main) {
@@ -1298,7 +1303,7 @@ fun VlhImageInspectionScreen(
         val bitmap = coordinator.lastCapturedBitmap
         if (bitmap != null) {
             val integerRowsListPairs = withContext(Dispatchers.IO) {
-                val optimizedBitmap = ImageOptimizer.preprocessForOcr(bitmap)
+                val optimizedBitmap = ImageProcessor.reduceMoireNoise(bitmap, true)
                 Pair (TextProcessor.extractAndExtrapolateIntRows(optimizedBitmap, 0, 0, optimizedBitmap.width, optimizedBitmap.height),
                 TextProcessor.extractAndExtrapolateIntRows(bitmap, 0, 0, bitmap.width, bitmap.height))
             }
@@ -1442,55 +1447,5 @@ fun VlhImageInspectionScreen(
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
-    }
-}
-
-object ImageOptimizer {
-
-    fun preprocessForOcr(sourceBitmap: Bitmap): Bitmap {
-        // Create OpenCV Mats
-        val srcMat = Mat()
-        val grayMat = Mat()
-        val destMat = Mat()
-
-        // 1. Convert native Bitmap to OpenCV Mat structure
-        Utils.bitmapToMat(sourceBitmap, srcMat)
-
-        // 2. Grayscale conversion (Removes distracting tint variations)
-        Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
-
-        // 3. Upscale image slightly if it is a narrow column (ML Kit needs letters to be at least 16x16px)
-        if (sourceBitmap.width < 300) {
-            val scaleFactor = 2.0
-            val targetSize = Size(grayMat.width() * scaleFactor, grayMat.height() * scaleFactor)
-            Imgproc.resize(grayMat, grayMat, targetSize, 0.0, 0.0, Imgproc.INTER_CUBIC)
-        }
-
-        // 4. Adaptive Thresholding (Converts background to pure white and digits to crisp black)
-        // This instantly eliminates shadow gradients and uneven room lighting
-        Imgproc.adaptiveThreshold(
-            grayMat,
-            destMat,
-            255.0,
-            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-            Imgproc.THRESH_BINARY,
-            21, // Block size (Adjust based on structural column line thickness)
-            4.0 // Constant subtracted from the mean
-        )
-
-        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
-        Imgproc.morphologyEx(destMat, destMat, Imgproc.MORPH_CLOSE, kernel)
-        Imgproc.GaussianBlur(destMat, destMat, Size(3.0, 3.0), 0.0)
-
-        // 6. Convert the output Mat container back into a useable Android Bitmap frame
-        val resultBitmap = Bitmap.createBitmap(destMat.width(), destMat.height(), Bitmap.Config.ARGB_8888)
-        Utils.matToBitmap(destMat, resultBitmap)
-
-        // Release native memory structures
-        srcMat.release()
-        grayMat.release()
-        destMat.release()
-
-        return resultBitmap
     }
 }

@@ -601,7 +601,7 @@ class MainActivity : ComponentActivity() {
 
                 try {
 
-                    grayMat = TableDetector.bitmapToGrayMat(bitmap)
+                    grayMat = ImageProcessor.bitmapToGrayMat(bitmap)
 
                     // Note: deskewGrayMat should return a NEW Mat if it modifies it
                     deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
@@ -619,7 +619,7 @@ class MainActivity : ComponentActivity() {
             }
 
             val boxedMat = TableDetector.drawCells(detection.gray, detection.cells)
-            val cellPreview = TableDetector.matToBitmap(boxedMat)
+            val cellPreview = ImageProcessor.matToBitmap(boxedMat)
             boxedMat.release()
             when (detection) {
                 is TableDetector.TableDetectionResult.Success -> {
@@ -634,7 +634,7 @@ class MainActivity : ComponentActivity() {
                     setPreview(cellPreview.scaleForPreview(1000), null, null)
 
                     scope.launch {
-                        val imageBitmap = TableDetector.matToBitmap(detection.gray)
+                        val imageBitmap = ImageProcessor.matToBitmap(detection.gray)
                         val date = try {
                             TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeLayout)
                         } catch (e: TextProcessor.CouldNotDetermineDateException) {
@@ -657,7 +657,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    val linesBitmap = TableDetector.matToBitmap(detection.lines)
+                    val linesBitmap = ImageProcessor.matToBitmap(detection.lines)
                     setPreview(cellPreview.scaleForPreview(1000), linesBitmap.scaleForPreview(1000), "Cannot find table header row")
 
                     detection.gray.release()
@@ -967,7 +967,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                         try {
                             // TODO Add filtering out pen colors. time change detection can be detected as marks around the middle.
                             // 1. Image Processing & Detection
-                            grayMat = TableDetector.bitmapToGrayMat(originalBitmap)
+                            grayMat = ImageProcessor.bitmapToGrayMat(originalBitmap)
 
                             // Note: deskewGrayMat should return a NEW Mat if it modifies it
                             deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
@@ -976,13 +976,13 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                             Log.d("DEBUG", "detectTableCells exited")
 
                             // 2. Prepare Bitmaps for UI
-                            val threshBmp = TableDetector.matToBitmap(detection.thresh)
+                            val threshBmp = ImageProcessor.matToBitmap(detection.thresh)
                             Log.d("DEBUG", "threshBmp matToBitmap preparations finished")
-                            val maskBmp = TableDetector.matToBitmap(detection.mask)
+                            val maskBmp = ImageProcessor.matToBitmap(detection.mask)
                             Log.d("DEBUG", "maskBmp matToBitmap preparations finished")
-                            val linesBmp = TableDetector.matToBitmap(detection.lines)
+                            val linesBmp = ImageProcessor.matToBitmap(detection.lines)
                             Log.d("DEBUG", "linesBmp matToBitmap preparations finished")
-//                            val deskewedBmp = TableDetector.matToBitmap(detection.gray)
+//                            val deskewedBmp = ImageProcessor.matToBitmap(detection.gray)
 //                            Log.d("DEBUG", "matToBitmaps preparations finished")
 //                            object {
 //                                val boxed = null
@@ -1017,12 +1017,12 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                                     matBtm.release()
                                 }
                             }
-                            val marginsBmp = TableDetector.matToBitmap(marginsDrawn)
+                            val marginsBmp = ImageProcessor.matToBitmap(marginsDrawn)
                             marginsDrawn.release()
-                            val boxedBmp = TableDetector.matToBitmap(boxedMat!!)
+                            val boxedBmp = ImageProcessor.matToBitmap(boxedMat!!)
 
                             // Convert deskewMat to bitmap now so we can release the Mat
-                            val deskewedBmp = TableDetector.matToBitmap(detection.gray)
+                            val deskewedBmp = ImageProcessor.matToBitmap(detection.gray)
 
                             // IMPORTANT: Release the internal Mats inside the Result object
                             // These were created inside detectTableCells
