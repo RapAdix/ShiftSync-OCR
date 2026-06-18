@@ -177,27 +177,7 @@ class StorageManager(private val context: Context) {
         val availableDates = getAvailableDates() // Yields e.g., ["25-12", "05-01"]
 
         availableDates.forEach { dateStr ->
-            val parts = dateStr.split("-")
-            val day = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
-            val month = parts.getOrNull(1)?.toIntOrNull() ?: return@forEach
-
-            // 1. Resolve which absolute calendar year this string naturally belongs to
-            val parsedDateInCurrentYear = try {
-                LocalDate.of(currentLocalDate.year, month, day)
-            } catch (e: Exception) {
-                return@forEach // Skip corrupt or impossible calendar combinations (e.g., 31-02)
-            }
-
-            // Project candidate options for boundaries calculation adjustments
-            val relativePastYearDate = parsedDateInCurrentYear.minusYears(1)
-            val relativeFutureYearDate = parsedDateInCurrentYear.plusYears(1)
-
-            // Find which absolute year choice is closest to today's real target timeframe
-            val bestFitTrueDate = listOf(relativePastYearDate, parsedDateInCurrentYear, relativeFutureYearDate)
-                .minByOrNull { abs(ChronoUnit.DAYS.between(currentLocalDate, it)) } ?: run {
-                    Log.d("Storage", "purgeExpiredSensitiveData: bestFitTrueDate is null for $dateStr")
-                    parsedDateInCurrentYear
-            }
+            val bestFitTrueDate = TimeUtils.getClosestFullDate(dateStr, currentLocalDate) ?: return@forEach
 
             // 2. Condition 1: Older than yesterday check rule validation
             // (Case Current: January; Date1: December
