@@ -175,6 +175,39 @@ data class VlhTableState(
         }
         return possibleIndices.maxOrNull()
     }
+
+    /**
+     * Checks all physical hours between [openingHour] and [closingHour].
+     * Returns true if EVERY hour in that range hits a column configuration that actually contains rows.
+     * Returns false if any hour lands in an unconfigured slot or an empty master data column.
+     */
+    fun hasDataForTimeRange(openingHour: Int, closingHour: Int): Boolean {
+        // Generate the list of hours to check based on whether the shift crosses midnight
+        val hoursToCheck = mutableListOf<Int>()
+        if (openingHour < closingHour) {
+            // Normal shift during the same day (e.g., 08:00 to 16:00)
+            for (h in openingHour until closingHour) {
+                hoursToCheck.add(h)
+            }
+        } else {
+            // Night shift crossing midnight (e.g., 22:00 to 05:00)
+            for (h in openingHour until 24) {
+                hoursToCheck.add(h)
+            }
+            for (h in 0 until closingHour) {
+                hoursToCheck.add(h)
+            }
+        }
+
+        // Verify every hour lands in a column that is populated
+        return hoursToCheck.all { hour ->
+            val matchedColumns = columns.filter { column ->
+                TimeframeValidator.containsHour(column.name, hour)
+            }
+            // The hour is covered only if a matching column exists AND its data row list is not empty
+            matchedColumns.isNotEmpty() && matchedColumns.any { it.scannedRows.isNotEmpty() }
+        }
+    }
 }
 
 class VlhWorkflowCoordinator(
