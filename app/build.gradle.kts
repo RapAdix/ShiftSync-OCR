@@ -113,6 +113,8 @@ dependencies {
     implementation(libs.mlkit.text.recognition)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.bundles.camerax)
+    implementation(libs.apache.poi)
+    implementation(libs.apache.poi.ooxml)
     implementation(project(":opencv"))
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
