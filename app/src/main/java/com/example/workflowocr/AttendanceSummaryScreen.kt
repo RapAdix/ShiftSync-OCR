@@ -24,11 +24,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.time.DayOfWeek
-import java.time.LocalDate
 
 // Color guidelines for the tracking statuses
 val SoftEmeraldGreen = Color(0xFF2E7D32)
@@ -462,50 +458,18 @@ private fun downloadProjection(
     onSyncError: (ProjectionResult.Failure?) -> Unit
 ) {
     val activeDate = date ?: return
-    val sourceUrl = settings.spreadsheetUrl
-    if (sourceUrl.isBlank()) return
 
     scope.launch {
         onSyncStateChange(true)
         onSyncError(null) // Reset errors on a fresh attempt execution
-        try {
-            val result = withContext(Dispatchers.IO) {
-                SpreadSheetDownloader.getProjectionForDate(
-                    dateStr = activeDate,
-                    targetCellCoordinate = settings.targetCellCoordinate,
-                    link = sourceUrl
-                )
-            }
 
-            when (result) {
-                is ProjectionResult.Success -> {
-                    val generatedMap = mutableMapOf<Int, Int?>()
-                    var currentHour = settings.workplaceOpeningTime
+        val result = SpreadSheetDownloader.fetchAndSaveProjection(activeDate, settings, viewModel)
 
-                    result.data.forEach { value ->
-                        generatedMap[currentHour] = value
-                        currentHour = (currentHour + 1) % 24
-                    }
-
-                    if (viewModel.projectedGcs.isEmpty()) {
-                        val resolvedLocalDate = TimeUtils.getClosestFullDate(activeDate) ?: LocalDate.now()
-                        val isWeekend = resolvedLocalDate.dayOfWeek == DayOfWeek.SATURDAY ||
-                                resolvedLocalDate.dayOfWeek == DayOfWeek.SUNDAY
-                        viewModel.setDayTypeOverride(isWeekend)
-                    }
-
-                    viewModel.saveProjection(generatedMap)
-                }
-                is ProjectionResult.Failure -> {
-                    onSyncError(result)
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            onSyncError(ProjectionResult.Failure.Unknown(e.localizedMessage ?: "Unhandled Runtime Error"))
-        } finally {
-            onSyncStateChange(false)
+        if (result is ProjectionResult.Failure) {
+            onSyncError(result)
         }
+
+        onSyncStateChange(false)
     }
 }
 

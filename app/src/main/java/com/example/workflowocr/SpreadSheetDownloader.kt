@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.Workbook
 import org.apache.poi.ss.usermodel.WorkbookFactory
+import java.time.DayOfWeek
+import java.time.LocalDate
 
 sealed interface ProjectionResult {
     data class Success(val data: List<Int?>) : ProjectionResult
@@ -224,5 +226,51 @@ object SpreadSheetDownloader {
                 }
             }
         )
+    }
+
+    suspend fun fetchAndSaveProjection(
+        date: String,
+        settings: UniversalSettings,
+        viewModel: TableViewModel
+    ): ProjectionResult {
+        val sourceUrl = settings.spreadsheetUrl
+        if (sourceUrl.isBlank()) {
+            return ProjectionResult.Failure.InvalidUrl
+        }
+
+        return try {
+            val result = withContext(Dispatchers.IO) {
+                getProjectionForDate(
+                    dateStr = date,
+                    targetCellCoordinate = settings.targetCellCoordinate,
+                    link = sourceUrl
+                )
+            }
+
+            if (result is ProjectionResult.Success) {
+                val generatedMap = mutableMapOf<Int, Int?>()
+                var currentHour = settings.workplaceOpeningTime
+
+                result.data.forEach { value ->
+                    generatedMap[currentHour] = value
+                    currentHour = (currentHour + 1) % 24
+                }
+
+                // If local overrides aren't initialized yet, deduce day tracking defaults
+                if (viewModel.projectedGcs.isEmpty()) {
+                    val resolvedLocalDate = TimeUtils.getClosestFullDate(date) ?: LocalDate.now()
+                    val isWeekend = resolvedLocalDate.dayOfWeek == DayOfWeek.SATURDAY ||
+                            resolvedLocalDate.dayOfWeek == DayOfWeek.SUNDAY
+                    viewModel.setDayTypeOverride(isWeekend)
+                }
+
+                viewModel.saveProjection(generatedMap)
+            }
+
+            result
+        } catch (e: Exception) {
+            e.printStackTrace()
+            ProjectionResult.Failure.Unknown(e.localizedMessage ?: "Unhandled Runtime Error")
+        }
     }
 }
