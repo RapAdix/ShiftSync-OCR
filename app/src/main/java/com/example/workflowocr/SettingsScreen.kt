@@ -99,6 +99,23 @@ fun SettingsScreen(viewModel: TableViewModel) {
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    var cellInputState by remember(universalSettings.targetCellCoordinate) {
+                        mutableStateOf(universalSettings.targetCellCoordinate)
+                    }
+
+                    OutlinedTextField(
+                        value = cellInputState,
+                        onValueChange = { input ->
+                            cellInputState = input
+                            viewModel.updateUniversalSettings(universalSettings.copy(targetCellCoordinate = input))
+                        },
+                        label = { Text("Target Projection Cell Coordinate") },
+                        placeholder = { Text("B5") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 

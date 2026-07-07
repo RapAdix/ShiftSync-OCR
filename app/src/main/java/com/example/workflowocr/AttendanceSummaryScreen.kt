@@ -313,7 +313,7 @@ private fun downloadProjection(
             val result = withContext(Dispatchers.IO) {
                 SpreadSheetDownloader.getProjectionForDate(
                     dateStr = activeDate,
-                    targetCellCoordinate = "B5",
+                    targetCellCoordinate = settings.targetCellCoordinate,
                     link = sourceUrl
                 )
             }

@@ -38,7 +38,8 @@ object PresetDefaults {
 data class UniversalSettings(
     val workplaceOpeningTime: Int = 6, // Hour of opening
     val workplaceClosingTime: Int = 1,  // Hour of closing
-    val spreadsheetUrl: String = ""
+    val spreadsheetUrl: String = "",
+    val targetCellCoordinate: String = "B5"
 )
 
 // 2. Structural grid rules. Highly volatile.
