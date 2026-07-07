@@ -572,7 +572,7 @@ class MainActivity : ComponentActivity() {
                                     Screen.TABLE_RESULTS -> TableResultsScreen(
                                         tableViewModel
                                     )
-                                    Screen.ATTENDANCE_COUNT -> AttendanceSummaryScreen(tableViewModel.extractedRows, listOf(10,20,30,40))
+                                    Screen.ATTENDANCE_COUNT -> AttendanceSummaryScreen()
                                     Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(capturedBitmap?: originalBitmap)
                                     Screen.SETTINGS -> SettingsScreen(tableViewModel)
                                     Screen.ABOUT -> AboutScreen()

@@ -48,14 +48,11 @@ private const val REQ_COLUMN_WEIGHT = 0.2f  // 20% width for Required Column
 private const val COMBINED_RIGHT_WEIGHT = 0.35f // 35% for Actual and Badge stuck side-by-side
 
 @Composable
-fun AttendanceSummaryScreen(
-    rowsMap: Map<String, ProcessorRow>,
-    liveGcValue: List<Int>?
-) {
-    val employees by remember {
-        derivedStateOf { rowsMap.values.filterNot { it.isAbsent }.sortedBy { it.id } }
-    }
+fun AttendanceSummaryScreen() {
     val viewModel = LocalTableViewModel.current
+    val employees by remember {
+        derivedStateOf { viewModel.extractedRows.values.filterNot { it.isAbsent }.sortedBy { it.id } }
+    }
     val settings = viewModel.universalSettings
 
     var vlhWeekday by remember { mutableStateOf(VlhTableState(DayType.WEEKDAY)) }
@@ -68,33 +65,24 @@ fun AttendanceSummaryScreen(
         }
     }
 
-    // TODO load from driver what user chose
-    val activeVlhState = remember(vlhWeekday, vlhWeekend, viewModel.currentWorkingDate) {
-        val workingDateStr = viewModel.currentWorkingDate
-        val resolvedLocalDate = if (workingDateStr != null) {
-            TimeUtils.getClosestFullDate(workingDateStr) ?: LocalDate.now()
-        } else {
-            LocalDate.now()
-        }
-        val isWeekend = resolvedLocalDate.dayOfWeek == DayOfWeek.SATURDAY ||
-                resolvedLocalDate.dayOfWeek == DayOfWeek.SUNDAY
-
-        if (isWeekend) vlhWeekend else vlhWeekday
+    val activeVlhState = remember(vlhWeekday, vlhWeekend, viewModel.isWeekend) {
+        if (viewModel.isWeekend) vlhWeekend else vlhWeekday
     }
 
-    val summary = remember(employees, activeVlhState, liveGcValue) {
+    val summary = remember(employees, activeVlhState, viewModel.projectedGcs) {
         calculateHourlySummary(
             employees,
             settings.workplaceOpeningTime,
             settings.workplaceClosingTime,
             activeVlhState,
-            liveGcValue
+            viewModel.projectedGcs
         )
     }
 
     var expandedHour by remember { mutableStateOf<String?>(null) }
     val vlhNotFilled = !activeVlhState.hasDataForTimeRange(viewModel.universalSettings.workplaceOpeningTime, viewModel.universalSettings.workplaceClosingTime)
-    val projectedGcNotFilled = liveGcValue.isNullOrEmpty()
+
+    val projectedGcNotFilled = viewModel.projectedGcs.isEmpty()
 
     Column(Modifier.fillMaxSize().background(PaperWhite)) {
 
@@ -185,7 +173,7 @@ fun AttendanceSummaryScreen(
                             }
                         }
 
-                        // 2. 🟢 REQUIRED COLUMN: Centered Numbers
+                        // 2. REQUIRED COLUMN: Centered Numbers
                         Box(
                             modifier = Modifier.weight(REQ_COLUMN_WEIGHT),
                             contentAlignment = Alignment.Center
@@ -257,7 +245,7 @@ private fun calculateHourlySummary(
     openingTime: Int,
     closingTime: Int,
     vlhState: VlhTableState?,
-    liveGcValue: List<Int>?
+    liveGcValue: Map<Int, Int?>
 ): List<HourGroup> {
     val events = mutableListOf<Pair<Int, Int>>()
     employees.forEach { emp ->
@@ -296,10 +284,8 @@ private fun calculateHourlySummary(
         var requiredCrewTarget: Int? = null
         var incompleteData = false
 
-        val listIndex = hour - openingTime
-
-        // Check if we have a valid GC entry in the list for this specific hour block
-        val hourlyGc = liveGcValue?.getOrNull(listIndex)
+        // Check if we have a valid GC entry in the map for this specific hour block
+        val hourlyGc = liveGcValue[normalizedHour]
 
         if (vlhState != null && hourlyGc != null) {
             // Run matrix index evaluation against the specific GC value for THIS hour
