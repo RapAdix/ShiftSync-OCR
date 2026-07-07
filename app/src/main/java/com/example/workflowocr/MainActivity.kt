@@ -737,7 +737,6 @@ class MainActivity : ComponentActivity() {
                 tableViewModel.saveToStorage()
                 launch {
                     SpreadSheetDownloader.fetchAndSaveProjection(
-                        date = date,
                         settings = tableViewModel.universalSettings,
                         viewModel = tableViewModel
                     )

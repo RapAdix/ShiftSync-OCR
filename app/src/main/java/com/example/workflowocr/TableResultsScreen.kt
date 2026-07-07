@@ -316,7 +316,7 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
             today
         }
 
-        val formatter = DateTimeFormatter.ofPattern("dd-MM")
+        val formatter = StorageManager.storageDateFormatter()
         val presentBusinessDateStr = presentBusinessDate.format(formatter)
 
         return currentWorkingDate == presentBusinessDateStr

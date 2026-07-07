@@ -476,7 +476,7 @@ private fun downloadProjection(
         onSyncStateChange(true)
         onSyncError(null) // Reset errors on a fresh attempt execution
 
-        val result = SpreadSheetDownloader.fetchAndSaveProjection(activeDate, settings, viewModel)
+        val result = SpreadSheetDownloader.fetchAndSaveProjection(settings, viewModel)
 
         if (result is ProjectionResult.Failure) {
             onSyncError(result)

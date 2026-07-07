@@ -12,6 +12,7 @@ import org.apache.poi.ss.usermodel.Workbook
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 sealed interface ProjectionResult {
     data class Success(val data: List<Int?>) : ProjectionResult
@@ -228,11 +229,12 @@ object SpreadSheetDownloader {
         )
     }
 
+    // Saves it under the currentWorkingDate
     suspend fun fetchAndSaveProjection(
-        date: String,
         settings: UniversalSettings,
         viewModel: TableViewModel
     ): ProjectionResult {
+        val date = viewModel.currentWorkingDate ?: return ProjectionResult.Failure.DateTabNotFound("empty")
         val sourceUrl = settings.spreadsheetUrl
         if (sourceUrl.isBlank()) {
             return ProjectionResult.Failure.InvalidUrl
@@ -271,6 +273,98 @@ object SpreadSheetDownloader {
         } catch (e: Exception) {
             e.printStackTrace()
             ProjectionResult.Failure.Unknown(e.localizedMessage ?: "Unhandled Runtime Error")
+        }
+    }
+
+    suspend fun downloadAndSaveAllProjections(
+        settings: UniversalSettings,
+        viewModel: TableViewModel,
+        maxDays: Int = 60
+    ): ProjectionResult {
+        val sourceUrl = settings.spreadsheetUrl
+        if (sourceUrl.isBlank()) {
+            return ProjectionResult.Failure.InvalidUrl
+        }
+
+        return withContext(Dispatchers.IO) {
+            try {
+                // 1. Download the workbook using your secure extractor engine
+                val workbookResult = downloadSecureWorkbook(sourceUrl)
+
+                val workbook = workbookResult.getOrElse { exception ->
+                    Log.e("Downloader", "Secure download pipeline rejected workbook access", exception)
+                    return@withContext ProjectionResult.Failure.Unknown(
+                        exception.localizedMessage ?: "Secure Network Download Error"
+                    )
+                }
+
+                var savedCount = 0
+                val today = LocalDate.now()
+                val storageDateFormatter = StorageManager.storageDateFormatter()
+
+                // 2. Walk forward from today up to maxDays using Long steps
+                for (daysAhead in 0L..maxDays.toLong()) {
+                    val walkingDate = today.plusDays(daysAhead)
+
+                    // Convert our loop instance date into target sheet matching format: "DD.MM"
+                    val sheetTabName = String.format("%02d.%02d", walkingDate.dayOfMonth, walkingDate.monthValue)
+                    val storageKeyName = walkingDate.format(storageDateFormatter)
+
+                    // Check if this sheet exists in the workbook. If not, proceed to the next one
+                    val sheetExists = workbook.getSheet(sheetTabName) != null
+                    if (!sheetExists) {
+                        continue
+                    }
+
+                    // 3. Extract the hourly array data from the workbook sheet using your core logic
+                    val extractionResult = getProjectionForDate(
+                        dateStr = storageKeyName,
+                        targetCellCoordinate = settings.targetCellCoordinate,
+                        workbook = workbook
+                    )
+
+                    if (extractionResult is ProjectionResult.Success) {
+                        val rawList = extractionResult.data // List<Int?>
+
+                        // Criteria check: Only save if the extracted data is not completely empty/null
+                        val hasValidData = rawList.any { it != null }
+                        if (hasValidData) {
+
+                            // Convert the extracted List<Int?> sequence directly to hourly map positions
+                            val hourMap = mutableMapOf<Int, Int?>()
+                            var currentHour = settings.workplaceOpeningTime
+
+                            rawList.forEach { value ->
+                                hourMap[currentHour] = value
+                                currentHour = (currentHour + 1) % 24
+                            }
+
+                            // Derive weekend properties based on structural date components
+                            val isWeekend = walkingDate.dayOfWeek == DayOfWeek.SATURDAY ||
+                                    walkingDate.dayOfWeek == DayOfWeek.SUNDAY
+
+                            val finalProjection = DayProjectionData(
+                                isWeekend = isWeekend,
+                                hourlyGcs = hourMap
+                            )
+
+                            // Save file onto disk storage media inside its respective date tree partition
+                            viewModel.storageManager.saveProjectionToDisk(finalProjection, storageKeyName)
+                            savedCount++
+                        }
+                    }
+                }
+
+                workbook.close()
+                Log.d("Downloader", "Batch processing finished. Saved $savedCount operational documents.")
+
+                // Satisfies your explicit List<Int?> Success type contract safely
+                ProjectionResult.Success(emptyList())
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+                ProjectionResult.Failure.Unknown(e.localizedMessage ?: "Batch Download Failure")
+            }
         }
     }
 }

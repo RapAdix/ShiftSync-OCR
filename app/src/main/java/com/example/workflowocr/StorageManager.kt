@@ -19,6 +19,7 @@ import org.opencv.core.Point
 import java.io.File
 import java.io.FileOutputStream
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
@@ -240,6 +241,44 @@ class StorageManager(private val context: Context) {
         }
     }
 
+    fun prefetchAllAvailableProjections(max: Int = 60): Map<String, DayProjectionData> {
+        val fetchedData = mutableMapOf<String, DayProjectionData>()
+        try {
+            val rootDir = getDataDir()
+            if (!rootDir.exists() || !rootDir.isDirectory) return emptyMap()
+
+            val subDirectories = rootDir.listFiles { file -> file.isDirectory } ?: return emptyMap()
+
+            val validProjectionFiles = subDirectories.mapNotNull { dir ->
+                val dateKey = dir.name
+                val projectionFile = File(dir, PROJECTION_FILE_NAME)
+                if (projectionFile.exists() && projectionFile.isFile) dateKey to projectionFile else null
+            }
+
+            validProjectionFiles
+                .sortedWith(
+                    compareByDescending<Pair<String, File>> { (dateKey, _) ->
+                        dateKey.split("-").getOrNull(1)?.toIntOrNull() ?: 0 // Month
+                    }.thenByDescending { (dateKey, _) ->
+                        dateKey.split("-").getOrNull(0)?.toIntOrNull() ?: 0 // Day
+                    }
+                )
+                .take(max)
+                .forEach { (dateKey, file) ->
+                    try {
+                        val fileContent = file.readText()
+                        val projectionData = json.decodeFromString<DayProjectionData>(fileContent)
+                        fetchedData[dateKey] = projectionData
+                    } catch (e: Exception) {
+                        Log.e("Storage", "Failed to prefetch projection properties for: ${file.path}", e)
+                    }
+                }
+        } catch (e: Exception) {
+            Log.e("Storage", "Fatal error running structural prefetch routine", e)
+        }
+        return fetchedData
+    }
+
     fun createSnippets(
         bitmap: Bitmap,
         table: Array<Array<TableDetector.TableCell>>,
@@ -388,6 +427,10 @@ class StorageManager(private val context: Context) {
                 }
             }
             return newPath
+        }
+
+        fun storageDateFormatter(): DateTimeFormatter {
+            return DateTimeFormatter.ofPattern("dd-MM")
         }
     }
 

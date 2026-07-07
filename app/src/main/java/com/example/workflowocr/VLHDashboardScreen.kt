@@ -31,8 +31,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -47,6 +50,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
@@ -56,7 +60,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -67,10 +73,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -336,12 +345,6 @@ class VlhWorkflowCoordinator(
         }
     }
 
-    fun calculateResultIndex(hour: Int, gcValue: Int): Int? {
-        val activeMasterTable =
-            if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
-        return activeMasterTable.calculateResultIndex(hour, gcValue)
-    }
-
     // Context state for the column editing view overlay
     var editingDayType by mutableStateOf<DayType?>(null)
     var editingColumnId by mutableStateOf<Int?>(null)
@@ -375,6 +378,10 @@ class VlhWorkflowCoordinator(
             viewModel.storageManager.saveVlhTable(currentTable.copy(columns = updatedColumns))
         }
     }
+
+    fun activeVlh(): VlhTableState {
+        return if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
+    }
 }
 
 private enum class VlhSubScreen {
@@ -383,7 +390,8 @@ private enum class VlhSubScreen {
     SETUP_UTILITY,
     OPERATIONAL_REPORTS,   // Crew Required screen
     COLUMN_EDITOR,         // Edit VLH column manually
-    IMAGE_DISPLAY          // Show recently captured image for debug purposes
+    IMAGE_DISPLAY,         // Show recently captured image for debug purposes
+    PROJECTION_HISTORY     // Display all stored projections and let user edit them
 }
 
 @Composable
@@ -413,7 +421,8 @@ fun VlhManagementScreen(
                     coordinator.editingColumnId = columnId
                     internalScreen = VlhSubScreen.COLUMN_EDITOR
                 },
-                onNavigateToImageInspection = {internalScreen = VlhSubScreen.IMAGE_DISPLAY}
+                onNavigateToImageInspection = {internalScreen = VlhSubScreen.IMAGE_DISPLAY},
+                onNavigateToProjectionHistory = {internalScreen = VlhSubScreen.PROJECTION_HISTORY}
             )
         }
         VlhSubScreen.SETUP_UTILITY -> VlhSetupConfigScreen(
@@ -441,7 +450,7 @@ fun VlhManagementScreen(
                 scannedGcsList = coordinator.scannedGcsList,
                 selectedStartHour = coordinator.selectedStartHour,
                 onStartHourChange = { updatedHour -> coordinator.selectedStartHour = updatedHour },
-                activeVlhState = if (coordinator.activeDisplayTab == DayType.WEEKDAY) coordinator.weekdayTable else coordinator.weekendTable,
+                activeVlhState = coordinator.activeVlh(),
                 onDismiss = {
                     internalScreen = VlhSubScreen.DASHBOARD
                     coordinator.scannedGcsList.clear()
@@ -457,6 +466,9 @@ fun VlhManagementScreen(
                     internalScreen = VlhSubScreen.DASHBOARD
                 }
             )
+        }
+        VlhSubScreen.PROJECTION_HISTORY -> {
+            ProjectionHistoryReviewScreen(coordinator, onBackDismiss = {internalScreen = VlhSubScreen.DASHBOARD})
         }
 
         VlhSubScreen.IMAGE_DISPLAY -> {
@@ -474,7 +486,8 @@ fun VlhDashboardScreen(
     onNavigateToCamera: () -> Unit,
     onNavigateToSetup: () -> Unit,
     onColumnClicked: (DayType, Int) -> Unit,
-    onNavigateToImageInspection: () -> Unit
+    onNavigateToImageInspection: () -> Unit,
+    onNavigateToProjectionHistory: () -> Unit
 ) {
     LaunchedEffect(coordinator) {
         coordinator.collectStart()
@@ -508,6 +521,14 @@ fun VlhDashboardScreen(
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // History / Document Search Button
+                IconButton(onClick = onNavigateToProjectionHistory) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                        contentDescription = "Review Historic Operational Document Projections",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
                 // The Image Quality Verification Eye Button (Only visible if an image actually exists)
                 if (coordinator.lastCapturedBitmap != null) {
                     IconButton(onClick = onNavigateToImageInspection) {
@@ -876,12 +897,295 @@ fun VlhSetupConfigScreen(
 
                     coordinator.initiateColumnUpdate(selectedDay, selectedColId, onLaunchCamera)
                 },
-                enabled = isValidRange, // 🟢 Button locks if validation parameters fail
+                enabled = isValidRange, // Button locks if validation parameters fail
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Launch Scanner")
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProjectionHistoryReviewScreen(
+    coordinator: VlhWorkflowCoordinator,
+    onBackDismiss: () -> Unit
+) {
+    val viewModel = LocalTableViewModel.current
+    val coroutineScope = rememberCoroutineScope()
+
+    // Sync pipeline variables
+    var isSyncing by remember { mutableStateOf(false) }
+
+    // 1. Prefetch DayProjectionData records from storage on initialization
+    // wrapped in a key counter state so we can trigger a soft recomposition UI refresh on download success
+    var cacheRefreshTrigger by remember { mutableStateOf(0) }
+    val historicProjectionsCache = remember(cacheRefreshTrigger) {
+        viewModel.storageManager.prefetchAllAvailableProjections()
+    }
+
+    // 2. Extract keys directly. Since the storage pipeline sorts them, insertion order is preserved.
+    val availableDates = remember(historicProjectionsCache) {
+        historicProjectionsCache.keys.toList()
+    }
+
+    // Active selection tracking indexes
+    var selectedDateIndex by remember { mutableStateOf(0) }
+    val activeDateKey = availableDates.getOrNull(selectedDateIndex)
+
+    // Track dynamic DayType (isWeekend) modifications using a mutable snapshot state map
+    val isWeekendOverrides = remember(historicProjectionsCache) {
+        mutableStateMapOf<String, Boolean>().apply {
+            putAll(historicProjectionsCache.mapValues { (_, data) -> data.isWeekend })
+        }
+    }
+
+    // Build the isolated mutable snapshot state array whenever the focused date context pivots
+    val editableGcsList = remember(activeDateKey, cacheRefreshTrigger) {
+        val openingHour = viewModel.universalSettings.workplaceOpeningTime
+        val closingHour = viewModel.universalSettings.workplaceClosingTime
+
+        val totalHours = if (closingHour >= openingHour) {
+            closingHour - openingHour
+        } else {
+            (24 - openingHour) + closingHour
+        }
+
+        val initialList = mutableListOf<Int>()
+        val activeProjection = historicProjectionsCache[activeDateKey]
+        val activeMap = activeProjection?.hourlyGcs ?: emptyMap()
+
+        for (step in 0 until totalHours) {
+            val currentHour = (openingHour + step) % 24
+            initialList.add(activeMap[currentHour] ?: 0)
+        }
+        initialList.toMutableStateList()
+    }
+
+    var dropdownExpanded by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+
+        // TOP CONTROL BAR NAVIGATION
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            tonalElevation = 4.dp,
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Left Step Navigation Button (Older dates)
+                IconButton(
+                    onClick = { selectedDateIndex = (selectedDateIndex + 1).coerceAtMost(availableDates.lastIndex) },
+                    enabled = selectedDateIndex < availableDates.lastIndex
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Step to Older Date")
+                }
+
+                // Middle Container grouping Selector Dropdown and the Day Toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (activeDateKey != null) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            // The Toggle sits directly on top
+                            val currentDayOverride = isWeekendOverrides[activeDateKey] ?: false
+                            DayTypeSlidingToggle(
+                                isWeekend = currentDayOverride,
+                                onDayTypeChange = { isWeekend ->
+                                    isWeekendOverrides[activeDateKey] = isWeekend
+                                }
+                            )
+
+                            // Dropdown sits underneath it
+                            ExposedDropdownMenuBox(
+                                expanded = dropdownExpanded,
+                                onExpandedChange = { dropdownExpanded = !dropdownExpanded }
+                            ) {
+                                // BasicTextField allows bypassing standard Material form constraints
+                                BasicTextField(
+                                    value = activeDateKey,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    textStyle = TextStyle(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    modifier = Modifier
+                                        .width(150.dp)
+                                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true),
+                                    // The DecorationBox lets us manually reconstruct the Outlined look with custom tight paddings
+                                    decorationBox = { innerTextField ->
+                                        OutlinedTextFieldDefaults.DecorationBox(
+                                            value = activeDateKey,
+                                            innerTextField = innerTextField,
+                                            enabled = true,
+                                            singleLine = true,
+                                            visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
+                                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                                            contentPadding = PaddingValues(
+                                                start = 4.dp,
+                                                end = 3.dp,
+                                                top = 0.dp,
+                                                bottom = 0.dp
+                                            ),
+                                            container = {
+                                                OutlinedTextFieldDefaults.ContainerBox(
+                                                    enabled = true,
+                                                    isError = false,
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                                                    shape = OutlinedTextFieldDefaults.shape
+                                                )
+                                            }
+                                        )
+                                    }
+                                )
+
+                                ExposedDropdownMenu(
+                                    expanded = dropdownExpanded,
+                                    onDismissRequest = { dropdownExpanded = false }
+                                ) {
+                                    availableDates.forEachIndexed { index, dateStr ->
+                                        DropdownMenuItem(
+                                            text = { Text(text = dateStr, fontWeight = FontWeight.SemiBold) },
+                                            onClick = {
+                                                selectedDateIndex = index
+                                                dropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Text(text = "No Document Projections", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                    }
+                }
+
+                IconButton(
+                    onClick = {
+                        downloadAllProjections(
+                            settings = viewModel.universalSettings,
+                            viewModel = viewModel,
+                            scope = coroutineScope,
+                            onSyncStateChange = { loading ->
+                                isSyncing = loading
+                                // When finished, trigger a soft UI reload to populate all newly discovered day files
+                                if (!loading) cacheRefreshTrigger++
+                            },
+                            onSyncError = {}
+                        )
+                    },
+                    enabled = !isSyncing,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    if (isSyncing) {
+                        CircularProgressIndicator(modifier = Modifier.size(34.dp), strokeWidth = 4.dp)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = "Sync All Future Projections from Server",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+                }
+
+                // Right Step Navigation Button (Newer dates)
+                IconButton(
+                    onClick = { selectedDateIndex = (selectedDateIndex - 1).coerceAtLeast(0) },
+                    enabled = selectedDateIndex > 0
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Step to Newer Date")
+                }
+            }
+        }
+
+        HorizontalDivider()
+
+        val isWeekend = isWeekendOverrides[activeDateKey] ?: false
+        if (activeDateKey != null) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                OperationalScanResultsView(
+                    scannedGcsList = editableGcsList,
+                    selectedStartHour = viewModel.universalSettings.workplaceOpeningTime,
+                    onStartHourChange = null, // Drops arrow scrollers per conditional rule
+                    activeVlhState = if (isWeekend) coordinator.weekendTable else coordinator.weekdayTable,
+                    onDismiss = onBackDismiss,
+                    onSave = {
+                        val updatedMap = mutableMapOf<Int, Int?>()
+                        val openingHour = viewModel.universalSettings.workplaceOpeningTime
+                        val closingHour = viewModel.universalSettings.workplaceClosingTime
+
+                        val totalHours = if (closingHour >= openingHour) {
+                            closingHour - openingHour
+                        } else {
+                            (24 - openingHour) + closingHour
+                        }
+
+                        editableGcsList.take(totalHours).forEachIndexed { index, gcValue ->
+                            val targetHour = (openingHour + index) % 24
+                            updatedMap[targetHour] = gcValue
+                        }
+
+                        val finalDayTypeState = isWeekendOverrides[activeDateKey] ?: false
+
+                        val finalProjection = DayProjectionData(
+                            isWeekend = finalDayTypeState,
+                            hourlyGcs = updatedMap
+                        )
+                        viewModel.storageManager.saveProjectionToDisk(finalProjection, activeDateKey)
+
+                        onBackDismiss()
+                    }
+                )
+            }
+        } else {
+            Box(modifier = Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "No projection stored yet. Download or input some projections first.",
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray
+                )
+            }
+        }
+    }
+}
+
+private fun downloadAllProjections(
+    settings: UniversalSettings,
+    viewModel: TableViewModel,
+    scope: CoroutineScope,
+    onSyncStateChange: (Boolean) -> Unit,
+    onSyncError: (ProjectionResult.Failure?) -> Unit
+) {
+    scope.launch {
+        onSyncStateChange(true)
+        onSyncError(null)
+
+        val result = SpreadSheetDownloader.downloadAndSaveAllProjections(settings, viewModel)
+
+        if (result is ProjectionResult.Failure) {
+            onSyncError(result)
+        }
+
+        onSyncStateChange(false)
     }
 }
 
@@ -902,8 +1206,6 @@ fun OperationalScanResultsView(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(8.dp, 0.dp)) {
-            Text("Operational Document Results", style = MaterialTheme.typography.titleLarge)
-
             // Hides Starting Time control mechanics completely if shifting capabilities are omitted
             if (onStartHourChange != null) {
                 Text(
