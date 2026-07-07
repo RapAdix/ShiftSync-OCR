@@ -65,6 +65,9 @@ fun AttendanceSummaryScreen() {
     var vlhWeekend by remember { mutableStateOf(VlhTableState(DayType.WEEKEND)) }
     var isSyncing by remember { mutableStateOf(false) }
 
+    // Track the exact extraction/network result state context dropped from the worker pipeline
+    var projectionError by remember { mutableStateOf<ProjectionResult.Failure?>(null) }
+
     LaunchedEffect(Unit) {
         viewModel.storageManager.vlhTablesFlow.collect { (weekdayData, weekendData) ->
             vlhWeekday = weekdayData
@@ -93,7 +96,8 @@ fun AttendanceSummaryScreen() {
     Column(Modifier.fillMaxSize().background(PaperWhite)) {
 
         // TOP DATA WARNING BANNER
-        if (vlhNotFilled || projectedGcNotFilled) {
+        // Prioritizes explicit worker runtime errors, falling back to basic data omissions if null
+        if (projectionError != null || vlhNotFilled || projectedGcNotFilled) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.errorContainer,
@@ -108,6 +112,14 @@ fun AttendanceSummaryScreen() {
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = when {
+                            projectionError != null -> when (val err = projectionError!!) {
+                                is ProjectionResult.Failure.DateTabNotFound -> "Excel tab '${err.expectedTabName}' not found for today's date."
+                                ProjectionResult.Failure.InvalidUrl -> "Error: Insecure or malformed URL configuration."
+                                ProjectionResult.Failure.InvalidCellCoordinate -> "Error: Target coordinate calculation mismatch."
+                                ProjectionResult.Failure.FileTooLarge -> "Aborted: Workbook exceeds safety file sizing limits."
+                                ProjectionResult.Failure.NetworkError -> "Sync Failed: Server disconnected or returned bad response."
+                                is ProjectionResult.Failure.Unknown -> "Sync Error: ${err.message}"
+                            }
                             vlhNotFilled && projectedGcNotFilled -> "Missing: Projected GC Value & Master VLH Configurations Table"
                             vlhNotFilled -> "Missing: Master VLH Configuration Table"
                             else -> "Missing: Synchronized Spreadsheet GC Values Data"
@@ -136,7 +148,7 @@ fun AttendanceSummaryScreen() {
                 Column(
                     modifier = Modifier.weight(REQ_COLUMN_WEIGHT),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(0.dp) // Tight visual blend
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
                     IconButton(
                         onClick = {
@@ -145,7 +157,8 @@ fun AttendanceSummaryScreen() {
                                 settings = settings,
                                 viewModel = viewModel,
                                 scope = coroutineScope,
-                                onSyncStateChange = { isSyncing = it }
+                                onSyncStateChange = { isSyncing = it },
+                                onSyncError = { projectionError = it }
                             )
                         },
                         enabled = !isSyncing,
@@ -286,7 +299,8 @@ private fun downloadProjection(
     settings: UniversalSettings,
     viewModel: TableViewModel,
     scope: kotlinx.coroutines.CoroutineScope,
-    onSyncStateChange: (Boolean) -> Unit
+    onSyncStateChange: (Boolean) -> Unit,
+    onSyncError: (ProjectionResult.Failure?) -> Unit
 ) {
     val activeDate = date ?: return
     val sourceUrl = settings.spreadsheetUrl
@@ -294,8 +308,9 @@ private fun downloadProjection(
 
     scope.launch {
         onSyncStateChange(true)
+        onSyncError(null) // Reset errors on a fresh attempt execution
         try {
-            val listResult = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 SpreadSheetDownloader.getProjectionForDate(
                     dateStr = activeDate,
                     targetCellCoordinate = "B5",
@@ -303,24 +318,32 @@ private fun downloadProjection(
                 )
             }
 
-            val generatedMap = mutableMapOf<Int, Int?>()
-            var currentHour = settings.workplaceOpeningTime
+            when (result) {
+                is ProjectionResult.Success -> {
+                    val generatedMap = mutableMapOf<Int, Int?>()
+                    var currentHour = settings.workplaceOpeningTime
 
-            listResult.forEach { value ->
-                generatedMap[currentHour] = value
-                currentHour = (currentHour + 1) % 24
+                    result.data.forEach { value ->
+                        generatedMap[currentHour] = value
+                        currentHour = (currentHour + 1) % 24
+                    }
+
+                    if (viewModel.projectedGcs.isEmpty()) {
+                        val resolvedLocalDate = TimeUtils.getClosestFullDate(activeDate) ?: LocalDate.now()
+                        val isWeekend = resolvedLocalDate.dayOfWeek == DayOfWeek.SATURDAY ||
+                                resolvedLocalDate.dayOfWeek == DayOfWeek.SUNDAY
+                        viewModel.setDayTypeOverride(isWeekend)
+                    }
+
+                    viewModel.saveProjection(generatedMap)
+                }
+                is ProjectionResult.Failure -> {
+                    onSyncError(result)
+                }
             }
-
-            if (viewModel.projectedGcs.isEmpty()) {
-                val resolvedLocalDate = TimeUtils.getClosestFullDate(activeDate) ?: LocalDate.now()
-                val isWeekend = resolvedLocalDate.dayOfWeek == DayOfWeek.SATURDAY ||
-                        resolvedLocalDate.dayOfWeek == DayOfWeek.SUNDAY
-                viewModel.setDayTypeOverride(isWeekend)
-            }
-
-            viewModel.saveProjection(generatedMap)
         } catch (e: Exception) {
             e.printStackTrace()
+            onSyncError(ProjectionResult.Failure.Unknown(e.localizedMessage ?: "Unhandled Runtime Error"))
         } finally {
             onSyncStateChange(false)
         }

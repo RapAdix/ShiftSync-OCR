@@ -11,6 +11,18 @@ import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.Workbook
 import org.apache.poi.ss.usermodel.WorkbookFactory
 
+sealed interface ProjectionResult {
+    data class Success(val data: List<Int?>) : ProjectionResult
+    sealed interface Failure : ProjectionResult {
+        object InvalidUrl : Failure
+        object NetworkError : Failure
+        data class DateTabNotFound(val expectedTabName: String) : Failure
+        object InvalidCellCoordinate : Failure
+        object FileTooLarge : Failure
+        data class Unknown(val message: String) : Failure
+    }
+}
+
 object SpreadSheetDownloader {
     private const val TAG = "SpreadsheetLoader"
     private const val MAX_ALLOWED_FILE_SIZE = 10 * 1024 * 1024 // 10 Megabytes max limit guardrail
@@ -28,7 +40,6 @@ object SpreadSheetDownloader {
                 CookieHandler.setDefault(CookieManager(null, CookiePolicy.ACCEPT_ALL))
             }
 
-            // 1. Sanity Check: Ensure it looks like a valid link
             if (!rawUserLink.startsWith("https://", ignoreCase = true)) {
                 return@withContext Result.failure(IllegalArgumentException("Insecure URL format. Must use HTTPS."))
             }
@@ -125,22 +136,26 @@ object SpreadSheetDownloader {
         dateStr: String,
         targetCellCoordinate: String,
         workbook: Workbook
-    ): List<Int?> = withContext(Dispatchers.IO) {
+    ): ProjectionResult = withContext(Dispatchers.IO) {
         try {
             val parts = dateStr.replace(".", "-").split("-")
-            val day = parts.getOrNull(0)?.toIntOrNull() ?: return@withContext emptyList()
-            val month = parts.getOrNull(1)?.toIntOrNull() ?: return@withContext emptyList()
+            val day = parts.getOrNull(0)?.toIntOrNull() ?: return@withContext ProjectionResult.Failure.Unknown("Invalid Date Elements Format")
+            val month = parts.getOrNull(1)?.toIntOrNull() ?: return@withContext ProjectionResult.Failure.Unknown("Invalid Date Elements Format")
             val formattedTabName = String.format("%02d.%02d", day, month)
 
             val sheet = workbook.getSheet(formattedTabName)
             if (sheet == null) {
                 Log.e(TAG, "Excel Tab '$formattedTabName' not found in workbook.")
-                return@withContext emptyList()
+                return@withContext ProjectionResult.Failure.DateTabNotFound(formattedTabName)
             }
 
             // Separate the letters from the numbers (e.g., "AB6" -> letters: "AB", digits: "6")
             val letterPart = targetCellCoordinate.takeWhile { it.isLetter() }.uppercase()
             val digitPart = targetCellCoordinate.dropWhile { it.isLetter() }
+
+            if (letterPart.isEmpty() || digitPart.isEmpty()) {
+                return@withContext ProjectionResult.Failure.InvalidCellCoordinate
+            }
 
             val startRowIndex = (digitPart.toIntOrNull() ?: 1) - 1 // "6" -> index 5
 
@@ -174,10 +189,10 @@ object SpreadSheetDownloader {
                 rawProjectionList.removeAt(rawProjectionList.lastIndex)
             }
 
-            return@withContext rawProjectionList
+            return@withContext ProjectionResult.Success(rawProjectionList)
         } catch (e: Exception) {
             Log.e(TAG, "Error extracting projection sequence: ${e.localizedMessage}")
-            return@withContext emptyList()
+            return@withContext ProjectionResult.Failure.Unknown(e.localizedMessage ?: "Extraction Error")
         }
     }
 
@@ -185,18 +200,28 @@ object SpreadSheetDownloader {
         dateStr: String,
         targetCellCoordinate: String = "B5",
         link: String
-    ): List<Int?> {
+    ): ProjectionResult {
         val downloadResult = downloadSecureWorkbook(link)
 
         return downloadResult.fold(
             onSuccess = { workbook ->
-                val resultList = getProjectionForDate(dateStr, targetCellCoordinate, workbook)
+                val outcome = getProjectionForDate(dateStr, targetCellCoordinate, workbook)
                 try { workbook.close() } catch (ignored: Exception) {}
-                resultList
+                outcome
             },
             onFailure = { error ->
                 Log.e(TAG, "Failed downloading workbook for sequence: ${error.localizedMessage}")
-                emptyList()
+                when (error) {
+                    is IllegalArgumentException -> ProjectionResult.Failure.InvalidUrl
+                    is SecurityException -> {
+                        if (error.message?.contains("size", ignoreCase = true) == true) {
+                            ProjectionResult.Failure.FileTooLarge
+                        } else {
+                            ProjectionResult.Failure.NetworkError
+                        }
+                    }
+                    else -> ProjectionResult.Failure.NetworkError
+                }
             }
         )
     }
