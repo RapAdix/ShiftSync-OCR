@@ -71,6 +71,8 @@ fun AttendanceSummaryScreen() {
     // Track the exact extraction/network result state context dropped from the worker pipeline
     var projectionError by remember { mutableStateOf<ProjectionResult.Failure?>(null) }
 
+    var showEditView by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         viewModel.storageManager.vlhTablesFlow.collect { (weekdayData, weekendData) ->
             vlhWeekday = weekdayData
@@ -96,286 +98,347 @@ fun AttendanceSummaryScreen() {
     val vlhNotFilled = !activeVlhState.hasDataForTimeRange(viewModel.universalSettings.workplaceOpeningTime, viewModel.universalSettings.workplaceClosingTime)
     val projectedGcNotFilled = viewModel.projectedGcs.isEmpty()
 
-    Column(Modifier.fillMaxSize().background(PaperWhite)) {
+    // Container to overlay the editing view on top of the main summary stream when active
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().background(PaperWhite)) {
 
-        // TOP DATA WARNING BANNER
-        // Prioritizes explicit worker runtime errors, falling back to basic data omissions if null
-        if (projectionError != null || vlhNotFilled || projectedGcNotFilled) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.errorContainer,
-                tonalElevation = 2.dp
+            // TOP DATA WARNING BANNER
+            // Prioritizes explicit worker runtime errors, falling back to basic data omissions if null
+            if (projectionError != null || vlhNotFilled || projectedGcNotFilled) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    tonalElevation = 2.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp, 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = when {
+                                projectionError != null -> when (val err = projectionError!!) {
+                                    is ProjectionResult.Failure.DateTabNotFound -> "Excel tab '${err.expectedTabName}' not found for today's date."
+                                    ProjectionResult.Failure.InvalidUrl -> "Error: Insecure or malformed URL configuration."
+                                    ProjectionResult.Failure.InvalidCellCoordinate -> "Error: Target coordinate calculation mismatch."
+                                    ProjectionResult.Failure.FileTooLarge -> "Aborted: Workbook exceeds safety file sizing limits."
+                                    ProjectionResult.Failure.NetworkError -> "Sync Failed: Server disconnected or returned bad response."
+                                    is ProjectionResult.Failure.Unknown -> "Sync Error: ${err.message}"
+                                }
+                                vlhNotFilled && projectedGcNotFilled -> "Missing: Projected GC Value & Master VLH Configurations Table"
+                                vlhNotFilled -> "Missing: Master VLH Configuration Table"
+                                else -> "Missing: Synchronized Spreadsheet GC Values Data"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+
+            // HEADER ELEMENT CONTROL SECTION
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp, 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom // Keeps "Actual" baseline-aligned with "Required"
                 ) {
-                    Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = when {
-                            projectionError != null -> when (val err = projectionError!!) {
-                                is ProjectionResult.Failure.DateTabNotFound -> "Excel tab '${err.expectedTabName}' not found for today's date."
-                                ProjectionResult.Failure.InvalidUrl -> "Error: Insecure or malformed URL configuration."
-                                ProjectionResult.Failure.InvalidCellCoordinate -> "Error: Target coordinate calculation mismatch."
-                                ProjectionResult.Failure.FileTooLarge -> "Aborted: Workbook exceeds safety file sizing limits."
-                                ProjectionResult.Failure.NetworkError -> "Sync Failed: Server disconnected or returned bad response."
-                                is ProjectionResult.Failure.Unknown -> "Sync Error: ${err.message}"
-                            }
-                            vlhNotFilled && projectedGcNotFilled -> "Missing: Projected GC Value & Master VLH Configurations Table"
-                            vlhNotFilled -> "Missing: Master VLH Configuration Table"
-                            else -> "Missing: Synchronized Spreadsheet GC Values Data"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
-            }
-        }
-
-        // HEADER ELEMENT CONTROL SECTION
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Bottom // Keeps "Actual" baseline-aligned with "Required"
-            ) {
-                // Weekday/Weekend toggle
-                Box(
-                    modifier = Modifier.weight(HOUR_LABEL_WEIGHT),
-                    contentAlignment = Alignment.BottomStart
-                ) {
-                    val isWeekend = viewModel.isWeekend
-                    val weekdayInteractionSource = remember { MutableInteractionSource() }
-                    val weekendInteractionSource = remember { MutableInteractionSource() }
-
-                    val targetOffset = if (isWeekend) 66.dp else 0.dp
-                    val animatedOffset by animateDpAsState(
-                        targetValue = targetOffset,
-                        animationSpec = tween(durationMillis = 250), // Smooth 250ms transition track
-                        label = "PillSlide"
-                    )
-
-                    // Outer Track
+                    // Weekday/Weekend toggle
                     Box(
-                        modifier = Modifier
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                shape = androidx.compose.foundation.shape.CircleShape
-                            )
-                            .padding(2.dp)
+                        modifier = Modifier.weight(HOUR_LABEL_WEIGHT),
+                        contentAlignment = Alignment.BottomStart
                     ) {
-                        // The Sliding Green Indicator Pill (Sits behind the stationary text)
+                        val isWeekend = viewModel.isWeekend
+                        val weekdayInteractionSource = remember { MutableInteractionSource() }
+                        val weekendInteractionSource = remember { MutableInteractionSource() }
+
+                        val targetOffset = if (isWeekend) 66.dp else 0.dp
+                        val animatedOffset by animateDpAsState(
+                            targetValue = targetOffset,
+                            animationSpec = tween(durationMillis = 250), // Smooth 250ms transition track
+                            label = "PillSlide"
+                        )
+
+                        // Outer Track
                         Box(
                             modifier = Modifier
-                                .offset(x = animatedOffset)
                                 .background(
-                                    color = SoftEmeraldGreen,
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                     shape = androidx.compose.foundation.shape.CircleShape
                                 )
-                                // Matches the explicit bounding container box layout dimensions exactly
-                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                                .padding(2.dp)
                         ) {
-                            // Invisible placeholder text to perfectly size the sliding selector capsule background
-                            Text(
-                                text = if (isWeekend) "Wkend" else "Wkday",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.Transparent
-                            )
-                        }
-
-                        // Foreground Stationary Text Layer
-                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            // Weekday Button Cell
+                            // The Sliding Green Indicator Pill (Sits behind the stationary text)
                             Box(
                                 modifier = Modifier
-                                    .clickable(
-                                        interactionSource = weekdayInteractionSource,
-                                        indication = null
-                                    ) { viewModel.setDayTypeOverride(false) }
-                                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                                contentAlignment = Alignment.Center
+                                    .offset(x = animatedOffset)
+                                    .background(
+                                        color = SoftEmeraldGreen,
+                                        shape = androidx.compose.foundation.shape.CircleShape
+                                    )
+                                    // Matches the explicit bounding container box layout dimensions exactly
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
                             ) {
+                                // Invisible placeholder text to perfectly size the sliding selector capsule background
                                 Text(
-                                    text = "Wkday",
+                                    text = if (isWeekend) "Wkend" else "Wkday",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (!isWeekend) Color.White else MutedSlateGrey
+                                    color = Color.Transparent
                                 )
                             }
 
-                            // Weekend Button Cell
-                            Box(
-                                modifier = Modifier
-                                    .clickable(
-                                        interactionSource = weekendInteractionSource,
-                                        indication = null
-                                    ) { viewModel.setDayTypeOverride(true) }
-                                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Wkend",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isWeekend) Color.White else MutedSlateGrey
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Cell for the Required Column Data
-                Column(
-                    modifier = Modifier.weight(REQ_COLUMN_WEIGHT),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(0.dp)
-                ) {
-                    IconButton(
-                        onClick = {
-                            downloadProjection(
-                                date = viewModel.currentWorkingDate,
-                                settings = settings,
-                                viewModel = viewModel,
-                                scope = coroutineScope,
-                                onSyncStateChange = { isSyncing = it },
-                                onSyncError = { projectionError = it }
-                            )
-                        },
-                        enabled = !isSyncing,
-                        modifier = Modifier.size(20.dp)
-                    ) {
-                        if (isSyncing) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "Download Pipeline",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "Required",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MutedSlateGrey,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                Text(
-                    text = "Actual",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MutedSlateGrey,
-                    modifier = Modifier.weight(COMBINED_RIGHT_WEIGHT)
-                )
-            }
-        }
-
-        HorizontalDivider(color = MutedSlateGrey.copy(alpha = 0.15f))
-
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(summary) { group ->
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                expandedHour = if (expandedHour == group.hourLabel) null else group.hourLabel
-                            }
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 1. Hour Label Column
-                        Column(Modifier.weight(HOUR_LABEL_WEIGHT)) {
-                            Text(group.hourLabel, fontWeight = FontWeight.Bold)
-
-                            if (expandedHour == group.hourLabel) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, end = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    group.slots.forEach { slot ->
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(slot.label, style = MaterialTheme.typography.labelSmall)
-                                            Text("${slot.count}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // 2. REQUIRED COLUMN: Centered Numbers
-                        Box(
-                            modifier = Modifier.weight(REQ_COLUMN_WEIGHT),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (group.requiredCrew != null) {
-                                Text(
-                                    text = group.requiredCrew.toString(),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                            } else {
-                                Text("-", color = MutedSlateGrey)
-                            }
-                        }
-
-                        // 3. COMBINED ACTUAL & DELTA ROW
-                        Box(
-                            modifier = Modifier.weight(COMBINED_RIGHT_WEIGHT),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = buildAnnotatedString {
-                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = MaterialTheme.typography.titleMedium.fontSize, baselineShift = BaselineShift(-0.1f))) {
-                                        append(group.secondSmallest.toString())
-                                    }
-                                    append(" ")
-                                    withStyle(SpanStyle(color = MutedSlateGrey, fontSize = 12.sp, baselineShift = BaselineShift(-0.2f))) {
-                                        append("(${group.min}~${group.max})")
-                                    }
-                                },
-                                modifier = Modifier.align(Alignment.CenterStart)
-                            )
-
-                            // Badge - Anchored to the far right edge of the cell
-                            if (group.crewDelta != null) {
-                                val delta = group.crewDelta!!
-                                val (badgeText, badgeColor) = when {
-                                    delta > 0 -> "+$delta" to SoftEmeraldGreen
-                                    delta < 0 -> "$delta" to SoftCrimsonRed
-                                    else -> "0" to SoftEmeraldGreen
-                                }
-
-                                Surface(
-                                    color = badgeColor.copy(alpha = 0.12f),
-                                    shape = MaterialTheme.shapes.small,
-                                    modifier = Modifier.align(Alignment.CenterEnd)
+                            // Foreground Stationary Text Layer
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                // Weekday Button Cell
+                                Box(
+                                    modifier = Modifier
+                                        .clickable(
+                                            interactionSource = weekdayInteractionSource,
+                                            indication = null
+                                        ) { viewModel.setDayTypeOverride(false) }
+                                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = badgeText,
-                                        color = badgeColor,
+                                        text = "Wkday",
+                                        style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        color = if (!isWeekend) Color.White else MutedSlateGrey
+                                    )
+                                }
+
+                                // Weekend Button Cell
+                                Box(
+                                    modifier = Modifier
+                                        .clickable(
+                                            interactionSource = weekendInteractionSource,
+                                            indication = null
+                                        ) { viewModel.setDayTypeOverride(true) }
+                                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Wkend",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isWeekend) Color.White else MutedSlateGrey
                                     )
                                 }
                             }
                         }
                     }
-                    HorizontalDivider(color = MutedSlateGrey.copy(alpha = 0.1f))
+
+                    // Cell for the Required Column Data
+                    Column(
+                        modifier = Modifier.weight(REQ_COLUMN_WEIGHT),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                downloadProjection(
+                                    date = viewModel.currentWorkingDate,
+                                    settings = settings,
+                                    viewModel = viewModel,
+                                    scope = coroutineScope,
+                                    onSyncStateChange = { isSyncing = it },
+                                    onSyncError = { projectionError = it }
+                                )
+                            },
+                            enabled = !isSyncing,
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            if (isSyncing) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = "Download Pipeline",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Required",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MutedSlateGrey,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Text(
+                        text = "Actual",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MutedSlateGrey,
+                        modifier = Modifier.weight(COMBINED_RIGHT_WEIGHT)
+                    )
                 }
+            }
+
+            HorizontalDivider(color = MutedSlateGrey.copy(alpha = 0.15f))
+
+            LazyColumn(Modifier.fillMaxSize()) {
+                items(summary) { group ->
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    expandedHour = if (expandedHour == group.hourLabel) null else group.hourLabel
+                                }
+                                .padding(horizontal = 16.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // 1. Hour Label Column
+                            Column(Modifier.weight(HOUR_LABEL_WEIGHT)) {
+                                Text(group.hourLabel, fontWeight = FontWeight.Bold)
+
+                                if (expandedHour == group.hourLabel) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, end = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        group.slots.forEach { slot ->
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Text(slot.label, style = MaterialTheme.typography.labelSmall)
+                                                Text("${slot.count}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 2. REQUIRED COLUMN: Centered Numbers
+                            Box(
+                                modifier = Modifier
+                                    .weight(REQ_COLUMN_WEIGHT)
+                                    .clickable { showEditView = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (group.requiredCrew != null) {
+                                    Text(
+                                        text = group.requiredCrew.toString(),
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                } else {
+                                    Text("-", color = MutedSlateGrey)
+                                }
+                            }
+
+                            // 3. COMBINED ACTUAL & DELTA ROW
+                            Box(
+                                modifier = Modifier.weight(COMBINED_RIGHT_WEIGHT),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Text(
+                                    text = buildAnnotatedString {
+                                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = MaterialTheme.typography.titleMedium.fontSize, baselineShift = BaselineShift(-0.1f))) {
+                                            append(group.secondSmallest.toString())
+                                        }
+                                        append(" ")
+                                        withStyle(SpanStyle(color = MutedSlateGrey, fontSize = 12.sp, baselineShift = BaselineShift(-0.2f))) {
+                                            append("(${group.min}~${group.max})")
+                                        }
+                                    },
+                                    modifier = Modifier.align(Alignment.CenterStart)
+                                )
+
+                                // Badge - Anchored to the far right edge of the cell
+                                if (group.crewDelta != null) {
+                                    val delta = group.crewDelta!!
+                                    val (badgeText, badgeColor) = when {
+                                        delta > 0 -> "+$delta" to SoftEmeraldGreen
+                                        delta < 0 -> "$delta" to SoftCrimsonRed
+                                        else -> "0" to SoftEmeraldGreen
+                                    }
+
+                                    Surface(
+                                        color = badgeColor.copy(alpha = 0.12f),
+                                        shape = MaterialTheme.shapes.small,
+                                        modifier = Modifier.align(Alignment.CenterEnd)
+                                    ) {
+                                        Text(
+                                            text = badgeText,
+                                            color = badgeColor,
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = MutedSlateGrey.copy(alpha = 0.1f))
+                    }
+                }
+            }
+        }
+
+        val editableGcsList = remember(showEditView) {
+            val openingHour = settings.workplaceOpeningTime
+            val closingHour = settings.workplaceClosingTime
+
+            val totalHours = if (closingHour >= openingHour) {
+                closingHour - openingHour
+            } else {
+                (24 - openingHour) + closingHour
+            }
+
+            val initialList = mutableListOf<Int>()
+
+            // Step through the actual duration and apply modulo to wrap the hour around 24
+            for (step in 0 until totalHours) {
+                val currentHour = (openingHour + step) % 24
+                // Fallback to 0 if the map doesn't contain a value for this hour yet
+                initialList.add(viewModel.projectedGcs[currentHour] ?: 0)
+            }
+
+            initialList.toMutableStateList()
+        }
+
+        if (showEditView) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                OperationalScanResultsView(
+                    scannedGcsList = editableGcsList,
+                    selectedStartHour = settings.workplaceOpeningTime,
+                    activeVlhState = activeVlhState,
+                    onDismiss = { showEditView = false },
+                    onSave = {
+                        val updatedMap = mutableMapOf<Int, Int>()
+                        val openingHour = settings.workplaceOpeningTime
+                        val closingHour = settings.workplaceClosingTime
+
+                        val totalHours = if (closingHour >= openingHour) {
+                            closingHour - openingHour
+                        } else {
+                            (24 - openingHour) + closingHour
+                        }
+
+                        // Only process the first elements that fit strictly within the timespan
+                        editableGcsList.take(totalHours).forEachIndexed { index, gcValue ->
+                            val targetHour = (openingHour + index) % 24
+                            updatedMap[targetHour] = gcValue
+                        }
+                        viewModel.saveProjection(updatedMap)
+
+                        showEditView = false
+                    }
+                )
             }
         }
     }

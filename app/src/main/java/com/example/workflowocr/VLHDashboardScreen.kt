@@ -438,7 +438,10 @@ fun VlhManagementScreen(
         }
         VlhSubScreen.OPERATIONAL_REPORTS -> {
             OperationalScanResultsView(
-                coordinator = coordinator,
+                scannedGcsList = coordinator.scannedGcsList,
+                selectedStartHour = coordinator.selectedStartHour,
+                onStartHourChange = { updatedHour -> coordinator.selectedStartHour = updatedHour },
+                activeVlhState = if (coordinator.activeDisplayTab == DayType.WEEKDAY) coordinator.weekdayTable else coordinator.weekendTable,
                 onDismiss = {
                     internalScreen = VlhSubScreen.DASHBOARD
                     coordinator.scannedGcsList.clear()
@@ -885,8 +888,12 @@ fun VlhSetupConfigScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OperationalScanResultsView(
-    coordinator: VlhWorkflowCoordinator,
-    onDismiss: () -> Unit
+    scannedGcsList: SnapshotStateList<Int>,
+    selectedStartHour: Int,
+    onStartHourChange: ((Int) -> Unit)? = null,
+    activeVlhState: VlhTableState,
+    onDismiss: () -> Unit,
+    onSave: (() -> Unit)? = null
 ) {
     val openingTime = LocalTableViewModel.current.universalSettings.workplaceOpeningTime
 
@@ -896,32 +903,38 @@ fun OperationalScanResultsView(
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(8.dp, 0.dp)) {
             Text("Operational Document Results", style = MaterialTheme.typography.titleLarge)
-            Text(
-                text = "Use the buttons below to align the starting time if the first row doesn't match $openingTime:00.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            )
 
-            // TIME OFFSET SCROLLER: Let's users shift hours forward or backward
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { coordinator.selectedStartHour = (coordinator.selectedStartHour - 1).coerceAtLeast(0) }) {
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Shift Time Down")
-                }
+            // Hides Starting Time control mechanics completely if shifting capabilities are omitted
+            if (onStartHourChange != null) {
                 Text(
-                    text = "Starting Hour: ${coordinator.selectedStartHour}:00",
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyLarge
+                    text = "Use the buttons below to align the starting time if the first row doesn't match $openingTime:00.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
-                IconButton(onClick = { coordinator.selectedStartHour = (coordinator.selectedStartHour + 1).coerceAtMost(23) }) {
-                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Shift Time Up")
+                // TIME OFFSET SCROLLER: Let's users shift hours forward or backward
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { onStartHourChange((selectedStartHour - 1).coerceAtLeast(0)) }) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Shift Time Down"
+                        )
+                    }
+                    Text(
+                        text = "Starting Hour: ${selectedStartHour}:00",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    IconButton(onClick = { onStartHourChange((selectedStartHour + 1).coerceAtMost(23)) }) {
+                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Shift Time Up")
+                    }
                 }
-            }
 
-            HorizontalDivider()
+                HorizontalDivider()
+            }
 
             // THE THREE-COLUMN DATA GRID MATRIX
             LazyColumn(modifier = Modifier.weight(1f)) {
@@ -946,7 +959,7 @@ fun OperationalScanResultsView(
                         ) {
                             Text("Scanned GC", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                             IconButton(
-                                onClick = { coordinator.scannedGcsList.add(0, 0) },
+                                onClick = { if (scannedGcsList.size < 24) scannedGcsList.add(0, 0) },
                                 modifier = Modifier.size(30.dp)
                             ) {
                                 Icon(
@@ -968,11 +981,12 @@ fun OperationalScanResultsView(
                 }
 
                 // Dynamic Data Output Columns
-                itemsIndexed(coordinator.scannedGcsList) { index, gcValue ->
+                itemsIndexed(scannedGcsList) { index, gcValue ->
                     // Calculate the shifting hour slot based on the index position offset
-                    val currentHour = (coordinator.selectedStartHour + index) % 24
+                    val currentHour = (selectedStartHour + index) % 24
                     val timeString = String.format("%02d:00 - %02d:00", currentHour, (currentHour + 1) % 24)
-                    val crewNeeded = coordinator.calculateResultIndex(currentHour, gcValue)?.let { it + 1 }
+
+                    val crewNeeded = activeVlhState.calculateResultIndex(currentHour, gcValue)?.let { it + 1 }
 
                     Row(
                         modifier = Modifier
@@ -1010,7 +1024,7 @@ fun OperationalScanResultsView(
                                     value = if (gcValue == 0) "" else gcValue.toString(),
                                     onValueChange = { inputString ->
                                         val cleanedNumber = inputString.filter { it.isDigit() }.toIntOrNull() ?: 0
-                                        coordinator.scannedGcsList[index] = cleanedNumber
+                                        scannedGcsList[index] = cleanedNumber
                                     },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     textStyle = TextStyle(
@@ -1046,7 +1060,7 @@ fun OperationalScanResultsView(
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null
-                                    ) { coordinator.scannedGcsList.add(index + 1, 0) },
+                                    ) { if (scannedGcsList.size < 24) scannedGcsList.add(index + 1, 0) },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1069,7 +1083,7 @@ fun OperationalScanResultsView(
                             }
 
                             IconButton(
-                                onClick = { coordinator.scannedGcsList.removeAt(index) },
+                                onClick = { scannedGcsList.removeAt(index) },
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(
@@ -1103,6 +1117,16 @@ fun OperationalScanResultsView(
             // Bottom Action Controls
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Discard") }
+                if (onSave != null) {
+                    TextButton(
+                        onClick = onSave,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = SoftEmeraldGreen
+                        )
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
