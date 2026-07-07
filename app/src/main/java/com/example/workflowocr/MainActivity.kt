@@ -193,7 +193,7 @@ class MainActivity : ComponentActivity() {
                         contract = ActivityResultContracts.TakePicture()
                     ) { success ->
                         if (success && tempImageUri != null) {
-                            val bitmap = ImageUtils.uriToBitmap(context, tempImageUri!!)
+                            val bitmap = StorageManager.ImageUtils.uriToBitmap(context, tempImageUri!!)
 
                             if (isDebugCapture) {
                                 capturedBitmap = bitmap
@@ -229,7 +229,7 @@ class MainActivity : ComponentActivity() {
                             contract = ActivityResultContracts.RequestPermission()
                             ) { isGranted ->
                         if (isGranted) {
-                            val uri = ImageUtils.createTempImageUri(context)
+                            val uri = StorageManager.ImageUtils.createTempImageUri(context)
                             tempImageUri = uri // Update state variable
                             cameraLauncher.launch(uri)
                         } else {
@@ -245,7 +245,7 @@ class MainActivity : ComponentActivity() {
                         ) == PackageManager.PERMISSION_GRANTED
 
                         if (hasPermission) {
-                            val uri = ImageUtils.createTempImageUri(context)
+                            val uri = StorageManager.ImageUtils.createTempImageUri(context)
                             tempImageUri = uri
                             cameraLauncher.launch(uri)
                         } else {

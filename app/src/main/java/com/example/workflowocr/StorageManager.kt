@@ -345,25 +345,25 @@ class StorageManager(private val context: Context) {
             return newPath
         }
     }
-}
 
-object ImageUtils {
-    fun createTempImageUri(context: Context): Uri {
-        val tempFile = File.createTempFile("scan_", ".jpg", context.externalCacheDir)
-        return FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.provider", // Must match AndroidManifest
-            tempFile
-        )
-    }
+    object ImageUtils {
+        fun createTempImageUri(context: Context): Uri {
+            val tempFile = File.createTempFile("scan_", ".jpg", context.externalCacheDir)
+            return FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.provider", // Must match AndroidManifest
+                tempFile
+            )
+        }
 
-    fun uriToBitmap(context: Context, uri: Uri): Bitmap {
-        return if (Build.VERSION.SDK_INT < 28) {
-            MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-        } else {
-            val source = ImageDecoder.createSource(context.contentResolver, uri)
-            ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                decoder.isMutableRequired = true // Important for OpenCV/Processing
+        fun uriToBitmap(context: Context, uri: Uri): Bitmap {
+            return if (Build.VERSION.SDK_INT < 28) {
+                MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+            } else {
+                val source = ImageDecoder.createSource(context.contentResolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                    decoder.isMutableRequired = true // Important for OpenCV/Processing
+                }
             }
         }
     }
