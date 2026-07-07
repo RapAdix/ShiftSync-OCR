@@ -64,8 +64,9 @@ fun AttendanceSummaryScreen() {
     val settings = viewModel.universalSettings
     val coroutineScope = rememberCoroutineScope()
 
-    var vlhWeekday by remember { mutableStateOf(VlhTableState(DayType.WEEKDAY)) }
-    var vlhWeekend by remember { mutableStateOf(VlhTableState(DayType.WEEKEND)) }
+    // Initialize as null so we can track the "Loading" phase
+    var vlhWeekday by remember { mutableStateOf<VlhTableState?>(null) }
+    var vlhWeekend by remember { mutableStateOf<VlhTableState?>(null) }
     var isSyncing by remember { mutableStateOf(false) }
 
     // Track the exact extraction/network result state context dropped from the worker pipeline
@@ -81,7 +82,11 @@ fun AttendanceSummaryScreen() {
     }
 
     val activeVlhState = remember(vlhWeekday, vlhWeekend, viewModel.isWeekend) {
-        if (viewModel.isWeekend) vlhWeekend else vlhWeekday
+        if (viewModel.isWeekend) {
+            vlhWeekend ?: VlhTableState(DayType.WEEKEND)
+        } else {
+            vlhWeekday ?: VlhTableState(DayType.WEEKDAY)
+        }
     }
 
     val summary = remember(employees, activeVlhState, viewModel.projectedGcs.toMap()) {
@@ -95,7 +100,11 @@ fun AttendanceSummaryScreen() {
     }
 
     var expandedHour by remember { mutableStateOf<String?>(null) }
-    val vlhNotFilled = !activeVlhState.hasDataForTimeRange(viewModel.universalSettings.workplaceOpeningTime, viewModel.universalSettings.workplaceClosingTime)
+    val isLoaded = vlhWeekday != null && vlhWeekend != null
+    val vlhNotFilled = isLoaded && !activeVlhState.hasDataForTimeRange(
+        viewModel.universalSettings.workplaceOpeningTime,
+        viewModel.universalSettings.workplaceClosingTime
+    )
     val projectedGcNotFilled = viewModel.projectedGcs.isEmpty()
 
     // Container to overlay the editing view on top of the main summary stream when active
@@ -120,7 +129,7 @@ fun AttendanceSummaryScreen() {
                         Text(
                             text = when {
                                 projectionError != null -> when (val err = projectionError!!) {
-                                    is ProjectionResult.Failure.DateTabNotFound -> "Excel tab '${err.expectedTabName}' not found for today's date."
+                                    is ProjectionResult.Failure.DateTabNotFound -> "Excel tab '${err.expectedTabName}' not found for that date."
                                     ProjectionResult.Failure.InvalidUrl -> "Error: Insecure or malformed URL configuration."
                                     ProjectionResult.Failure.InvalidCellCoordinate -> "Error: Target coordinate calculation mismatch."
                                     ProjectionResult.Failure.FileTooLarge -> "Aborted: Workbook exceeds safety file sizing limits."
@@ -143,7 +152,7 @@ fun AttendanceSummaryScreen() {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+                    .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
