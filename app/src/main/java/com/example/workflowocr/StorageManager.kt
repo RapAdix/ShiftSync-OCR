@@ -30,6 +30,8 @@ class StorageManager(private val context: Context) {
     private val UNIVERSAL_JSON_KEY = stringPreferencesKey("universal_json")
     private val WEEKDAY_TABLE_KEY = stringPreferencesKey("vlh_weekday_table")
     private val WEEKEND_TABLE_KEY = stringPreferencesKey("vlh_weekend_table")
+    private val PROCESSOR_ROW_FILE_NAME = "rows.json"
+    private val PROJECTION_FILE_NAME = "projection.json"
 
     // Configured to ignore unknown keys - in case fields are added to ProcessorRow later
     private val json = Json { ignoreUnknownKeys = true }
@@ -128,7 +130,7 @@ class StorageManager(private val context: Context) {
             val folder = File(getDataDir(), subDir)
             if (!folder.exists()) folder.mkdirs()
 
-            val file = File(folder, "rows.json")
+            val file = File(folder, PROCESSOR_ROW_FILE_NAME)
             val jsonString = json.encodeToString(rows.values.toList())
             file.writeText(jsonString)
         } catch (e: Exception) {
@@ -137,7 +139,7 @@ class StorageManager(private val context: Context) {
     }
 
     fun loadRowsFromDisk(subDir: String): Map<String, ProcessorRow> {
-        val file = File(getDataDir(), "$subDir/rows.json")
+        val file = File(getDataDir(), "$subDir/$PROCESSOR_ROW_FILE_NAME")
         if (!file.exists()) return emptyMap()
 
         return try {
@@ -152,7 +154,9 @@ class StorageManager(private val context: Context) {
         val dataDir = getDataDir()
         if (!dataDir.exists() || !dataDir.isDirectory) return emptyList()
 
-        return dataDir.listFiles { file -> file.isDirectory }
+        return dataDir.listFiles { file ->
+            file.isDirectory && File(file, PROCESSOR_ROW_FILE_NAME).exists()
+        }
             ?.map { it.name }
             ?.sortedWith(
                 compareByDescending<String> { it.split("-").getOrNull(1)?.toIntOrNull() ?: 0 } // Month
@@ -192,6 +196,47 @@ class StorageManager(private val context: Context) {
                 Log.d("StoragePurge", "Purging expired data directory footprint: $dateStr (Resolved as: $bestFitTrueDate)")
                 deleteDataForDate(dateStr)
             }
+        }
+    }
+
+    private fun getProjectionFile(subDir: String): File {
+        return File(getDataDir(), "$subDir/$PROJECTION_FILE_NAME")
+    }
+
+    fun saveProjectionToDisk(isWeekend: Boolean, projectionData: Map<Int, Int?>, subDir: String?) {
+        val projection = DayProjectionData(isWeekend, projectionData)
+        saveProjectionToDisk(projection, subDir)
+    }
+
+    fun saveProjectionToDisk(projectionData: DayProjectionData, subDir: String?) {
+        if (subDir.isNullOrBlank()) {
+            Log.d("Storage", "Save projection aborted: subDir is null or blank.")
+            return
+        }
+
+        try {
+            val folder = File(getDataDir(), subDir)
+            if (!folder.exists()) folder.mkdirs()
+
+            val file = getProjectionFile(subDir)
+            val jsonString = json.encodeToString(projectionData)
+            file.writeText(jsonString)
+            Log.d("Storage", "Projection data written successfully for date: $subDir")
+        } catch (e: Exception) {
+            Log.e("Storage", "Error saving projection to $subDir", e)
+        }
+    }
+
+    fun loadProjectionFromDisk(subDir: String): DayProjectionData {
+        val file = getProjectionFile(subDir)
+        // Returns a base fallback instance without creating folders on disk
+        if (!file.exists()) return DayProjectionData(isWeekend = false)
+
+        return try {
+            json.decodeFromString<DayProjectionData>(file.readText())
+        } catch (e: Exception) {
+            Log.e("Storage", "Error parsing projection data for $subDir, returning fallback", e)
+            DayProjectionData(isWeekend = false)
         }
     }
 

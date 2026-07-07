@@ -85,6 +85,12 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
+@Serializable
+data class DayProjectionData(
+    val isWeekend: Boolean = false,
+    val hourlyGcs: Map<Int, Int?> = emptyMap()
+)
+
 // Data Model
 @Serializable
 data class ProcessorRow(
@@ -115,6 +121,10 @@ data class ProcessorRow(
 class TableViewModel(application: Application) : AndroidViewModel(application) {
     val storageManager = StorageManager(application)
     val extractedRows = mutableStateMapOf<String, ProcessorRow>()
+    private val _projectedGcs = mutableStateMapOf<Int, Int?>()
+    val projectedGcs: Map<Int, Int?> = _projectedGcs
+    var isWeekend by mutableStateOf(false)
+        private set
     var onDateSupplied by mutableStateOf<((String?) -> Unit)?>(null)
 
     // Track which date we are currently looking at
@@ -166,18 +176,38 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         if (extractedRows.isNotEmpty()) {
             storageManager.saveRowsToDisk(extractedRows, currentWorkingDate)
         }
+        if (projectedGcs.isNotEmpty() || currentWorkingDate != null) {
+            storageManager.saveProjectionToDisk(isWeekend, projectedGcs.toMap(), currentWorkingDate)
+        }
 
-        // 2. Clear and load new data
-        val loadedData = storageManager.loadRowsFromDisk(newDate)
-        extractedRows.clear()
-        extractedRows.putAll(loadedData)
-
-        // 3. Update current date state
+        // 2. Update current date state
         currentWorkingDate = newDate
+
+        // 3. Clear and load new data
+        extractedRows.clear()
+        _projectedGcs.clear()
+
+        val loadedRows = storageManager.loadRowsFromDisk(newDate)
+        val loadedProjectionData = storageManager.loadProjectionFromDisk(newDate)
+        extractedRows.putAll(loadedRows)
+        _projectedGcs.putAll(loadedProjectionData.hourlyGcs)
+        isWeekend = loadedProjectionData.isWeekend
+    }
+
+    fun setDayTypeOverride(isWeekendSelected: Boolean) {
+        isWeekend = isWeekendSelected
+        storageManager.saveProjectionToDisk(isWeekend, projectedGcs.toMap(), currentWorkingDate)
+    }
+
+    fun saveProjection(newProjection: Map<Int, Int?>) {
+        _projectedGcs.clear()
+        _projectedGcs.putAll(newProjection)
+        storageManager.saveProjectionToDisk(isWeekend, newProjection, currentWorkingDate)
     }
 
     fun saveToStorage() {
         storageManager.saveRowsToDisk(extractedRows, currentWorkingDate)
+        storageManager.saveProjectionToDisk(isWeekend, projectedGcs.toMap(), currentWorkingDate)
     }
 
     fun deleteDate(date: String) {
@@ -186,6 +216,8 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         if (currentWorkingDate == date) {
             currentWorkingDate = null
             extractedRows.clear()
+            _projectedGcs.clear()
+            isWeekend = false
         }
     }
 
