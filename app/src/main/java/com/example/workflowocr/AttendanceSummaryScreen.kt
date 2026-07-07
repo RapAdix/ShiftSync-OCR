@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +21,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.LocalDate
 
@@ -47,6 +51,7 @@ private const val HOUR_LABEL_WEIGHT = 0.45f  // Gives 45% width to the time stri
 private const val REQ_COLUMN_WEIGHT = 0.2f  // 20% width for Required Column
 private const val COMBINED_RIGHT_WEIGHT = 0.35f // 35% for Actual and Badge stuck side-by-side
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AttendanceSummaryScreen() {
     val viewModel = LocalTableViewModel.current
@@ -54,9 +59,11 @@ fun AttendanceSummaryScreen() {
         derivedStateOf { viewModel.extractedRows.values.filterNot { it.isAbsent }.sortedBy { it.id } }
     }
     val settings = viewModel.universalSettings
+    val coroutineScope = rememberCoroutineScope()
 
     var vlhWeekday by remember { mutableStateOf(VlhTableState(DayType.WEEKDAY)) }
     var vlhWeekend by remember { mutableStateOf(VlhTableState(DayType.WEEKEND)) }
+    var isSyncing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.storageManager.vlhTablesFlow.collect { (weekdayData, weekendData) ->
@@ -69,7 +76,7 @@ fun AttendanceSummaryScreen() {
         if (viewModel.isWeekend) vlhWeekend else vlhWeekday
     }
 
-    val summary = remember(employees, activeVlhState, viewModel.projectedGcs) {
+    val summary = remember(employees, activeVlhState, viewModel.projectedGcs.toMap()) {
         calculateHourlySummary(
             employees,
             settings.workplaceOpeningTime,
@@ -81,7 +88,6 @@ fun AttendanceSummaryScreen() {
 
     var expandedHour by remember { mutableStateOf<String?>(null) }
     val vlhNotFilled = !activeVlhState.hasDataForTimeRange(viewModel.universalSettings.workplaceOpeningTime, viewModel.universalSettings.workplaceClosingTime)
-
     val projectedGcNotFilled = viewModel.projectedGcs.isEmpty()
 
     Column(Modifier.fillMaxSize().background(PaperWhite)) {
@@ -94,7 +100,7 @@ fun AttendanceSummaryScreen() {
                 tonalElevation = 2.dp
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(12.dp, 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
@@ -114,30 +120,66 @@ fun AttendanceSummaryScreen() {
             }
         }
 
-        Row(
+        // HEADER ELEMENT CONTROL SECTION
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
         ) {
-            Spacer(Modifier.weight(HOUR_LABEL_WEIGHT))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom // Keeps "Actual" baseline-aligned with "Required"
+            ) {
+                Spacer(Modifier.weight(HOUR_LABEL_WEIGHT))
 
-            Text(
-                text = "Required",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MutedSlateGrey,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(REQ_COLUMN_WEIGHT)
-            )
+                // Cell for the Required Column Data
+                Column(
+                    modifier = Modifier.weight(REQ_COLUMN_WEIGHT),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(0.dp) // Tight visual blend
+                ) {
+                    IconButton(
+                        onClick = {
+                            downloadProjection(
+                                date = viewModel.currentWorkingDate,
+                                settings = settings,
+                                viewModel = viewModel,
+                                scope = coroutineScope,
+                                onSyncStateChange = { isSyncing = it }
+                            )
+                        },
+                        enabled = !isSyncing,
+                        modifier = Modifier.size(20.dp)
+                    ) {
+                        if (isSyncing) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Download Pipeline",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
 
-            Text(
-                text = "Actual",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MutedSlateGrey,
-                modifier = Modifier.weight(COMBINED_RIGHT_WEIGHT)
-            )
+                    Text(
+                        text = "Required",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MutedSlateGrey,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Text(
+                    text = "Actual",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MutedSlateGrey,
+                    modifier = Modifier.weight(COMBINED_RIGHT_WEIGHT)
+                )
+            }
         }
 
         HorizontalDivider(color = MutedSlateGrey.copy(alpha = 0.15f))
@@ -189,7 +231,7 @@ fun AttendanceSummaryScreen() {
                             }
                         }
 
-                        // 3. COMBINED ACTUAL & DELTA ROW (No Distance)
+                        // 3. COMBINED ACTUAL & DELTA ROW
                         Box(
                             modifier = Modifier.weight(COMBINED_RIGHT_WEIGHT),
                             contentAlignment = Alignment.CenterStart
@@ -235,6 +277,52 @@ fun AttendanceSummaryScreen() {
                     HorizontalDivider(color = MutedSlateGrey.copy(alpha = 0.1f))
                 }
             }
+        }
+    }
+}
+
+private fun downloadProjection(
+    date: String?,
+    settings: UniversalSettings,
+    viewModel: TableViewModel,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onSyncStateChange: (Boolean) -> Unit
+) {
+    val activeDate = date ?: return
+    val sourceUrl = settings.spreadsheetUrl
+    if (sourceUrl.isBlank()) return
+
+    scope.launch {
+        onSyncStateChange(true)
+        try {
+            val listResult = withContext(Dispatchers.IO) {
+                SpreadSheetDownloader.getProjectionForDate(
+                    dateStr = activeDate,
+                    targetCellCoordinate = "B5",
+                    link = sourceUrl
+                )
+            }
+
+            val generatedMap = mutableMapOf<Int, Int?>()
+            var currentHour = settings.workplaceOpeningTime
+
+            listResult.forEach { value ->
+                generatedMap[currentHour] = value
+                currentHour = (currentHour + 1) % 24
+            }
+
+            if (viewModel.projectedGcs.isEmpty()) {
+                val resolvedLocalDate = TimeUtils.getClosestFullDate(activeDate) ?: LocalDate.now()
+                val isWeekend = resolvedLocalDate.dayOfWeek == DayOfWeek.SATURDAY ||
+                        resolvedLocalDate.dayOfWeek == DayOfWeek.SUNDAY
+                viewModel.setDayTypeOverride(isWeekend)
+            }
+
+            viewModel.saveProjection(generatedMap)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            onSyncStateChange(false)
         }
     }
 }
