@@ -37,7 +37,8 @@ object PresetDefaults {
 @Serializable
 data class UniversalSettings(
     val workplaceOpeningTime: Int = 6, // Hour of opening
-    val workplaceClosingTime: Int = 1  // Hour of closing
+    val workplaceClosingTime: Int = 1,  // Hour of closing
+    val spreadsheetUrl: String = ""
 )
 
 // 2. Structural grid rules. Highly volatile.

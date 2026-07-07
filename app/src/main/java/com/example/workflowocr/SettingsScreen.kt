@@ -29,11 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: TableViewModel) {
-    // Observe our newly decoupled state variables from the ViewModel
     val activePreset = viewModel.activePresetType
     val currentLayout = viewModel.activeLayout
     val universalSettings = viewModel.universalSettings
@@ -43,11 +41,70 @@ fun SettingsScreen(viewModel: TableViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
+                .padding(16.dp, 0.dp)
                 .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // --- SECTION 1: PRESET TYPE SELECTOR ---
+            // --- SECTION 1: GLOBAL FACILITY TIMINGS ---
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Workplace Shifts Timings",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    NumericSettingInput(
+                        label = "Opening Hour (0-23)",
+                        value = universalSettings.workplaceOpeningTime,
+                        enabled = true,
+                        onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceOpeningTime = it)) }
+                    )
+                    NumericSettingInput(
+                        label = "Closing Hour (0-23)",
+                        value = universalSettings.workplaceClosingTime,
+                        enabled = true,
+                        onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceClosingTime = it)) }
+                    )
+                }
+            }
+
+            // --- SECTION 2: REMOTE SPREADSHEET SOURCE LINK ---
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Cloud Sync Integration",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    // Local storage for url. Isolates rapid typing from slow disk I/O
+                    var urlInputState by remember(universalSettings.spreadsheetUrl) {
+                        mutableStateOf(universalSettings.spreadsheetUrl)
+                    }
+
+                    OutlinedTextField(
+                        value = urlInputState,
+                        onValueChange = { input ->
+                            // Update character state immediately on screen
+                            urlInputState = input
+                            // Safely trigger asynchronous background write task
+                            viewModel.updateUniversalSettings(universalSettings.copy(spreadsheetUrl = input))
+                        },
+                        label = { Text("OneDrive Spreadsheet Source URL") },
+                        placeholder = { Text("https://onedrive.live.com/...") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // --- SECTION 3: PRESET TYPE SELECTOR ---
             Text(
                 text = "Table Layout Configuration",
                 style = MaterialTheme.typography.titleMedium,
@@ -75,34 +132,7 @@ fun SettingsScreen(viewModel: TableViewModel) {
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            // --- SECTION 2: GLOBAL FACILITY TIMINGS (ALWAYS EDITABLE) ---
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Workplace Shifts Timings",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    NumericSettingInput(
-                        label = "Opening Hour (0-23)",
-                        value = universalSettings.workplaceOpeningTime,
-                        enabled = true, // Universal settings are always editable
-                        onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceOpeningTime = it)) }
-                    )
-                    NumericSettingInput(
-                        label = "Closing Hour (0-23)",
-                        value = universalSettings.workplaceClosingTime,
-                        enabled = true, // Universal settings are always editable
-                        onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceClosingTime = it)) }
-                    )
-                }
-            }
-
-            // --- SECTION 3: EDITABLE PARAMETERS ---
+            // --- SECTION 4: EDITABLE PARAMETERS ---
             Text(
                 text = if (currentLayout.isCustom) "Modify Custom Layout" else "View Active Layout Rules (Locked)",
                 style = MaterialTheme.typography.titleMedium,
