@@ -159,85 +159,12 @@ fun AttendanceSummaryScreen() {
                         modifier = Modifier.weight(HOUR_LABEL_WEIGHT),
                         contentAlignment = Alignment.BottomStart
                     ) {
-                        val isWeekend = viewModel.isWeekend
-                        val weekdayInteractionSource = remember { MutableInteractionSource() }
-                        val weekendInteractionSource = remember { MutableInteractionSource() }
-
-                        val targetOffset = if (isWeekend) 66.dp else 0.dp
-                        val animatedOffset by animateDpAsState(
-                            targetValue = targetOffset,
-                            animationSpec = tween(durationMillis = 250), // Smooth 250ms transition track
-                            label = "PillSlide"
+                        DayTypeSlidingToggle(
+                            isWeekend = viewModel.isWeekend,
+                            onDayTypeChange = { isWeekendOnly ->
+                                viewModel.setDayTypeOverride(isWeekendOnly)
+                            }
                         )
-
-                        // Outer Track
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    shape = androidx.compose.foundation.shape.CircleShape
-                                )
-                                .padding(2.dp)
-                        ) {
-                            // The Sliding Green Indicator Pill (Sits behind the stationary text)
-                            Box(
-                                modifier = Modifier
-                                    .offset(x = animatedOffset)
-                                    .background(
-                                        color = SoftEmeraldGreen,
-                                        shape = androidx.compose.foundation.shape.CircleShape
-                                    )
-                                    // Matches the explicit bounding container box layout dimensions exactly
-                                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                            ) {
-                                // Invisible placeholder text to perfectly size the sliding selector capsule background
-                                Text(
-                                    text = if (isWeekend) "Wkend" else "Wkday",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.Transparent
-                                )
-                            }
-
-                            // Foreground Stationary Text Layer
-                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                // Weekday Button Cell
-                                Box(
-                                    modifier = Modifier
-                                        .clickable(
-                                            interactionSource = weekdayInteractionSource,
-                                            indication = null
-                                        ) { viewModel.setDayTypeOverride(false) }
-                                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "Wkday",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (!isWeekend) Color.White else MutedSlateGrey
-                                    )
-                                }
-
-                                // Weekend Button Cell
-                                Box(
-                                    modifier = Modifier
-                                        .clickable(
-                                            interactionSource = weekendInteractionSource,
-                                            indication = null
-                                        ) { viewModel.setDayTypeOverride(true) }
-                                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "Wkend",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isWeekend) Color.White else MutedSlateGrey
-                                    )
-                                }
-                            }
-                        }
                     }
 
                     // Cell for the Required Column Data
@@ -443,6 +370,92 @@ fun AttendanceSummaryScreen() {
 
                         showEditView = false
                     }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DayTypeSlidingToggle(
+    isWeekend: Boolean,
+    onDayTypeChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val weekdayInteractionSource = remember { MutableInteractionSource() }
+    val weekendInteractionSource = remember { MutableInteractionSource() }
+
+    // Smooth 250ms transition animation calculation
+    val targetOffset = if (isWeekend) 66.dp else 0.dp
+    val animatedOffset by animateDpAsState(
+        targetValue = targetOffset,
+        animationSpec = tween(durationMillis = 250),
+        label = "PillSlide"
+    )
+
+    // Outer Track Container
+    Box(
+        modifier = modifier
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = androidx.compose.foundation.shape.CircleShape
+            )
+            .padding(2.dp)
+    ) {
+        // The Sliding Green Indicator Pill (Sits behind the stationary text)
+        Box(
+            modifier = Modifier
+                .offset(x = animatedOffset)
+                .background(
+                    color = SoftEmeraldGreen,
+                    shape = androidx.compose.foundation.shape.CircleShape
+                )
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+        ) {
+            // Invisible placeholder text to perfectly size the sliding selector capsule background dynamically
+            Text(
+                text = if (isWeekend) "Wkend" else "Wkday",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.Transparent
+            )
+        }
+
+        // Foreground Stationary Clickable Text Layer
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            // Weekday Option
+            Box(
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = weekdayInteractionSource,
+                        indication = null
+                    ) { onDayTypeChange(false) }
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Wkday",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (!isWeekend) Color.White else Color.Gray // Fallback colors for MutedSlateGrey
+                )
+            }
+
+            // Weekend Option
+            Box(
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = weekendInteractionSource,
+                        indication = null
+                    ) { onDayTypeChange(true) }
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Wkend",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isWeekend) Color.White else Color.Gray
                 )
             }
         }
