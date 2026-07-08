@@ -35,10 +35,10 @@ object PresetDefaults {
 
 @Serializable
 enum class ScanPageType(val displayName: String) {
-    EMPLOYEE_P1("Employee (Page 1)"),
-    EMPLOYEE_P2("Employee (Page 2)"),
-    EMPLOYEE_P3("Employee (Page 3)"),
-    MANAGER_P1("Manager (Page 1)")
+    EMPLOYEE_P1("Employee\n(Page 1)"),
+    EMPLOYEE_P2("Employee\n(Page 2)"),
+    EMPLOYEE_P3("Employee\n(Page 3)"),
+    MANAGER_P1("Manager\n(Page 1)")
 }
 
 // 1. Facility-wide rules. Always editable, independent of presets.
@@ -48,7 +48,7 @@ data class UniversalSettings(
     val workplaceClosingTime: Int = 1,  // Hour of closing
     val spreadsheetUrl: String = "",
     val targetCellCoordinate: String = "B5",
-    val enabledScanPages: Set<ScanPageType> = ScanPageType.entries.toSet()
+    val enabledScanPages: Set<ScanPageType> = setOf(ScanPageType.EMPLOYEE_P1)
 )
 
 // 2. Structural grid rules. Highly volatile.

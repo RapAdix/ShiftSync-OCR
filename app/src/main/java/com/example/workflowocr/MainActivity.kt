@@ -20,11 +20,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,13 +41,11 @@ import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
@@ -57,7 +53,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,7 +64,6 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
@@ -205,7 +199,6 @@ class MainActivity : ComponentActivity() {
                     }
 
                     OcrLauncherBridge(
-                        currentScreen = flowState.currentScreen,
                         onNavigate = { newScreen ->
                             flowState = flowState.copy(currentScreen = newScreen)
                         },
@@ -253,6 +246,11 @@ class OcrFlowCoordinator(
     var isDebugCapture by mutableStateOf(false)
         private set
 
+    var activeScanningPage by mutableStateOf<ScanPageType>(ScanPageType.EMPLOYEE_P1)
+        private set
+
+    var showPagePicker by mutableStateOf(false)
+
     var capturedBitmap by mutableStateOf<Bitmap?>(null)
         private set
 
@@ -271,11 +269,29 @@ class OcrFlowCoordinator(
     }
 
     fun onScanRequest() {
-        prepareForScan(debugMode = false)
+        this.isDebugCapture = false
+        val enabledPages = tableViewModel.universalSettings.enabledScanPages
+        if (enabledPages.size > 1) {
+            this.showPagePicker = true
+        } else {
+            this.activeScanningPage = enabledPages.firstOrNull() ?: ScanPageType.EMPLOYEE_P1
+            onTriggerCameraLaunch()
+        }
+    }
+
+    fun onPageSelected(pageType: ScanPageType) {
+        this.activeScanningPage = pageType
+        this.showPagePicker = false
+        onTriggerCameraLaunch()
+    }
+
+    fun onPagePickerDismissed() {
+        this.showPagePicker = false
     }
 
     fun onDebugScanRequest() {
-        prepareForScan(debugMode = true)
+        this.isDebugCapture = true
+        onTriggerCameraLaunch()
     }
 
     fun handleCameraResult(bitmap: Bitmap) {
@@ -310,6 +326,9 @@ class OcrFlowCoordinator(
         val bitmapToProcess = (this.capturedBitmap ?: originalBitmap).also {
             this.capturedBitmap = it
         }
+        // Stub target page is always EMPLOYEE_1
+        this.activeScanningPage = ScanPageType.EMPLOYEE_P1
+
         this.cellPreviewBitmap = null
         this.diagnosticBitmap = null
         this.processingErrorMsg = null
@@ -443,7 +462,7 @@ class OcrFlowCoordinator(
                     Triple(table, analysis, rowPaths)
                 }
                 tableViewModel.loadDate(date)
-                val page = "e_p1" // TODO add choosing of the page (e-employee, m-manager, p1-page1)
+                val page = activeScanningPage.name.lowercase()
                 // TODO sanity check - check if the number of rows match between this page and previously captured page. If no - display warning
 
                 for (row in 1 until table.size) {
@@ -503,7 +522,6 @@ class OcrFlowCoordinator(
 
 @Composable
 fun OcrLauncherBridge(
-    currentScreen: Screen,
     onNavigate: (Screen) -> Unit,
     originalBitmap: Bitmap,
     snackbarHostState: SnackbarHostState,
@@ -834,11 +852,20 @@ private fun AppNavigationDrawer(
         ) { paddingValues ->
             Box(modifier = Modifier.padding(paddingValues)) {
                 when (state.currentScreen) {
-                    Screen.SCAN_HUB -> ScanHubScreen(
-                        onStubRequest = coordinator::onStubRequest,
-                        onScanRequest = coordinator::onScanRequest,
-                        onDebugScanRequest = coordinator::onDebugScanRequest
-                    )
+                    Screen.SCAN_HUB -> {
+                        ScanHubScreen(
+                            onStubRequest = coordinator::onStubRequest,
+                            onScanRequest = coordinator::onScanRequest,
+                            onDebugScanRequest = coordinator::onDebugScanRequest
+                        )
+
+                        if (coordinator.showPagePicker) {
+                            ScanPagePickerDialog(
+                                coordinator = coordinator,
+                                enabledPages = tableViewModel.universalSettings.enabledScanPages
+                            )
+                        }
+                    }
                     Screen.PROCESSING_PREVIEW -> ProcessingPreviewScreen(
                         rawBitmap = coordinator.cellPreviewBitmap ?: coordinator.capturedBitmap ?: originalBitmap,
                         diagnosticBitmap = coordinator.diagnosticBitmap,
@@ -868,187 +895,6 @@ private fun AppNavigationDrawer(
 
 
 // --- COMPOSE SCREENS ---
-
-@Composable
-fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit, onDebugScanRequest: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // Main Action: Make Picture / Scan
-        Button(
-            onClick = onScanRequest,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(100.dp),
-            contentPadding = PaddingValues(16.dp)
-        ) {
-            Icon(Icons.Default.CameraAlt, null, modifier = Modifier.size(32.dp))
-            Spacer(Modifier.width(16.dp))
-            Column {
-                Text("SCAN NEW SHEET", style = MaterialTheme.typography.titleMedium)
-                Text("Run OpenCV + ML Kit", style = MaterialTheme.typography.labelSmall)
-            }
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        OutlinedButton(
-            onClick = onStubRequest,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(70.dp)
-        ) {
-            Text("Use Stub")
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        OutlinedButton(
-            onClick = onDebugScanRequest,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(70.dp)
-        ) {
-            Text("Put it into debug")
-        }
-    }
-}
-
-@Composable
-fun ProcessingPreviewScreen(
-    rawBitmap: Bitmap,
-    diagnosticBitmap: Bitmap?,
-    errorMessage: String?,
-    onRedoClicked: () -> Unit
-) {
-    val isFailed = diagnosticBitmap != null
-
-    // We wrap the main container column in a vertical scroll state.
-    // This prevents layout overflows when two massive images + buttons are rendered simultaneously.
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Dynamic Status Title block
-        Text(
-            text = if (isFailed) "Table Detection Failed" else "Analyzing Document...",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = if (isFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-        )
-
-        if (isFailed) {
-            // Primary Redo Action Button
-            Button(
-                onClick = onRedoClicked,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("REDO / RETAKE SHEET PICTURE", style = MaterialTheme.typography.titleMedium)
-            }
-        }
-
-        // 1. PRIMARY CANVAS: Displays the main photo (or photo with processed cells)
-        Text(
-            text = "Captured Sheet / Cell Preview",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.align(Alignment.Start)
-        )
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(320.dp), // Fixed height so both fit on screen comfortably
-            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    bitmap = rawBitmap.asImageBitmap(),
-                    contentDescription = "Main Raw/Cell Preview Image Canvas",
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                // LOADING STATE: Show loading overlay placeholder while thread works
-                if (!isFailed) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.3f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.primary,
-                                strokeWidth = 4.dp
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "Running OpenCV Grid Tiling...",
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. ADDITIONAL CONDITIONAL INFRASTRUCTURE (Only renders on failure)
-        if (isFailed) {
-            // Separator Title for clarity
-            Text(
-                text = "Computed Alignment Grid (Debug)",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.align(Alignment.Start)
-            )
-
-            // ADDITIONAL DIAGNOSTIC IMAGE CARD
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(320.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Image(
-                        bitmap = diagnosticBitmap.asImageBitmap(),
-                        contentDescription = "Diagnostic Line Grid Matrix Layer",
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
-
-            // Explanatory Error Callout Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = errorMessage ?: "Unknown structural table parsing layout anomaly.",
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-        }
-    }
-}
 
 /**
  * Debug image showing for table detection
