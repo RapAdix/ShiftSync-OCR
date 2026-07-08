@@ -58,6 +58,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -165,97 +166,20 @@ class MainActivity : ComponentActivity() {
         setContent {
             CompositionLocalProvider(LocalTableViewModel provides tableViewModel) {
                 MaterialTheme(colorScheme = paperColorScheme) {
-                    var currentScreen by remember { mutableStateOf(Screen.SCAN_HUB) } // Starts here now
                     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                     val composeScope = rememberCoroutineScope()
-                    var schedulesExpanded by remember { mutableStateOf(false) } // Track unfolding
-
-                    var isDebugCapture by remember { mutableStateOf(false) }
-                    var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
-                    var cellPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
-                    var diagnosticBitmap by remember { mutableStateOf<Bitmap?>(null) }
-                    var processingErrorMsg by remember { mutableStateOf<String?>(null) }
-
                     val availableDates by tableViewModel.availableDates.collectAsState()
 
-                    // Refresh when the drawer opens to catch outside changes
+                    var flowState by remember { mutableStateOf(MainNavigationState()) }
+
                     LaunchedEffect(drawerState.isOpen) {
                         if (drawerState.isOpen) {
                             tableViewModel.refreshAvailableDates()
                         }
                     }
 
-                    val context = LocalContext.current
-                    var tempImageUri by remember { mutableStateOf<Uri?>(null) }
-
-                    // The "Launcher" that handles the result of the camera app
-                    val cameraLauncher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.TakePicture()
-                    ) { success ->
-                        if (success && tempImageUri != null) {
-                            val bitmap = StorageManager.ImageUtils.uriToBitmap(context, tempImageUri!!)
-
-                            if (isDebugCapture) {
-                                capturedBitmap = bitmap
-                                currentScreen = Screen.SAMPLE_DETECTION
-                            } else {
-                                // 1. Immediately cache the raw photo and show it on screen
-                                capturedBitmap = bitmap
-                                cellPreviewBitmap = null
-                                diagnosticBitmap = null
-                                processingErrorMsg = null
-                                currentScreen = Screen.PROCESSING_PREVIEW
-
-                                // 2. Fire off background operations while user views the preview
-                                executeFullExtractionFlow(
-                                    bitmap = bitmap,
-                                    onSuccess = {
-                                        currentScreen = Screen.TABLE_RESULTS
-                                    },
-                                    setPreview = { cellPreview, debugImage, errorMsg ->
-                                        // Instead of navigating away, we simply supply the error artifacts
-                                        // to update the preview screen dynamically!
-                                        cellPreviewBitmap = cellPreview
-                                        diagnosticBitmap = debugImage
-                                        processingErrorMsg = errorMsg
-                                    }
-                                )
-                            }
-                        }
-                        isDebugCapture = false
-                    }
-
-                    val permissionLauncher = rememberLauncherForActivityResult(
-                            contract = ActivityResultContracts.RequestPermission()
-                            ) { isGranted ->
-                        if (isGranted) {
-                            val uri = StorageManager.ImageUtils.createTempImageUri(context)
-                            tempImageUri = uri // Update state variable
-                            cameraLauncher.launch(uri)
-                        } else {
-                            Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-
-                    // The Click Handler (Logic for the Button)
-                    val onScanRequest = {
-                        val hasPermission = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.CAMERA
-                        ) == PackageManager.PERMISSION_GRANTED
-
-                        if (hasPermission) {
-                            val uri = StorageManager.ImageUtils.createTempImageUri(context)
-                            tempImageUri = uri
-                            cameraLauncher.launch(uri)
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.CAMERA)
-                        }
-                    }
-
                     if (tableViewModel.onDateSupplied != null) {
                         var inputDate by remember { mutableStateOf("") }
-
                         AlertDialog(
                             title = { Text("Manual Date Entry") },
                             text = {
@@ -268,321 +192,146 @@ class MainActivity : ComponentActivity() {
                             onDismissRequest = {
                                 val action = tableViewModel.onDateSupplied
                                 tableViewModel.onDateSupplied = null
-                                action?.invoke(null) // Signal cleanup
+                                action?.invoke(null)
                             },
                             confirmButton = {
                                 Button(onClick = {
                                     val action = tableViewModel.onDateSupplied
                                     tableViewModel.onDateSupplied = null
-                                    action?.invoke(inputDate) // Execute the "frozen" logic
+                                    action?.invoke(inputDate)
                                 }) { Text("Process") }
                             }
                         )
                     }
 
-                    ModalNavigationDrawer(
-                        drawerState = drawerState,
-                        drawerContent = {
-                            ModalDrawerSheet {
-                                // Header Row
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 4.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // This button closes the drawer
-                                    IconButton(onClick = { composeScope.launch { drawerState.close() } }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Menu,
-                                            contentDescription = "Close Menu",
-                                            tint = InkBlack
-                                        )
-                                    }
-
-                                    Text(
-                                        text = "Extractor Hub",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        modifier = Modifier.padding(start = 12.dp)
-                                    )
-                                }
-
-                                HorizontalDivider(color = InkBlack.copy(alpha = 0.05f))
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                // Navigation items
-                                NavigationDrawerItem(
-                                    label = { Text("Scan Hub") },
-                                    selected = currentScreen == Screen.SCAN_HUB,
-                                    onClick = { currentScreen = Screen.SCAN_HUB; composeScope.launch { drawerState.close() } },
-                                    icon = { Icon(Icons.Default.Home, null) }
-                                )
-                                NavigationDrawerItem(
-                                    label = { Text("Last Results") },
-                                    selected = currentScreen == Screen.TABLE_RESULTS,
-                                    onClick = { currentScreen = Screen.TABLE_RESULTS; composeScope.launch { drawerState.close() } },
-                                    icon = {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.List,
-                                            contentDescription = null
-                                        )
-                                    }
-                                )
-                                NavigationDrawerItem(
-                                    label = { Text("Attendance Summary") },
-                                    selected = currentScreen == Screen.ATTENDANCE_COUNT,
-                                    onClick = { currentScreen = Screen.ATTENDANCE_COUNT; composeScope.launch { drawerState.close() } },
-                                    icon = { Icon(Icons.Filled.Calculate, null) }
-                                )
-
-                                // The Unfolding "Saved Schedules" Section
-                                NavigationDrawerItem(
-                                    label = { Text("Saved Schedules") },
-                                    selected = false, // The parent itself isn't a "screen"
-                                    onClick = { schedulesExpanded = !schedulesExpanded },
-                                    icon = { Icon(Icons.Default.History, null) },
-                                    badge = {
-                                        Icon(
-                                            imageVector = if (schedulesExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                            contentDescription = null
-                                        )
-                                    }
-                                )
-
-                                // Animated Sub-Items
-                                AnimatedVisibility(
-                                    visible = schedulesExpanded,
-                                    enter = expandVertically() + fadeIn(),
-                                    exit = shrinkVertically() + fadeOut()
-                                ) {
-                                    Column(modifier = Modifier.padding(start = 24.dp)) {
-                                        if (availableDates.isEmpty()) {
-                                            Text(
-                                                "No saves found",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                modifier = Modifier.padding(16.dp),
-                                                color = MutedGrey
-                                            )
-                                        }
-
-                                        availableDates.forEach { date ->
-                                            val isCurrent = tableViewModel.currentWorkingDate == date
-
-                                            // Track if THIS specific item is showing its delete dialog
-                                            var showConfirmForThisItem by remember { mutableStateOf(false) }
-
-                                            NavigationDrawerItem(
-                                                label = { Text(date, style = MaterialTheme.typography.bodyMedium) },
-                                                selected = isCurrent,
-                                                onClick = {
-                                                    tableViewModel.loadDate(date)
-                                                    currentScreen = Screen.TABLE_RESULTS
-                                                    composeScope.launch { drawerState.close() }
-                                                },
-                                                icon = {
-                                                    Icon(
-                                                        Icons.Default.CalendarToday,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(18.dp),
-                                                        tint = if (isCurrent) AccentOlive else MutedGrey
-                                                    )
-                                                },
-                                                // The badge is automatically pushed to the far right
-                                                badge = {
-                                                    IconButton(onClick = { showConfirmForThisItem = true }) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Delete,
-                                                            contentDescription = "Delete",
-                                                            modifier = Modifier.size(20.dp),
-                                                            tint = Color.Red.copy(alpha = 0.6f)
-                                                        )
-                                                    }
-                                                },
-                                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                                            )
-
-                                            // Confirmation Dialog specific to this loop iteration
-                                            if (showConfirmForThisItem) {
-                                                AlertDialog(
-                                                    onDismissRequest = { showConfirmForThisItem = false },
-                                                    title = { Text("Delete $date?") },
-                                                    text = { Text("All snippets and JSON for this day will be removed.") },
-                                                    confirmButton = {
-                                                        TextButton(
-                                                            onClick = {
-                                                                // If we just deleted what we are looking at, go home
-                                                                if (tableViewModel.currentWorkingDate == date) {
-                                                                    currentScreen = Screen.SCAN_HUB
-                                                                }
-                                                                showConfirmForThisItem = false
-                                                                tableViewModel.deleteDate(date)
-                                                            },
-                                                            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
-                                                        ) {
-                                                            Text("Delete")
-                                                        }
-                                                    },
-                                                    dismissButton = {
-                                                        TextButton(onClick = { showConfirmForThisItem = false }) {
-                                                            Text("Cancel")
-                                                        }
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                                NavigationDrawerItem(
-                                    label = { Text("VLH Dashboard") },
-                                    selected = currentScreen == Screen.VLH_MANAGEMENT,
-                                    onClick = {
-                                        currentScreen = Screen.VLH_MANAGEMENT
-                                        composeScope.launch { drawerState.close() }
-                                    },
-                                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "VLH Guidelines Matrix") }
-                                )
-                                NavigationDrawerItem(
-                                    label = { Text("Settings (Hub)") },
-                                    selected = currentScreen == Screen.SETTINGS,
-                                    onClick = { currentScreen = Screen.SETTINGS; composeScope.launch { drawerState.close() } },
-                                    icon = { Icon(Icons.Default.Settings, null) }
-                                )
-                                NavigationDrawerItem(
-                                    label = { Text("About & License") },
-                                    selected = currentScreen == Screen.ABOUT,
-                                    onClick = { currentScreen = Screen.ABOUT; composeScope.launch { drawerState.close() } },
-                                    icon = { Icon(Icons.Default.Info, contentDescription = "About App") }
-                                )
-                                NavigationDrawerItem(
-                                    label = { Text("Sample Detection") },
-                                    selected = currentScreen == Screen.SAMPLE_DETECTION,
-                                    onClick = { currentScreen = Screen.SAMPLE_DETECTION; composeScope.launch { drawerState.close() } },
-                                    icon = { Icon(Icons.Default.Build, null) }
-                                )
-                            }
-                        }
-                    ) {
-                        Scaffold(
-                            topBar = {
-                                TopAppBar(
-                                    title = {
-                                        val baseTitle = currentScreen.displayName
-
-                                        // Conditionally append the current working date if on a table/summary screen
-                                        val fullTitle = if ((currentScreen == Screen.TABLE_RESULTS || currentScreen == Screen.ATTENDANCE_COUNT) && !tableViewModel.currentWorkingDate.isNullOrBlank()) {
-                                            "$baseTitle (${tableViewModel.currentWorkingDate})"
-                                        } else {
-                                            baseTitle
-                                        }
-
-                                        Text(text = fullTitle)
-                                    },
-                                    navigationIcon = {
-                                        IconButton(onClick = { composeScope.launch { drawerState.open() } }) {
-                                            Icon(Icons.Default.Menu, contentDescription = "Menu")
-                                        }
-                                    },
-                                    actions = {
-                                        // This block adds buttons to the RIGHT side of the bar
-                                        if (currentScreen == Screen.TABLE_RESULTS) {
-                                            IconButton(
-                                                onClick = { currentScreen = Screen.ATTENDANCE_COUNT }
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Calculate,
-                                                    contentDescription = "View Attendance Summary",
-                                                    tint = AccentOlive
-                                                )
-                                            }
-                                        }
-                                        if (currentScreen == Screen.ATTENDANCE_COUNT) {
-                                            IconButton(
-                                                onClick = { currentScreen = Screen.TABLE_RESULTS }
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.List,
-                                                    contentDescription = "View Table Results",
-                                                    tint = AccentOlive
-                                                )
-                                            }
-                                        }
-                                    }
-                                )
-                            },
-                            snackbarHost = {
-                                SnackbarHost(hostState = snackbarHostState) { data ->
-                                    val isError = data.visuals.message.startsWith("Extraction aborted")
-
-                                    Snackbar(
-                                        snackbarData = data,
-                                        containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else Color(0xFF2E7D32), // Emerald Green
-                                        contentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer else Color.White
-                                    )
-                                }
-                            }
-                        ) { paddingValues ->
-                            Box(modifier = Modifier.padding(paddingValues)) {
-                                when (currentScreen) {
-                                    Screen.SCAN_HUB -> ScanHubScreen(
-                                        onStubRequest = {
-                                            // For the stub button, we can simulate the immediate transition
-                                            capturedBitmap = originalBitmap
-                                            cellPreviewBitmap = null
-                                            diagnosticBitmap = null
-                                            processingErrorMsg = null
-                                            currentScreen = Screen.PROCESSING_PREVIEW
-
-                                            executeFullExtractionFlow(
-                                                bitmap = originalBitmap,
-                                                setPreview = { cellPreview, debugImage, errorMsg ->
-                                                    // If the stub triggers a Failure branch, capture everything
-                                                    // so the ProcessingPreviewScreen swaps from loading to debug views!
-                                                    cellPreviewBitmap = cellPreview
-                                                    diagnosticBitmap = debugImage
-                                                    processingErrorMsg = errorMsg
-                                                },
-                                                onSuccess = { currentScreen = Screen.TABLE_RESULTS }
-                                            )
-                                        },
-                                        onScanRequest = onScanRequest,
-                                        onDebugScanRequest = {
-                                            isDebugCapture = true
-                                            onScanRequest()
-                                        }
-                                    )
-                                    Screen.PROCESSING_PREVIEW -> ProcessingPreviewScreen(
-                                        rawBitmap = cellPreviewBitmap?: capturedBitmap ?: originalBitmap,
-                                        diagnosticBitmap = diagnosticBitmap,
-                                        errorMessage = processingErrorMsg,
-                                        onRedoClicked = {
-                                            // Clear state configurations and boot back to launcher hub
-                                            cellPreviewBitmap = null
-                                            diagnosticBitmap = null
-                                            processingErrorMsg = null
-                                            currentScreen = Screen.SCAN_HUB
-                                            onScanRequest() // Directly re-trigger the camera app launcher!
-                                        }
-                                    )
-                                    Screen.VLH_MANAGEMENT -> {
-                                        VlhManagementScreen(
-                                            backgroundScope = scope,
-                                            onBackToMainHub = { currentScreen = Screen.SCAN_HUB }
-                                        )
-                                    }
-                                    Screen.TABLE_RESULTS -> TableResultsScreen(
-                                        tableViewModel
-                                    )
-                                    Screen.ATTENDANCE_COUNT -> AttendanceSummaryScreen()
-                                    Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(capturedBitmap?: originalBitmap)
-                                    Screen.SETTINGS -> SettingsScreen(tableViewModel)
-                                    Screen.ABOUT -> AboutScreen()
-                                }
-                            }
-                        }
+                    OcrLauncherBridge(
+                        currentScreen = flowState.currentScreen,
+                        onNavigate = { newScreen ->
+                            flowState = flowState.copy(currentScreen = newScreen)
+                        },
+                        originalBitmap = originalBitmap,
+                        snackbarHostState = snackbarHostState
+                    ) { coordinator ->
+                        AppNavigationDrawer(
+                            drawerState = drawerState,
+                            state = flowState,
+                            coordinator = coordinator,
+                            availableDates = availableDates,
+                            tableViewModel = tableViewModel,
+                            composeScope = composeScope,
+                            onScreenSelect = { flowState = flowState.copy(currentScreen = it) },
+                            onToggleSchedules = { flowState = flowState.copy(schedulesExpanded = !flowState.schedulesExpanded) },
+                            snackbarHostState = snackbarHostState,
+                            originalBitmap = originalBitmap,
+                            scope = scope
+                        )
                     }
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        scope.cancel()
+    }
+}
+
+data class MainNavigationState(
+    val currentScreen: Screen = Screen.SCAN_HUB,
+    val schedulesExpanded: Boolean = false
+)
+
+class OcrFlowCoordinator(
+    private val onNavigate: (Screen) -> Unit,
+    private val onTriggerCameraLaunch: () -> Unit,
+    private val originalBitmap: Bitmap,
+    private val scope: CoroutineScope,
+    private val tableViewModel: TableViewModel,
+    private val snackbarHostState: SnackbarHostState
+) {
+    var isDebugCapture by mutableStateOf(false)
+        private set
+
+    var capturedBitmap by mutableStateOf<Bitmap?>(null)
+        private set
+
+    var cellPreviewBitmap by mutableStateOf<Bitmap?>(null)
+        private set
+
+    var diagnosticBitmap by mutableStateOf<Bitmap?>(null)
+        private set
+
+    var processingErrorMsg by mutableStateOf<String?>(null)
+        private set
+
+    fun prepareForScan(debugMode: Boolean) {
+        this.isDebugCapture = debugMode
+        onTriggerCameraLaunch()
+    }
+
+    fun onScanRequest() {
+        prepareForScan(debugMode = false)
+    }
+
+    fun onDebugScanRequest() {
+        prepareForScan(debugMode = true)
+    }
+
+    fun handleCameraResult(bitmap: Bitmap) {
+        if (isDebugCapture) {
+            this.capturedBitmap = bitmap
+            onNavigate(Screen.SAMPLE_DETECTION)
+        } else {
+            // 1. Immediately cache the raw photo and show it on screen
+            this.capturedBitmap = bitmap
+            this.cellPreviewBitmap = null
+            this.diagnosticBitmap = null
+            this.processingErrorMsg = null
+            onNavigate(Screen.PROCESSING_PREVIEW)
+
+            // 2. Fire off background operations while user views the preview
+            executeFullExtractionFlow(
+                bitmap,
+                { onNavigate(Screen.TABLE_RESULTS) },
+                { cellPreview, debugImage, errorMsg ->
+                    // Instead of navigating away, we simply supply the error artifacts
+                    // to update the preview screen dynamically!
+                    this.cellPreviewBitmap = cellPreview
+                    this.diagnosticBitmap = debugImage
+                    this.processingErrorMsg = errorMsg
+                }
+            )
+        }
+        this.isDebugCapture = false
+    }
+
+    fun onStubRequest() {
+        val bitmapToProcess = (this.capturedBitmap ?: originalBitmap).also {
+            this.capturedBitmap = it
+        }
+        this.cellPreviewBitmap = null
+        this.diagnosticBitmap = null
+        this.processingErrorMsg = null
+        onNavigate(Screen.PROCESSING_PREVIEW)
+
+        executeFullExtractionFlow(
+            bitmapToProcess,
+            { onNavigate(Screen.TABLE_RESULTS) },
+            { cellPreview, debugImage, errorMsg ->
+                this.cellPreviewBitmap = cellPreview
+                this.diagnosticBitmap = debugImage
+                this.processingErrorMsg = errorMsg
+            }
+        )
+    }
+
+    fun onRedoClicked() {
+        this.cellPreviewBitmap = null
+        this.diagnosticBitmap = null
+        this.processingErrorMsg = null
+        onNavigate(Screen.SCAN_HUB)
+        onTriggerCameraLaunch()
     }
 
     /**
@@ -600,7 +349,6 @@ class MainActivity : ComponentActivity() {
                 var deskewMat: Mat? = null
 
                 try {
-
                     grayMat = ImageProcessor.bitmapToGrayMat(bitmap)
 
                     // Note: deskewGrayMat should return a NEW Mat if it modifies it
@@ -751,12 +499,373 @@ class MainActivity : ComponentActivity() {
             onFinished()
         }
     }
+}
 
-    override fun onDestroy() {
-        super.onDestroy()
-        scope.cancel()
+@Composable
+fun OcrLauncherBridge(
+    currentScreen: Screen,
+    onNavigate: (Screen) -> Unit,
+    originalBitmap: Bitmap,
+    snackbarHostState: SnackbarHostState,
+    content: @Composable (OcrFlowCoordinator) -> Unit
+) {
+    val context = LocalContext.current
+    val tableViewModel = LocalTableViewModel.current
+    val scope = rememberCoroutineScope()
+    var tempImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    // 1. Declare the camera activation logic ahead of time
+    var triggerCameraLaunch: (() -> Unit)? by remember { mutableStateOf(null) }
+
+    // 2. Create the stable, self-contained Coordinator instance
+    val coordinator = remember(originalBitmap, snackbarHostState, tableViewModel) {
+        OcrFlowCoordinator(
+            onNavigate = onNavigate,
+            onTriggerCameraLaunch = { triggerCameraLaunch?.invoke() }, // Safely routes to the assigned hardware trigger
+            originalBitmap = originalBitmap,
+            scope = scope,
+            tableViewModel = tableViewModel,
+            snackbarHostState = snackbarHostState
+        )
+    }
+
+    // The "Launcher" that handles the result of the camera app
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempImageUri != null) {
+            val bitmap = StorageManager.ImageUtils.uriToBitmap(context, tempImageUri!!)
+            coordinator.handleCameraResult(bitmap)
+        } else {
+            // Cancel case fallback path
+            if (coordinator.isDebugCapture) {
+                // Instantly clean up flag state if debug execution was canceled
+                coordinator.prepareForScan(debugMode = false)
+            }
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val uri = StorageManager.ImageUtils.createTempImageUri(context)
+            tempImageUri = uri
+            cameraLauncher.launch(uri)
+        } else {
+            Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // 3. Assign the actual hardware interaction trigger implementation block
+    triggerCameraLaunch = {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            val uri = StorageManager.ImageUtils.createTempImageUri(context)
+            tempImageUri = uri
+            cameraLauncher.launch(uri)
+        } else {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    content(coordinator)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppNavigationDrawer(
+    drawerState: DrawerState,
+    state: MainNavigationState,
+    coordinator: OcrFlowCoordinator,
+    availableDates: List<String>,
+    tableViewModel: TableViewModel,
+    composeScope: CoroutineScope,
+    onScreenSelect: (Screen) -> Unit,
+    onToggleSchedules: () -> Unit,
+    snackbarHostState: SnackbarHostState,
+    originalBitmap: Bitmap,
+    scope: CoroutineScope
+) {
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                // Header Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // This button closes the drawer
+                    IconButton(onClick = { composeScope.launch { drawerState.close() } }) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Close Menu",
+                            tint = InkBlack
+                        )
+                    }
+
+                    Text(
+                        text = "Extractor Hub",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(start = 12.dp)
+                    )
+                }
+
+                HorizontalDivider(color = InkBlack.copy(alpha = 0.05f))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Navigation items
+                NavigationDrawerItem(
+                    label = { Text("Scan Hub") },
+                    selected = state.currentScreen == Screen.SCAN_HUB,
+                    onClick = { onScreenSelect(Screen.SCAN_HUB); composeScope.launch { drawerState.close() } },
+                    icon = { Icon(Icons.Default.Home, null) }
+                )
+                NavigationDrawerItem(
+                    label = { Text("Last Results") },
+                    selected = state.currentScreen == Screen.TABLE_RESULTS,
+                    onClick = { onScreenSelect(Screen.TABLE_RESULTS); composeScope.launch { drawerState.close() } },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.List,
+                            contentDescription = null
+                        )
+                    }
+                )
+                NavigationDrawerItem(
+                    label = { Text("Attendance Summary") },
+                    selected = state.currentScreen == Screen.ATTENDANCE_COUNT,
+                    onClick = { onScreenSelect(Screen.ATTENDANCE_COUNT); composeScope.launch { drawerState.close() } },
+                    icon = { Icon(Icons.Filled.Calculate, null) }
+                )
+
+                // The Unfolding "Saved Schedules" Section
+                NavigationDrawerItem(
+                    label = { Text("Saved Schedules") },
+                    selected = false, // The parent itself isn't a "screen"
+                    onClick = onToggleSchedules,
+                    icon = { Icon(Icons.Default.History, null) },
+                    badge = {
+                        Icon(
+                            imageVector = if (state.schedulesExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                            contentDescription = null
+                        )
+                    }
+                )
+
+                // Animated Sub-Items
+                AnimatedVisibility(
+                    visible = state.schedulesExpanded,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column(modifier = Modifier.padding(start = 24.dp)) {
+                        if (availableDates.isEmpty()) {
+                            Text(
+                                "No saves found",
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(16.dp),
+                                color = MutedGrey
+                            )
+                        }
+
+                        availableDates.forEach { date ->
+                            val isCurrent = tableViewModel.currentWorkingDate == date
+
+                            // Track if THIS specific item is showing its delete dialog
+                            var showConfirmForThisItem by remember { mutableStateOf(false) }
+
+                            NavigationDrawerItem(
+                                label = { Text(date, style = MaterialTheme.typography.bodyMedium) },
+                                selected = isCurrent,
+                                onClick = {
+                                    tableViewModel.loadDate(date)
+                                    onScreenSelect(Screen.TABLE_RESULTS)
+                                    composeScope.launch { drawerState.close() }
+                                },
+                                icon = {
+                                    Icon(
+                                        Icons.Default.CalendarToday,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (isCurrent) AccentOlive else MutedGrey
+                                    )
+                                },
+                                // The badge is automatically pushed to the far right
+                                badge = {
+                                    IconButton(onClick = { showConfirmForThisItem = true }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete",
+                                            modifier = Modifier.size(20.dp),
+                                            tint = Color.Red.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                            )
+
+                            // Confirmation Dialog specific to this loop iteration
+                            if (showConfirmForThisItem) {
+                                AlertDialog(
+                                    onDismissRequest = { showConfirmForThisItem = false },
+                                    title = { Text("Delete $date?") },
+                                    text = { Text("All snippets and JSON for this day will be removed.") },
+                                    confirmButton = {
+                                        TextButton(
+                                            onClick = {
+                                                // If we just deleted what we are looking at, go home
+                                                if (tableViewModel.currentWorkingDate == date) {
+                                                    onScreenSelect(Screen.SCAN_HUB)
+                                                }
+                                                showConfirmForThisItem = false
+                                                tableViewModel.deleteDate(date)
+                                            },
+                                            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                                        ) {
+                                            Text("Delete")
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { showConfirmForThisItem = false }) {
+                                            Text("Cancel")
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                NavigationDrawerItem(
+                    label = { Text("VLH Dashboard") },
+                    selected = state.currentScreen == Screen.VLH_MANAGEMENT,
+                    onClick = {
+                        onScreenSelect(Screen.VLH_MANAGEMENT)
+                        composeScope.launch { drawerState.close() }
+                    },
+                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "VLH Guidelines Matrix") }
+                )
+                NavigationDrawerItem(
+                    label = { Text("Settings (Hub)") },
+                    selected = state.currentScreen == Screen.SETTINGS,
+                    onClick = { onScreenSelect(Screen.SETTINGS); composeScope.launch { drawerState.close() } },
+                    icon = { Icon(Icons.Default.Settings, null) }
+                )
+                NavigationDrawerItem(
+                    label = { Text("About & License") },
+                    selected = state.currentScreen == Screen.ABOUT,
+                    onClick = { onScreenSelect(Screen.ABOUT); composeScope.launch { drawerState.close() } },
+                    icon = { Icon(Icons.Default.Info, contentDescription = "About App") }
+                )
+                NavigationDrawerItem(
+                    label = { Text("Sample Detection") },
+                    selected = state.currentScreen == Screen.SAMPLE_DETECTION,
+                    onClick = { onScreenSelect(Screen.SAMPLE_DETECTION); composeScope.launch { drawerState.close() } },
+                    icon = { Icon(Icons.Default.Build, null) }
+                )
+            }
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        val baseTitle = state.currentScreen.displayName
+
+                        // Conditionally append the current working date if on a table/summary screen
+                        val fullTitle = if ((state.currentScreen == Screen.TABLE_RESULTS || state.currentScreen == Screen.ATTENDANCE_COUNT) && !tableViewModel.currentWorkingDate.isNullOrBlank()) {
+                            "$baseTitle (${tableViewModel.currentWorkingDate})"
+                        } else {
+                            baseTitle
+                        }
+
+                        Text(text = fullTitle)
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { composeScope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                        }
+                    },
+                    actions = {
+                        // This block adds buttons to the RIGHT side of the bar
+                        if (state.currentScreen == Screen.TABLE_RESULTS) {
+                            IconButton(
+                                onClick = { onScreenSelect(Screen.ATTENDANCE_COUNT) }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Calculate,
+                                    contentDescription = "View Attendance Summary",
+                                    tint = AccentOlive
+                                )
+                            }
+                        }
+                        if (state.currentScreen == Screen.ATTENDANCE_COUNT) {
+                            IconButton(
+                                onClick = { onScreenSelect(Screen.TABLE_RESULTS) }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.List,
+                                    contentDescription = "View Table Results",
+                                    tint = AccentOlive
+                                )
+                            }
+                        }
+                    }
+                )
+            },
+            snackbarHost = {
+                SnackbarHost(hostState = snackbarHostState) { data ->
+                    val isError = data.visuals.message.startsWith("Extraction aborted")
+
+                    Snackbar(
+                        snackbarData = data,
+                        containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else Color(0xFF2E7D32), // Emerald Green
+                        contentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer else Color.White
+                    )
+                }
+            }
+        ) { paddingValues ->
+            Box(modifier = Modifier.padding(paddingValues)) {
+                when (state.currentScreen) {
+                    Screen.SCAN_HUB -> ScanHubScreen(
+                        onStubRequest = coordinator::onStubRequest,
+                        onScanRequest = coordinator::onScanRequest,
+                        onDebugScanRequest = coordinator::onDebugScanRequest
+                    )
+                    Screen.PROCESSING_PREVIEW -> ProcessingPreviewScreen(
+                        rawBitmap = coordinator.cellPreviewBitmap ?: coordinator.capturedBitmap ?: originalBitmap,
+                        diagnosticBitmap = coordinator.diagnosticBitmap,
+                        errorMessage = coordinator.processingErrorMsg,
+                        onRedoClicked = coordinator::onRedoClicked
+                    )
+                    Screen.VLH_MANAGEMENT -> {
+                        VlhManagementScreen(
+                            backgroundScope = scope,
+                            onBackToMainHub = { onScreenSelect(Screen.SCAN_HUB) }
+                        )
+                    }
+                    Screen.TABLE_RESULTS -> TableResultsScreen(
+                        tableViewModel
+                    )
+                    Screen.ATTENDANCE_COUNT -> AttendanceSummaryScreen()
+                    Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(
+                        coordinator.capturedBitmap ?: originalBitmap
+                    )
+                    Screen.SETTINGS -> SettingsScreen(tableViewModel)
+                    Screen.ABOUT -> AboutScreen()
+                }
+            }
+        }
     }
 }
+
 
 // --- COMPOSE SCREENS ---
 
