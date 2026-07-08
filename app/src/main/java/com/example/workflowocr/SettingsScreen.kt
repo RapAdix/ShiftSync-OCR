@@ -1,14 +1,18 @@
 package com.example.workflowocr
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
@@ -18,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,6 +122,60 @@ fun SettingsScreen(viewModel: TableViewModel) {
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // --- SECTION 2.5: TARGET SCAN PAGES CONFIGURATION ---
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Active Scan Templates",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Text(
+                        text = "Toggle the sheet presets used at this site. Disabled pages will be skipped during camera capture selection.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Constructing the 2x2 multi-select matrix row sets
+                    val chunkedPages = remember { ScanPageType.entries.chunked(2) }
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        chunkedPages.forEach { rowItems ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                rowItems.forEach { pageType ->
+                                    val isEnabled = universalSettings.enabledScanPages.contains(pageType)
+
+                                    // Balanced grid weights
+                                    ScanPageToggleCard(
+                                        pageType = pageType,
+                                        isActive = isEnabled,
+                                        onClick = { toggleEnabledScanPages(pageType, isEnabled, viewModel) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                // Fill missing slots on rows that aren't perfectly filled out (for future expansions)
+                                if (rowItems.size < 2) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -228,6 +288,81 @@ fun SettingsScreen(viewModel: TableViewModel) {
                     )
                 }
             }
+        }
+    }
+}
+
+private fun toggleEnabledScanPages(pageType: ScanPageType, isEnabled: Boolean, viewModel: TableViewModel) {
+    val updatedSet = if (isEnabled) {
+        // Cascading turn-off: If turning off a page, also turn off any higher sequential pages
+        val pagesToRemove = when(pageType) {
+            ScanPageType.EMPLOYEE_1 -> listOf(ScanPageType.EMPLOYEE_1, ScanPageType.EMPLOYEE_2, ScanPageType.EMPLOYEE_3)
+            ScanPageType.EMPLOYEE_2 -> listOf(ScanPageType.EMPLOYEE_2, ScanPageType.EMPLOYEE_3)
+            ScanPageType.EMPLOYEE_3 -> listOf(ScanPageType.EMPLOYEE_3)
+            ScanPageType.MANAGER_1  -> listOf(ScanPageType.MANAGER_1)
+        }
+        viewModel.universalSettings.enabledScanPages - pagesToRemove.toSet()
+    } else {
+        // Cascading turn-on: If turning on a page, automatically ensure lower sequential pages are on too
+        val pagesToAdd = when(pageType) {
+            ScanPageType.EMPLOYEE_3 -> listOf(ScanPageType.EMPLOYEE_1, ScanPageType.EMPLOYEE_2, ScanPageType.EMPLOYEE_3)
+            ScanPageType.EMPLOYEE_2 -> listOf(ScanPageType.EMPLOYEE_1, ScanPageType.EMPLOYEE_2)
+            ScanPageType.EMPLOYEE_1 -> listOf(ScanPageType.EMPLOYEE_1)
+            ScanPageType.MANAGER_1  -> listOf(ScanPageType.MANAGER_1)
+        }
+        viewModel.universalSettings.enabledScanPages + pagesToAdd.toSet()
+    }
+
+    viewModel.updateUniversalSettings(
+        viewModel.universalSettings.copy(enabledScanPages = updatedSet)
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScanPageToggleCard(
+    pageType: ScanPageType,
+    isActive: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Distinct visual states matching current configuration selections
+    val containerColor = if (isActive) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    }
+
+    val contentColor = if (isActive) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) // Standard Material Disabled Alpha
+    }
+
+    val borderStroke = if (isActive) {
+        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+    } else {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    }
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(56.dp),
+        shape = CircleShape,
+        color = containerColor,
+        contentColor = contentColor,
+        border = borderStroke
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = pageType.displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
