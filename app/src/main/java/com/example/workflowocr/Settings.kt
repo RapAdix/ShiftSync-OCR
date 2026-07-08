@@ -35,10 +35,10 @@ object PresetDefaults {
 
 @Serializable
 enum class ScanPageType(val displayName: String) {
-    EMPLOYEE_1("Employee 1"),
-    EMPLOYEE_2("Employee 2"),
-    EMPLOYEE_3("Employee 3"),
-    MANAGER_1("Manager 1")
+    EMPLOYEE_P1("Employee (Page 1)"),
+    EMPLOYEE_P2("Employee (Page 2)"),
+    EMPLOYEE_P3("Employee (Page 3)"),
+    MANAGER_P1("Manager (Page 1)")
 }
 
 // 1. Facility-wide rules. Always editable, independent of presets.

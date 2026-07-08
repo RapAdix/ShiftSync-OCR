@@ -296,19 +296,19 @@ private fun toggleEnabledScanPages(pageType: ScanPageType, isEnabled: Boolean, v
     val updatedSet = if (isEnabled) {
         // Cascading turn-off: If turning off a page, also turn off any higher sequential pages
         val pagesToRemove = when(pageType) {
-            ScanPageType.EMPLOYEE_1 -> listOf(ScanPageType.EMPLOYEE_1, ScanPageType.EMPLOYEE_2, ScanPageType.EMPLOYEE_3)
-            ScanPageType.EMPLOYEE_2 -> listOf(ScanPageType.EMPLOYEE_2, ScanPageType.EMPLOYEE_3)
-            ScanPageType.EMPLOYEE_3 -> listOf(ScanPageType.EMPLOYEE_3)
-            ScanPageType.MANAGER_1  -> listOf(ScanPageType.MANAGER_1)
+            ScanPageType.EMPLOYEE_P1 -> listOf(ScanPageType.EMPLOYEE_P1, ScanPageType.EMPLOYEE_P2, ScanPageType.EMPLOYEE_P3)
+            ScanPageType.EMPLOYEE_P2 -> listOf(ScanPageType.EMPLOYEE_P2, ScanPageType.EMPLOYEE_P3)
+            ScanPageType.EMPLOYEE_P3 -> listOf(ScanPageType.EMPLOYEE_P3)
+            ScanPageType.MANAGER_P1  -> listOf(ScanPageType.MANAGER_P1)
         }
         viewModel.universalSettings.enabledScanPages - pagesToRemove.toSet()
     } else {
         // Cascading turn-on: If turning on a page, automatically ensure lower sequential pages are on too
         val pagesToAdd = when(pageType) {
-            ScanPageType.EMPLOYEE_3 -> listOf(ScanPageType.EMPLOYEE_1, ScanPageType.EMPLOYEE_2, ScanPageType.EMPLOYEE_3)
-            ScanPageType.EMPLOYEE_2 -> listOf(ScanPageType.EMPLOYEE_1, ScanPageType.EMPLOYEE_2)
-            ScanPageType.EMPLOYEE_1 -> listOf(ScanPageType.EMPLOYEE_1)
-            ScanPageType.MANAGER_1  -> listOf(ScanPageType.MANAGER_1)
+            ScanPageType.EMPLOYEE_P3 -> listOf(ScanPageType.EMPLOYEE_P1, ScanPageType.EMPLOYEE_P2, ScanPageType.EMPLOYEE_P3)
+            ScanPageType.EMPLOYEE_P2 -> listOf(ScanPageType.EMPLOYEE_P1, ScanPageType.EMPLOYEE_P2)
+            ScanPageType.EMPLOYEE_P1 -> listOf(ScanPageType.EMPLOYEE_P1)
+            ScanPageType.MANAGER_P1  -> listOf(ScanPageType.MANAGER_P1)
         }
         viewModel.universalSettings.enabledScanPages + pagesToAdd.toSet()
     }
