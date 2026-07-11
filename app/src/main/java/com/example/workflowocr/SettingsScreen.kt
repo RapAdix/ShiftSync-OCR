@@ -272,6 +272,18 @@ fun SettingsScreen(viewModel: TableViewModel) {
                         enabled = currentLayout.isCustom,
                         onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(managerCol = it)) }
                     )
+                    NumericSettingInput(
+                        label = "\"Team\" Information Column (Optional)",
+                        value = currentLayout.team?.toString() ?: "",
+                        enabled = currentLayout.isCustom,
+                        onValueChange = { rawString ->
+                            val updatedTeamValue = rawString.trim().toIntOrNull()
+                            viewModel.updateLayoutPreset(
+                                PresetType.CUSTOM,
+                                currentLayout.copy(team = updatedTeamValue)
+                            )
+                        }
+                    )
                 }
             }
 
@@ -384,15 +396,22 @@ fun PresetSelectionRow(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun NumericSettingInput(label: String, value: Int, enabled: Boolean, onValueChange: (Int) -> Unit) {
-    var textState by remember(value) { mutableStateOf(value.toString()) }
+    NumericSettingInput(label, value.toString(), enabled, { input ->
+        input.toIntOrNull()?.let { validInt ->
+            onValueChange(validInt)
+        }
+    })
+}
+
+@Composable
+fun NumericSettingInput(label: String, value: String, enabled: Boolean, onValueChange: (String) -> Unit) {
+    var textState by remember(value) { mutableStateOf(value) }
 
     OutlinedTextField(
         value = textState,
         onValueChange = { input ->
             textState = input
-            input.toIntOrNull()?.let { validInt ->
-                onValueChange(validInt)
-            }
+            onValueChange(input)
         },
         label = { Text(label) },
         enabled = enabled,

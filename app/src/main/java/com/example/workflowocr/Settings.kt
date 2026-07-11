@@ -1,4 +1,5 @@
 package com.example.workflowocr
+import android.text.BoringLayout
 import kotlinx.serialization.Serializable
 
 enum class PresetType {
@@ -17,7 +18,8 @@ object PresetDefaults {
         changeCol = 9,
         managerCol = 10,
         headerRowHeightMultiplier = 3.78, // ratio of height between header_row / normal_row
-        isCustom = false // Flag indicating this is a factory default
+        isCustom = false, // Flag indicating this is a factory default
+        team = 2 // Column in which the information kz1, kz2, kzn is written
     )
 
     val layout12Col = TableLayout(
@@ -38,7 +40,10 @@ enum class ScanPageType(val displayName: String) {
     EMPLOYEE_P1("Employee\n(Page 1)"),
     EMPLOYEE_P2("Employee\n(Page 2)"),
     EMPLOYEE_P3("Employee\n(Page 3)"),
-    MANAGER_P1("Manager\n(Page 1)")
+    MANAGER_P1("Manager\n(Page 1)");
+    fun isManagerPage(): Boolean {
+        return this == MANAGER_P1
+    }
 }
 
 // 1. Facility-wide rules. Always editable, independent of presets.
@@ -62,7 +67,8 @@ data class TableLayout(
     val changeCol: Int = PresetDefaults.layout13Col.changeCol,
     val managerCol: Int = PresetDefaults.layout13Col.managerCol,
     val headerRowHeightMultiplier: Double = PresetDefaults.layout13Col.headerRowHeightMultiplier,
-    val isCustom: Boolean = true // True unless explicitly instantiated by our factory defaults
+    val isCustom: Boolean = true, // True unless explicitly instantiated by our factory defaults
+    val team: Int? = null // Column in which the information kz1, kz2, kzn is written
 ) {
     val modificationColumns: List<Int>
         get() = (firstModificationCol until (expectedCols - 2)).toList()

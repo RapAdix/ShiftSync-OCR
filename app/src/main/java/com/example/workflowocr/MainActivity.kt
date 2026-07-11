@@ -312,7 +312,7 @@ class OcrFlowCoordinator(
                 { onNavigate(Screen.TABLE_RESULTS) },
                 { cellPreview, debugImage, errorMsg ->
                     // Instead of navigating away, we simply supply the error artifacts
-                    // to update the preview screen dynamically!
+                    // to update the preview screen dynamically
                     this.cellPreviewBitmap = cellPreview
                     this.diagnosticBitmap = debugImage
                     this.processingErrorMsg = errorMsg
@@ -449,7 +449,14 @@ class OcrFlowCoordinator(
                     TextProcessor.extractTextFromCells(
                         detection.cells,
                         imageBitmap,
-                        listOf(settings.nameCol, settings.timeStartCol, settings.timeEndCol)
+                        buildList {
+                            add(settings.nameCol)
+                            add(settings.timeStartCol)
+                            add(settings.timeEndCol)
+                            if (activeScanningPage.isManagerPage() && settings.team != null) {
+                                add(settings.team)
+                            }
+                        }
                     )
                 }
                 val (table, analysis, rowPaths) = withContext(Dispatchers.IO) {
@@ -462,11 +469,11 @@ class OcrFlowCoordinator(
                     Triple(table, analysis, rowPaths)
                 }
                 tableViewModel.loadDate(date)
-                val page = activeScanningPage.name.lowercase()
+                val pageName = activeScanningPage.name.lowercase()
                 // TODO sanity check - check if the number of rows match between this page and previously captured page. If no - display warning
 
                 for (row in 1 until table.size) {
-                    val id = page + "_$row"
+                    val id = pageName + "_$row"
                     val paths = rowPaths[row] ?: emptyMap()
 
                     val existingRow = tableViewModel.extractedRows[id]
@@ -497,16 +504,21 @@ class OcrFlowCoordinator(
                             startTimeSnippetPath = paths["start"],
                             finishTimeSnippetPath = paths["finish"],
                             oldModificationsSnippetPath = paths["mods"],
-                            newModificationsSnippetPath = null
+                            newModificationsSnippetPath = null,
+                            isAbsent = settings.team?.let { teamCol ->
+                                CellAnalyzer.isKZ(rawTextGrid[row][teamCol])
+                            } ?: false
                         )
                     }
                 }
                 tableViewModel.saveToStorage()
-                launch {
-                    SpreadSheetDownloader.fetchAndSaveProjection(
-                        settings = tableViewModel.universalSettings,
-                        viewModel = tableViewModel
-                    )
+                if (tableViewModel.projectedGcs.isEmpty()) {
+                    launch {
+                        SpreadSheetDownloader.fetchAndSaveProjection(
+                            settings = tableViewModel.universalSettings,
+                            viewModel = tableViewModel
+                        )
+                    }
                 }
             }
 

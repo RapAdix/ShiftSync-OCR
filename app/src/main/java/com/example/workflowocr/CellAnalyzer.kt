@@ -168,6 +168,13 @@ object CellAnalyzer {
     }
 
     /**
+     * Searches for string patterns indicating that the person is shift manager (kz1, kz2, kzn)
+     */
+    fun isKZ(team: String?): Boolean{
+        return team?.contains("kz", ignoreCase = true) ?: false
+    }
+
+    /**
      * Calculates a point (u, v) inside a 4-point quad via bilinear interpolation.
      * @param u: Horizontal percentage (0.0 to 1.0)
      * @param v: Vertical percentage (0.0 to 1.0)
