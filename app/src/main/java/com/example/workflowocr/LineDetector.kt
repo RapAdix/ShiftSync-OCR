@@ -6,6 +6,7 @@ import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.hypot
 
 typealias HoughSegment = Pair<Point, Point>
 
@@ -19,30 +20,18 @@ data class PolyLineSegment(val points: MutableList<Point> = mutableListOf()) {
         get() = Math.toDegrees(atan2(lastPoint.y - firstPoint.y, lastPoint.x - firstPoint.x))
 
     val length: Double
-        get() = Math.hypot(lastPoint.x - firstPoint.x, lastPoint.y - firstPoint.y)
-
-    fun addPointToEnd(pt: Point) { points.add(pt) }
-    fun addPointToStart(pt: Point) { points.add(0, pt) }
+        get() = hypot(lastPoint.x - firstPoint.x, lastPoint.y - firstPoint.y)
 }
 
 object LineDetector {
-    val angleThreshold = 10.0
+    const val ANGLE_THRESHOLD = 10.0
 
-    fun extractTableBorders(srcMat: Mat): Mat {
+    fun extractTableBorders(grayMat: Mat): Mat {
+        require(grayMat.channels() == 1) {
+            "extractTableBorders expects a single-channel (grayscale) Mat, but received ${grayMat.channels()} channels."
+        }
         val edgesMat = Mat()
         val linesMat = Mat()
-
-        val grayMat = Mat()
-        if (srcMat.channels() == 1) {
-            // Bitmap is already grayscale (1 channel) - Just copy rgba directly into gray
-            srcMat.copyTo(grayMat)
-        } else if (srcMat.channels() == 3) {
-            // Bitmap is 3 channels (RGB)
-            Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGB2GRAY)
-        } else {
-            // Bitmap is 4 channels (RGBA)
-            Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
-        }
 
         // Probabilistic Hough Transform (Extracting structural fragments)
         Imgproc.HoughLinesP(grayMat, linesMat, 1.0, Math.PI / 180.0, 40, 20.0, 5.0)
@@ -82,15 +71,10 @@ object LineDetector {
         val matV = Mat()
         val matCombined = Mat()
 
-        if (srcMat.channels() == 1) {
-            Imgproc.cvtColor(srcMat, matH, Imgproc.COLOR_GRAY2RGB)
-            Imgproc.cvtColor(srcMat, matV, Imgproc.COLOR_GRAY2RGB)
-            Imgproc.cvtColor(srcMat, matCombined, Imgproc.COLOR_GRAY2RGB)
-        } else {
-            srcMat.copyTo(matH)
-            srcMat.copyTo(matV)
-            srcMat.copyTo(matCombined)
-        }
+        Imgproc.cvtColor(grayMat, matH, Imgproc.COLOR_GRAY2RGB)
+        Imgproc.cvtColor(grayMat, matV, Imgproc.COLOR_GRAY2RGB)
+        Imgproc.cvtColor(grayMat, matCombined, Imgproc.COLOR_GRAY2RGB)
+
 
         // Draw separated horizontal line fragments (Yellow)
         for (line in horizontalLines) {
@@ -129,16 +113,16 @@ object LineDetector {
         matCombined.release()
 // =========================================================================
 
-        val proximityThreshold = kotlin.math.max(srcMat.width(), srcMat.height()) * 0.005
+        val proximityThreshold = kotlin.math.max(grayMat.width(), grayMat.height()) * 0.005
         val longestAllowedBacktrackRatio = 0.2 // Assume that the false line (e.g. user made) spans at most 20% of the paper
 
-        // STAGE 1 & 2: Process using proximity-sorted arrays
-        val mergedHorizontal = mergeOrderedTracks(horizontalLines, proximityThreshold, isHorizontal = true, srcMat.width().toDouble() * longestAllowedBacktrackRatio)
-        val mergedVertical = mergeOrderedTracks(verticalLines, proximityThreshold, isHorizontal = false, srcMat.height().toDouble() * longestAllowedBacktrackRatio)
+        // Process using proximity-sorted arrays
+        val mergedHorizontal = mergeOrderedTracks(horizontalLines, proximityThreshold, isHorizontal = true, grayMat.width().toDouble() * longestAllowedBacktrackRatio)
+        val mergedVertical = mergeOrderedTracks(verticalLines, proximityThreshold, isHorizontal = false, grayMat.height().toDouble() * longestAllowedBacktrackRatio)
 
         // Length Filtering (Keep components stretching across at least half the target field)
-        val minHorizontalLength = srcMat.width() / 2.0
-        val minVerticalLength = srcMat.height() / 2.0
+        val minHorizontalLength = grayMat.width() / 2.0
+        val minVerticalLength = grayMat.height() / 2.0
 
         val finalHorizontal = mergedHorizontal.filter { it.length >= minHorizontalLength }
         val finalVertical = mergedVertical.filter { it.length >= minVerticalLength }
@@ -290,47 +274,45 @@ object LineDetector {
         return longestLine
     }
 
-    // Helper to estimate total spatial length of a specific path array
+    // Estimate total spatial length of a specific path array
     private fun getPathLength(path: List<Int>, segments: List<HoughSegment>): Double {
         if (path.isEmpty()) return 0.0
         val firstSeg = segments[path.first()]
         val lastSeg = segments[path.last()]
-        return Math.hypot(lastSeg.second.x - firstSeg.first.x, lastSeg.second.y - firstSeg.first.y)
+        return hypot(lastSeg.second.x - firstSeg.first.x, lastSeg.second.y - firstSeg.first.y)
     }
 
-    // Strictly connects the start of a candidate to the end of our current active line or handles spatial overlaps
+    // Strictly blends the start of a candidate to the end of our current active line and handles appending of what overextends
     private fun checkAndCombineBranch(
         active: PolyLineSegment,
         candidate: HoughSegment,
         maxGapThreshold: Double,
         isHorizontal: Boolean
     ): PolyLineSegment? {
-        // 1. Angle verification check (tightened tolerance to ~10 degrees)
+        // 1. Angle verification check
         val candidateAngle = Math.toDegrees(atan2(candidate.second.y - candidate.first.y, candidate.second.x - candidate.first.x))
         val angleDifference = abs(active.angle - candidateAngle) % 180
         val normalizedAngleDiff = minOf(angleDifference, 180 - angleDifference)
-        if (normalizedAngleDiff > angleThreshold)
+        if (normalizedAngleDiff > ANGLE_THRESHOLD)
             return null
 
-        // Extract the final segment tracking details of the current line to check overlap proximity
+        // Extract the final segment of the current line to check overlapping
         val linePoints = active.points
         val lastSegStart = if (linePoints.size >= 2) linePoints[linePoints.size - 2] else active.firstPoint
         val lastSegEnd = active.lastPoint
 
-        // 2. Dual Connection Match Validation Gate
-        // CRITERIA A: Tip-to-Tail sequential tracking link match
-        val endToStartDistance = Math.hypot(candidate.first.x - lastSegEnd.x, candidate.first.y - lastSegEnd.y)
+        // Check if candidate starts near the end of our line (end-to-start gap)
+        val endToStartDistance = hypot(candidate.first.x - lastSegEnd.x, candidate.first.y - lastSegEnd.y)
         val isTipToTailMatch = endToStartDistance <= maxGapThreshold
 
-        // CRITERIA B: Parallel track overlap match (within 5 pixels boundary of the current line tracking footprint)
+        // Check if candidate starts close enough to our line's last segment (overlapping/parallel lines)
         val overlapDistance = distanceToSegment(candidate.first, lastSegStart, lastSegEnd)
         val isOverlapMatch = overlapDistance <= maxGapThreshold
 
         if (!isTipToTailMatch && !isOverlapMatch)
             return null
 
-        // 🟢 UNIFIED EXTENSION METHOD:
-        // Isolate the true terminal endpoint asset that represents the furthest forward reach
+        // Extension method: we will just append the furthest forward reach(Point)
         val furthestCandidatePoint = if (isHorizontal) {
             if (candidate.first.x > candidate.second.x) candidate.first else candidate.second
         } else {
@@ -359,18 +341,18 @@ object LineDetector {
         val dy = segB.y - segA.y
 
         if (dx == 0.0 && dy == 0.0) {
-            return Math.hypot(p.x - segA.x, p.y - segA.y)
+            return hypot(p.x - segA.x, p.y - segA.y)
         }
 
         val t = ((p.x - segA.x) * dx + (p.y - segA.y) * dy) / (dx * dx + dy * dy)
 
         return when {
-            t < 0.0 -> Math.hypot(p.x - segA.x, p.y - segA.y)
-            t > 1.0 -> Math.hypot(p.x - segB.x, p.y - segB.y)
+            t < 0.0 -> hypot(p.x - segA.x, p.y - segA.y)
+            t > 1.0 -> hypot(p.x - segB.x, p.y - segB.y)
             else -> {
                 val projectionX = segA.x + t * dx
                 val projectionY = segA.y + t * dy
-                return Math.hypot(p.x - projectionX, p.y - projectionY)
+                return hypot(p.x - projectionX, p.y - projectionY)
             }
         }
     }
