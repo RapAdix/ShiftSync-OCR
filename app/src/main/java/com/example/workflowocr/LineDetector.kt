@@ -129,12 +129,12 @@ object LineDetector {
         matCombined.release()
 // =========================================================================
 
-//        val proximityThreshold = kotlin.math.max(srcMat.width(), srcMat.height()) * 0.005
-        val proximityThreshold = 15.0
+        val proximityThreshold = kotlin.math.max(srcMat.width(), srcMat.height()) * 0.005
+        val longestAllowedBacktrackRatio = 0.2 // Assume that the false line (e.g. user made) spans at most 20% of the paper
 
         // STAGE 1 & 2: Process using proximity-sorted arrays
-        val mergedHorizontal = mergeOrderedTracks(horizontalLines, proximityThreshold, isHorizontal = true)
-        val mergedVertical = mergeOrderedTracks(verticalLines, proximityThreshold, isHorizontal = false)
+        val mergedHorizontal = mergeOrderedTracks(horizontalLines, proximityThreshold, isHorizontal = true, srcMat.width().toDouble() * longestAllowedBacktrackRatio)
+        val mergedVertical = mergeOrderedTracks(verticalLines, proximityThreshold, isHorizontal = false, srcMat.height().toDouble() * longestAllowedBacktrackRatio)
 
         // Length Filtering (Keep components stretching across at least half the target field)
         val minHorizontalLength = srcMat.width() / 2.0
@@ -170,7 +170,8 @@ object LineDetector {
     private fun mergeOrderedTracks(
         lines: List<HoughSegment>,
         distanceThreshold: Double,
-        isHorizontal: Boolean
+        isHorizontal: Boolean,
+        longestAllowedBacktrack: Double
     ): List<PolyLineSegment> {
         if (lines.isEmpty()) return emptyList()
 
@@ -203,7 +204,8 @@ object LineDetector {
                 currentPath = mutableListOf(i),
                 bestPath = bestPathIndices,
                 distanceThreshold = distanceThreshold,
-                isHorizontal = isHorizontal
+                isHorizontal = isHorizontal,
+                longestAllowedBacktrack = longestAllowedBacktrack
             )
 
             completedPool.add(bestMergedLine)
@@ -221,19 +223,25 @@ object LineDetector {
         previousIndex: Int,
         availableSegments: List<HoughSegment>,
         usedIndices: Set<Int>,
-        currentPath: MutableList<Int>,
+        currentPath: MutableList<Int>, // track indices to permanently consume them after merging whole line
         bestPath: MutableList<Int>,
         distanceThreshold: Double,
-        isHorizontal: Boolean
+        isHorizontal: Boolean,
+        longestAllowedBacktrack: Double
     ): PolyLineSegment {
 
         var longestLine = activeLine
 
+        val bestPathLength = getPathLength(bestPath, availableSegments)
         // If this is the first execution or we found a path that beats our previous global maximum length, record it
-        if (bestPath.isEmpty() || activeLine.length > getPathLength(bestPath, availableSegments)) {
+        if (bestPath.isEmpty() || activeLine.length > bestPathLength) {
             bestPath.clear()
             bestPath.addAll(currentPath)
         }
+
+        // Early termination
+        if (bestPathLength - activeLine.length > longestAllowedBacktrack)
+            return longestLine
 
         // Scan from the index of the previously attached segment
         // to count for segments which became available because of recently filled gap.
@@ -266,7 +274,8 @@ object LineDetector {
                     currentPath = currentPath,
                     bestPath = bestPath,
                     distanceThreshold = distanceThreshold,
-                    isHorizontal = isHorizontal
+                    isHorizontal = isHorizontal,
+                    longestAllowedBacktrack = longestAllowedBacktrack
                 )
 
                 if (branchResult.length > longestLine.length) {
