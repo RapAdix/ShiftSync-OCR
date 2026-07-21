@@ -373,7 +373,7 @@ class OcrFlowCoordinator(
                     // Note: deskewGrayMat should return a NEW Mat if it modifies it
                     deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
 
-                    val detection = TableDetector.detectTableCells(deskewMat!!, tableViewModel.activeLayout)
+                    val detection = TableDetector.detectTableCellsByLines(deskewMat!!, tableViewModel.activeLayout)
 
                     detection
                 } finally {
@@ -945,7 +945,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                             // Note: deskewGrayMat should return a NEW Mat if it modifies it
                             deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
 
-                            val detection = TableDetector.detectTableCells(deskewMat!!, settings)
+                            val detection = TableDetector.detectTableCellsByLines(deskewMat!!, settings)
                             Log.d("DEBUG", "detectTableCells exited")
 
                             // 2. Prepare Bitmaps for UI

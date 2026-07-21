@@ -3,7 +3,6 @@ package com.example.workflowocr
 import android.util.Log
 import org.opencv.core.Mat
 import org.opencv.core.Point
-import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -22,38 +21,6 @@ data class PolyLineSegment(val points: MutableList<Point> = mutableListOf()) {
 
     val length: Double
         get() = hypot(lastPoint.x - firstPoint.x, lastPoint.y - firstPoint.y)
-
-    /**
-     * Interpolates the off-axis coordinate (Y for horizontal, X for vertical) at a specific main-axis position.
-     */
-    fun getOffAxisCoordinateAt(
-        targetMainPos: Double,
-        isHorizontal: Boolean
-    ): Double? {
-        val points = points
-        for (i in 0 until points.size - 1) {
-            val p1 = points[i]
-            val p2 = points[i + 1]
-
-            val m1 = if (isHorizontal) p1.x else p1.y
-            val m2 = if (isHorizontal) p2.x else p2.y
-
-            val minM = minOf(m1, m2)
-            val maxM = maxOf(m1, m2)
-
-            if (targetMainPos in minM..maxM) {
-                val off1 = if (isHorizontal) p1.y else p1.x
-                val off2 = if (isHorizontal) p2.y else p2.x
-
-                if (minM == maxM) return off1 // Vertical step segment
-
-                // Linear interpolation between point nodes
-                val fraction = (targetMainPos - m1) / (m2 - m1)
-                return off1 + fraction * (off2 - off1)
-            }
-        }
-        return null
-    }
 }
 
 object LineDetector {
@@ -70,11 +37,10 @@ object LineDetector {
     private const val OVERLAP_SPAN_SAMPLE_COUNT = 10.0 // How often we take height checks across the overlap zone
     private const val MIN_PROXIMITY_MATCH_RATIO = 0.80 // Minimum ratio of sampled points that must fall into ENDPOINT_MATCH_TOLERANCE_PX
 
-    fun extractTableBorders(grayMat: Mat): Mat {
+    fun extractTableLines(grayMat: Mat): Pair<List<PolyLineSegment>, List<PolyLineSegment>> {
         require(grayMat.channels() == 1) {
             "extractTableBorders expects a single-channel (grayscale) Mat, but received ${grayMat.channels()} channels."
         }
-        val edgesMat = Mat()
         val linesMat = Mat()
 
         // Probabilistic Hough Transform (Extracting structural fragments)
@@ -108,55 +74,6 @@ object LineDetector {
             }
         }
 
-// =========================================================================
-// 🟢 FILE-SAVING JVM DEBUG BLOCK: SAFE FOR BREAKPOINTS
-// =========================================================================
-        val matH = Mat()
-        val matV = Mat()
-        val matCombined = Mat()
-
-        Imgproc.cvtColor(grayMat, matH, Imgproc.COLOR_GRAY2RGB)
-        Imgproc.cvtColor(grayMat, matV, Imgproc.COLOR_GRAY2RGB)
-        Imgproc.cvtColor(grayMat, matCombined, Imgproc.COLOR_GRAY2RGB)
-
-
-        // Draw separated horizontal line fragments (Yellow)
-        for (line in horizontalLines) {
-            Imgproc.line(matH, line.first, line.second, Scalar(255.0, 255.0, 0.0, 255.0), 2)
-            Imgproc.line(matCombined, line.first, line.second, Scalar(255.0, 255.0, 0.0, 255.0), 2)
-        }
-
-        // Draw separated vertical line fragments (Yellow)
-        for (line in verticalLines) {
-            Imgproc.line(matV, line.first, line.second, Scalar(255.0, 255.0, 0.0, 255.0), 2)
-            Imgproc.line(matCombined, line.first, line.second, Scalar(255.0, 255.0, 0.0, 255.0), 2)
-        }
-
-        // Automatically target the project's build directory so it's easy to find and clean
-        val outputDir = java.io.File("build/outputs/debug/lines")
-        if (!outputDir.exists()) {
-            outputDir.mkdirs()
-        }
-
-        val pathH = outputDir.absolutePath + "/1_horizontal.png"
-        val pathV = outputDir.absolutePath + "/2_vertical.png"
-        val pathC = outputDir.absolutePath + "/3_combined.png"
-
-        // Save the files directly to disk (this finishes immediately before the breakpoint)
-        org.opencv.imgcodecs.Imgcodecs.imwrite(pathH, matH)
-        org.opencv.imgcodecs.Imgcodecs.imwrite(pathV, matV)
-        org.opencv.imgcodecs.Imgcodecs.imwrite(pathC, matCombined)
-
-        println("\n📸 [DEBUG IMAGES WRITTEN SUCCESSFULLY]")
-        println("Horizontal:  file://$pathH")
-        println("Vertical:    file://$pathV")
-        println("Combined:    file://$pathC\n")
-
-        matH.release()
-        matV.release()
-        matCombined.release()
-// =========================================================================
-
         val proximityThreshold = kotlin.math.max(grayMat.width(), grayMat.height()) * 0.005
         val longestAllowedBacktrackRatio = 0.2 // Assume that the false line (e.g. user made) spans at most 20% of the paper
 
@@ -182,29 +99,12 @@ object LineDetector {
             grayMat.width().toDouble() * maxParallelDistanceCoeff,
             grayMat.height().toDouble() * minOverlapSpanCoeff
         )
-
-
-        val drawMat = Mat()
-        Imgproc.cvtColor(grayMat, drawMat, Imgproc.COLOR_GRAY2RGB)
-
-        // Draw lines across points to view structural tracking path details
-        for (line in finalHorizontal) {
-            for (idx in 0 until line.points.size - 1) {
-                Imgproc.line(drawMat, line.points[idx], line.points[idx + 1], Scalar(0.0, 255.0, 0.0, 255.0), 3)
-            }
-        }
-        for (line in finalVertical) {
-            for (idx in 0 until line.points.size - 1) {
-                Imgproc.line(drawMat, line.points[idx], line.points[idx + 1], Scalar(255.0, 0.0, 0.0, 255.0), 3)
-            }
-        }
+        //TODO Add connecting of lines that seem to be the same line separated by a gap
 
         // Garbage collection manual release
-        grayMat.release()
-        edgesMat.release()
         linesMat.release()
 
-        return drawMat
+        return Pair(finalHorizontal, finalVertical)
     }
 
     // Merging logic using branching (backtracking) to find the longest combined lines
@@ -544,4 +444,205 @@ object LineDetector {
             }
         }
     }
+}
+
+/**
+ * Interpolates the off-axis coordinate (Y for horizontal, X for vertical) at a specific main-axis position.
+ */
+fun PolyLineSegment.getOffAxisCoordinateAt(
+    targetMainPos: Double,
+    isHorizontal: Boolean
+): Double? {
+    val points = points
+    for (i in 0 until points.size - 1) {
+        val p1 = points[i]
+        val p2 = points[i + 1]
+
+        val m1 = if (isHorizontal) p1.x else p1.y
+        val m2 = if (isHorizontal) p2.x else p2.y
+
+        val minM = minOf(m1, m2)
+        val maxM = maxOf(m1, m2)
+
+        if (targetMainPos in minM..maxM) {
+            val off1 = if (isHorizontal) p1.y else p1.x
+            val off2 = if (isHorizontal) p2.y else p2.x
+
+            if (minM == maxM) return off1 // Vertical step segment
+
+            // Linear interpolation between point nodes
+            val fraction = (targetMainPos - m1) / (m2 - m1)
+            return off1 + fraction * (off2 - off1)
+        }
+    }
+    return null
+}
+
+/**
+ * Returns the first 2D intersection point between two [PolyLineSegment]s,
+ * or `null` if they do not intersect.
+ */
+fun PolyLineSegment.findIntersection(other: PolyLineSegment): Point? {
+    val pts1 = this.points
+    val pts2 = other.points
+
+    for (i in 0 until pts1.size - 1) {
+        for (j in 0 until pts2.size - 1) {
+            val intersection = segmentIntersection(
+                pts1[i], pts1[i + 1],
+                pts2[j], pts2[j + 1]
+            )
+            if (intersection != null) {
+                return intersection
+            }
+        }
+    }
+    return null
+}
+
+/**
+ * Returns `true` if this [PolyLineSegment] intersects with [other].
+ */
+fun PolyLineSegment.intersects(other: PolyLineSegment): Boolean {
+    return findIntersection(other) != null
+}
+
+/**
+ * Returns a new PolyLineSegment extended at both ends by adding 2 new boundary points
+ * pushed outwards by [extensionPx] along the true trajectory of the line's ends.
+ */
+fun PolyLineSegment.extendEndpoints(extensionPx: Double): PolyLineSegment {
+    if (points.size < 2) return this
+
+    val extendedPoints = points.toMutableList()
+    val minVectorLength = 15.0 // Minimum distance in pixels to compute a reliable direction vector
+
+    // 1. Extend Start Endpoint
+    val p0 = points[0]
+    var startReferencePoint = points[1]
+
+    // Find a point far enough from p0 to avoid micro-jitter/noise
+    for (i in 1 until points.size) {
+        if (hypot(p0.x - points[i].x, p0.y - points[i].y) >= minVectorLength) {
+            startReferencePoint = points[i]
+            break
+        }
+    }
+
+    val dxStart = p0.x - startReferencePoint.x
+    val dyStart = p0.y - startReferencePoint.y
+    val lenStart = hypot(dxStart, dyStart)
+
+    if (lenStart > 1e-5) {
+        val startExtensionPoint = Point(
+            p0.x + (dxStart / lenStart) * extensionPx,
+            p0.y + (dyStart / lenStart) * extensionPx
+        )
+        extendedPoints.add(0, startExtensionPoint) // Prepend at start
+    }
+
+    // 2. Extend End Endpoint
+    val pN = points.last()
+    var endReferencePoint = points[points.size - 2]
+
+    // Find a point far enough from pN to avoid micro-jitter/noise
+    for (i in points.size - 2 downTo 0) {
+        if (hypot(pN.x - points[i].x, pN.y - points[i].y) >= minVectorLength) {
+            endReferencePoint = points[i]
+            break
+        }
+    }
+
+    val dxEnd = pN.x - endReferencePoint.x
+    val dyEnd = pN.y - endReferencePoint.y
+    val lenEnd = hypot(dxEnd, dyEnd)
+
+    if (lenEnd > 1e-5) {
+        val endExtensionPoint = Point(
+            pN.x + (dxEnd / lenEnd) * extensionPx,
+            pN.y + (dyEnd / lenEnd) * extensionPx
+        )
+        extendedPoints.add(endExtensionPoint) // Append at end
+    }
+
+    return PolyLineSegment(extendedPoints)
+}
+
+/**
+ * Reverts an extended PolyLineSegment back to its original form by removing
+ * the newly added outer extension points at the start and end.
+ */
+fun PolyLineSegment.trimExtendedEndpoints(): PolyLineSegment {
+    if (points.size <= 2) return this
+    return PolyLineSegment(points.subList(1, points.size - 1))
+}
+
+/**
+ * 2D Line Segment Intersection using cross products.
+ */
+private const val INTERSECTION_EPSILON = 1e-7
+
+/**
+ * 2D Line Segment Intersection with epsilon boundary checks for exact endpoint crossings.
+ */
+private fun segmentIntersection(p1: Point, p2: Point, p3: Point, p4: Point): Point? {
+    val dx12 = p2.x - p1.x
+    val dy12 = p2.y - p1.y
+    val dx34 = p4.x - p3.x
+    val dy34 = p4.y - p3.y
+
+    // 2D Cross product determinant
+    val denominator = dx12 * dy34 - dy12 * dx34
+
+    // Parallel or collinear segments
+    if (abs(denominator) < 1e-9) return null
+
+    val dx31 = p1.x - p3.x
+    val dy31 = p1.y - p3.y
+
+    // Parametric ratios along segment 1 (t) and segment 2 (u)
+    val t = (dx34 * dy31 - dy34 * dx31) / denominator
+    val u = (dx12 * dy31 - dy12 * dx31) / denominator
+
+    // Include EPSILON tolerance to handle floating-point precision at section endpoints
+    val minBound = -INTERSECTION_EPSILON
+    val maxBound = 1.0 + INTERSECTION_EPSILON
+
+    return if (t in minBound..maxBound && u in minBound..maxBound) {
+        // Clamp t to [0, 1] to prevent sub-pixel drift outside endpoint coordinates
+        val clampedT = t.coerceIn(0.0, 1.0)
+        Point(
+            p1.x + clampedT * dx12,
+            p1.y + clampedT * dy12
+        )
+    } else {
+        null
+    }
+}
+
+/**
+ * Rotates a PolyLineSegment 90 degrees counter-clockwise.
+ *
+ * Target transformation: (x, y) -> (y, imgWidth - 1 - x)
+ * @param imgWidth Width of the image BEFORE rotation.
+ */
+fun PolyLineSegment.rotate90CounterClockwise(imgWidth: Int): PolyLineSegment {
+    val rotatedPoints = points.map { pt ->
+        Point(pt.y, (imgWidth - 1).toDouble() - pt.x)
+    }.toMutableList()
+    return PolyLineSegment(rotatedPoints)
+}
+
+/**
+ * Rotates a PolyLineSegment 180 degrees.
+ *
+ * Target transformation: (x, y) -> (imgWidth - 1 - x, imgHeight - 1 - y)
+ * @param imgWidth Width of the image BEFORE rotation.
+ * @param imgHeight Height of the image BEFORE rotation.
+ */
+fun PolyLineSegment.rotate180(imgWidth: Int, imgHeight: Int): PolyLineSegment {
+    val rotatedPoints = points.map { pt ->
+        Point((imgWidth - 1).toDouble() - pt.x, (imgHeight - 1).toDouble() - pt.y)
+    }.toMutableList()
+    return PolyLineSegment(rotatedPoints)
 }

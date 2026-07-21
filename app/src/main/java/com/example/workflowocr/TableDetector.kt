@@ -1,19 +1,17 @@
 package com.example.workflowocr
 
-import android.graphics.Bitmap
 import android.util.Log
-import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
-import org.opencv.core.Rect
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
+import kotlin.math.max
 
 object TableDetector {
 
@@ -26,14 +24,14 @@ object TableDetector {
 
     sealed class TableDetectionResult {
         // 1. Shared fields accessible on both Success and Failure layouts
-        abstract val cells: Array<Array<TableDetector.TableCell>>
+        abstract val cells: Array<Array<TableCell>>
         abstract val gray: Mat
         abstract val thresh: Mat
         abstract val mask: Mat
         abstract val lines: Mat
 
         data class Success(
-            override val cells: Array<Array<TableDetector.TableCell>>,
+            override val cells: Array<Array<TableCell>>,
             override val gray: Mat,
             override val thresh: Mat,
             override val mask: Mat,
@@ -41,7 +39,7 @@ object TableDetector {
         ) : TableDetectionResult()
 
         data class Failure(
-            override val cells: Array<Array<TableDetector.TableCell>>,
+            override val cells: Array<Array<TableCell>>,
             override val gray: Mat,
             override val thresh: Mat,
             override val mask: Mat,
@@ -52,7 +50,7 @@ object TableDetector {
 
     class MissingTopRowException(message: String) : Exception(message)
 
-    private val minRequiredIntersectionsCoeff : Double = 0.5 // Require at least 50% of the most intersected belt's points
+    private const val MIN_REQUIRED_INTERSECTIONS_COEFF : Double = 0.5 // Require at least 50% of the most intersected belt's points
 
     /**
      * Input: a grayscale Mat
@@ -60,15 +58,20 @@ object TableDetector {
      * - Array of rectangles representing detected cells
      * - grayscale Mat - rotated if incorrect table orientation detected
      */
-    fun detectTableCells(gray: Mat, settings: TableLayout): TableDetectionResult {
+    fun detectTableCellsByLines(gray: Mat, settings: TableLayout): TableDetectionResult {
         val expectedCols = settings.expectedCols
         val headerRowHeightMultiplier = settings.headerRowHeightMultiplier // ratio of height between header_row / normal_row
-        val expectedXBelts = expectedCols + 1
+        val expectedVerticalLines = expectedCols + 1
 
         val thresh = ImageProcessor.createThresh(gray)
         val (horizontal, vertical) = createHorizontalVertical(thresh)
 
-        return findRefinedCorners(gray, thresh, horizontal, vertical, expectedXBelts, headerRowHeightMultiplier)
+        val gridMask = Mat()
+        Core.add(horizontal, vertical, gridMask)
+
+        val (horizontalLines, verticalLines) = LineDetector.extractTableLines(gridMask)
+
+        return findRefinedCorners(gray, thresh, horizontalLines, verticalLines, expectedVerticalLines, headerRowHeightMultiplier, gridMask)
     }
 
     private fun createHorizontalVertical(thresh: Mat): Pair<Mat, Mat> {
@@ -116,123 +119,128 @@ object TableDetector {
     }
 
     /**
-     * Detects table corners by combining global projections with local intersections
-     * to filter out noise (like pen strokes).
+     * Detects table corners by combining polyline density filtering and spatial line intersections.
      */
     private fun findRefinedCorners(
         originalGray: Mat,
         thresh: Mat,
-        horizontal: Mat,
-        vertical: Mat,
-        expectedXBelts: Int,
-        headerRowHeightMultiplier: Double
+        rawHorizontalLines: List<PolyLineSegment>,
+        rawVerticalLines: List<PolyLineSegment>,
+        expectedVerticalLines: Int,
+        headerRowHeightMultiplier: Double,
+        gridMask: Mat
     ): TableDetectionResult {
         val gray = originalGray.clone()
-        var structuralException: MissingTopRowException? = null
-        var (rawXBelts, rawYBelts) = createBelts(horizontal, vertical)
+        var structuralException: Exception? = null
 
-        Log.d("DEBUG", "counted ${rawYBelts.size} potential rows")
-        Log.d("DEBUG", "counted ${rawXBelts.size} potential cols")
+        val lineExtensionRatio = 0.003 // 12px for 4000px image
+        val extensionPx = max(originalGray.width(), originalGray.height()).toDouble() * lineExtensionRatio
 
-        // Find Local Intersections (Actual crossings)
-        val intersections = Mat()
-        Core.bitwise_and(horizontal, vertical, intersections)
+        // Temporarily bridge gaps at the table borders to enable accurate intersection detections
+        var extendedHorizontal = rawHorizontalLines.map { it.extendEndpoints(extensionPx) }
+        var extendedVertical = rawVerticalLines.map {it.extendEndpoints(extensionPx) }
 
-        var intersectionsList = listOfIntersections(intersections)
-        var rawGrid = TablePropagator.gridFromClosestIntersections(intersectionsList, rawXBelts, rawYBelts)
+        Log.d("DEBUG", "counted ${extendedHorizontal.size} potential rows")
+        Log.d("DEBUG", "counted ${extendedVertical.size} potential cols")
 
-        // First, orientation check
-        var rotations = 0 // we will pass the number of 90 degree counter-clockwise rotations up the call stack
-        // Filter out fake belts(paper edges, pencil strokes..)
-        val filteredXBelts = filterBeltsByDensity(rawGrid, rawXBelts, -1, isHorizontal = false)
-        val filteredYBelts = filterBeltsByDensity(rawGrid, rawYBelts, -1, isHorizontal = true)
-        Log.d("DEBUG", "filteredYBelts ${filteredYBelts.size} potential rows")
-        Log.d("DEBUG", "filteredXBelts ${filteredXBelts.size} potential cols")
-        if (isLayingOnSide(filteredXBelts, filteredYBelts)) {
-            Log.d("DEBUG", "Rotating 90 degrees.")
+        // Initial density filtering
+        val filteredHorizontal = filterLinesByIntersections(linesToFilter = extendedHorizontal, opposingLines = extendedVertical, targetCount = -1)
+        val filteredVertical = filterLinesByIntersections(linesToFilter = extendedVertical, opposingLines = extendedHorizontal, targetCount = -1)
+
+        Log.d("DEBUG", "filteredHorizontal ${filteredHorizontal.size} potential rows")
+        Log.d("DEBUG", "filteredVertical ${filteredVertical.size} potential cols")
+
+        // Track cumulative rotations
+        var rotations = 0
+
+        // 1. Orientation check (90° CCW rotation if lying on side)
+        if (isLayingOnSide(filteredHorizontal, filteredVertical)) {
+            Log.d("DEBUG", "Rotating 90 degrees CCW.")
+
+            val imgWidth = gray.cols()
+            val rotatedH = extendedHorizontal.map { it.rotate90CounterClockwise(imgWidth) }
+            val rotatedV = extendedVertical.map { it.rotate90CounterClockwise(imgWidth) }
+
+            extendedHorizontal = rotatedV // Vertical lines become new horizontal
+            extendedVertical = rotatedH   // Horizontal lines become new vertical
+
+            rotateMatNSteps(gray, 1)
             rotations++
-            val rotatedBelts = rotateBelts90(rawXBelts, rawYBelts, intersections.cols())
-            rawXBelts = rotatedBelts.first
-            rawYBelts = rotatedBelts.second
-            intersectionsList = rotatePoints90(intersectionsList, intersections.cols())
-            Core.rotate(intersections, intersections, Core.ROTATE_90_COUNTERCLOCKWISE) // needed in TablePropagator
-            rawGrid = TablePropagator.gridFromClosestIntersections(intersectionsList, rawXBelts, rawYBelts)
         }
-        var validXBelts = filterBeltsByDensity(rawGrid, rawXBelts, expectedXBelts, isHorizontal = false)
-        var validYBelts = filterBeltsByDensity(rawGrid, rawYBelts, -1, isHorizontal = true)
-        Log.d("DEBUG", "validYBelts ${validYBelts.size} potential rows")
-        Log.d("DEBUG", "validXBelts ${validXBelts.size} potential cols")
-        val propagatedYBelts = try {
-            propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1, headerRowHeightMultiplier)
-        } catch (e: MissingTopRowException) {
-            Log.d("DEBUG", "Couldn't detect top header row during propagation. Rotating by 180 degrees.")
-            rotations += 2
 
-            val rotatedValid = rotateBelts180(validXBelts, validYBelts, intersections.cols(), intersections.rows())
-            validXBelts = rotatedValid.first
-            validYBelts = rotatedValid.second
-            val rotatedRaw = rotateBelts180(rawXBelts, rawYBelts, intersections.cols(), intersections.rows())
-            rawXBelts = rotatedRaw.first
-            rawYBelts = rotatedRaw.second
-            intersectionsList = rotatePoints180(intersectionsList, intersections.cols(), intersections.rows())
-            Core.rotate(intersections, intersections, Core.ROTATE_180) // needed in TablePropagator
+        // Secondary density pass for target counts
+        var validHorizontal = filterLinesByIntersections(extendedHorizontal, extendedVertical, targetCount = -1)
+        var validVertical = filterLinesByIntersections(extendedVertical, extendedHorizontal, targetCount = expectedVerticalLines)
+
+        Log.d("DEBUG", "validHorizontal ${validHorizontal.size} potential rows")
+        Log.d("DEBUG", "validVertical ${validVertical.size} potential cols")
+
+        // 2. Header presence check & 180° rotation fallback
+        try {
+            checkHeaderRowPresence(validHorizontal, headerRowHeightMultiplier)
+        } catch (_: MissingTopRowException) {
+            Log.d("DEBUG", "Couldn't detect top header row. Rotating by 180 degrees.")
+
+            val imgWidth = gray.cols()
+            val imgHeight = gray.rows()
+
+            // Rotate current polylines 180°
+            extendedHorizontal = extendedHorizontal.map { it.rotate180(imgWidth, imgHeight) }
+            extendedVertical = extendedVertical.map { it.rotate180(imgWidth, imgHeight) }
+
+            validHorizontal = filterLinesByIntersections(extendedHorizontal, extendedVertical, targetCount = -1)
+            validVertical = filterLinesByIntersections(extendedVertical, extendedHorizontal, targetCount = expectedVerticalLines)
+
+            rotateMatNSteps(gray, 2)
+            rotations += 2
             try {
-                propagateHorizontalBeltsByStructure(rawYBelts, validYBelts, -1, headerRowHeightMultiplier)
+                checkHeaderRowPresence(validHorizontal, headerRowHeightMultiplier)
             } catch (e: MissingTopRowException) {
-                Log.d("DEBUG", "Error: Couldn't detect top header row during propagation even after rotating!")
+                Log.d("DEBUG", "Error: Couldn't detect top header row even after 180° rotation!")
                 structuralException = e
-                validYBelts
             }
         }
-        Log.d("DEBUG", "propagatedYBelts ${propagatedYBelts.size} rows")
 
-        // Put it again through grid creation because we removed fake belts
-        val cleanedGrid = TablePropagator.gridFromClosestIntersections(intersectionsList, validXBelts, propagatedYBelts)
+        validHorizontal = sortLinesByBestCrossSection(validHorizontal, true, 8)
+        validVertical = sortLinesByBestCrossSection(validVertical, false, 8)
+        // Build spatial intersection grid directly from polylines
+        val propagatedGrid = TablePropagator.propagateRobustPolyLineGrid(validHorizontal, validVertical)
 
-        val propagator = TablePropagator()
-        val propagatedGrid = propagator.propagateRobustGrid(intersections, validXBelts, propagatedYBelts, cleanedGrid)
-
-        val cells = if (propagatedGrid.size <= 1) emptyArray()
-            else Array(propagatedGrid.size - 1) { r ->
-            Array(propagatedGrid[0].size - 1) { c ->
-                TableCell(
-                    topLeft = propagatedGrid[r][c],
-                    topRight = propagatedGrid[r][c + 1],
-                    bottomLeft = propagatedGrid[r + 1][c],
-                    bottomRight = propagatedGrid[r + 1][c + 1]
-                )
+        // Build TableCell matrix
+        val cells = if (propagatedGrid.size <= 1 || propagatedGrid[0].size <= 1) {
+            emptyArray()
+        } else {
+            Array(propagatedGrid.size - 1) { r ->
+                Array(propagatedGrid[0].size - 1) { c ->
+                    TableCell(
+                        topLeft = propagatedGrid[r][c],
+                        topRight = propagatedGrid[r][c + 1],
+                        bottomLeft = propagatedGrid[r + 1][c],
+                        bottomRight = propagatedGrid[r + 1][c + 1]
+                    )
+                }
             }
         }
 
         Log.d("DEBUG", "Found ${cells.size} cell rows and ${if (cells.isEmpty()) 0 else cells[0].size} cell cols")
 
-        // Rotate source based on what rotations were performed during table detection.
+        // Rotate source Mats to match the cumulative rotations performed (90° CCW or 180°)
         if (rotations % 4 != 0) {
-            rotateMatNSteps(gray, rotations)
             rotateMatNSteps(thresh, rotations)
-            rotateMatNSteps(horizontal, rotations)
-            rotateMatNSteps(vertical, rotations)
+            rotateMatNSteps(gridMask, rotations)
         }
 
-        val linesOverlayImage = createLinesOverlayImage(rawXBelts, rawYBelts, gray)
-
-        // Combine horizontal and vertical lines to get table mask
-        val mask = Mat()
-        Core.add(horizontal, vertical, mask)
-        Log.d("DEBUG", ">> mask size = ${mask.rows()} x ${mask.cols()}")
-        Log.d("DEBUG", "mask nonZero = ${Core.countNonZero(mask)}")
-
-        // Cleanup
-        intersections.release()
-        horizontal.release()
-        vertical.release()
+        // Render debug line overlay
+        val trimmedHorizontal = validHorizontal.map { it.trimExtendedEndpoints() } // trim back the edges we extended previously
+        val trimmedVertical = validVertical.map { it.trimExtendedEndpoints() }
+        val linesOverlayImage = createLinesOverlayImage(trimmedHorizontal, trimmedVertical, gray)
 
         return if (structuralException != null) {
             TableDetectionResult.Failure(
                 cells = cells,
                 gray = gray,
                 thresh = thresh,
-                mask = mask,
+                mask = gridMask,
                 lines = linesOverlayImage,
                 exception = structuralException
             )
@@ -241,120 +249,199 @@ object TableDetector {
                 cells = cells,
                 gray = gray,
                 thresh = thresh,
-                mask = mask,
+                mask = gridMask,
                 lines = linesOverlayImage
             )
         }
     }
 
-    private fun createLinesOverlayImage(rawXBelts: List<Int>, rawYBelts: List<Int>, gray: Mat): Mat {
+    /**
+     * Sorts [lines] perpendicular to their main axis based on their off-axis coordinates
+     * evaluated at the single best cross-section (the slice intersecting the most lines).
+     *
+     * @param isHorizontal true to sort top-to-bottom (by Y), false to sort left-to-right (by X)
+     */
+    private fun sortLinesByBestCrossSection(
+        lines: List<PolyLineSegment>,
+        isHorizontal: Boolean,
+        sampleCount: Int = 5
+    ): List<PolyLineSegment> {
+        if (lines.size <= 1) return lines
+
+        // 1. Find the min and max main-axis bounds across ALL polylines
+        val allMainCoords = lines.flatMap { line ->
+            if (isHorizontal) listOf(line.firstPoint.x, line.lastPoint.x)
+            else listOf(line.firstPoint.y, line.lastPoint.y)
+        }
+
+        val minBound = allMainCoords.minOrNull() ?: return lines
+        val maxBound = allMainCoords.maxOrNull() ?: return lines
+        val totalSpan = maxBound - minBound
+
+        if (totalSpan <= 0) return lines
+
+        val step = totalSpan / (sampleCount + 1)
+
+        // 2. Evaluate all sample cross-sections
+        val samples = (1..sampleCount).map { i ->
+            val samplePos = minBound + (step * i)
+            val validCount = lines.count { line ->
+                line.getOffAxisCoordinateAt(samplePos, isHorizontal) != null
+            }
+            Pair(samplePos, validCount)
+        }
+
+        // 3. Pick the slice where the most lines intersect
+        val bestSamplePos = samples.maxByOrNull { it.second }?.first ?: return lines
+
+        // 4. Sort lines by off-axis coordinate at bestSamplePos (fallback to mean endpoint coordinate if line doesn't reach slice)
+        return lines.sortedBy { line ->
+            line.getOffAxisCoordinateAt(bestSamplePos, isHorizontal)
+                ?: if (isHorizontal) (line.firstPoint.y + line.lastPoint.y) / 2.0
+                else (line.firstPoint.x + line.lastPoint.x) / 2.0
+        }
+    }
+
+    /**
+     * Creates an RGB overlay image highlighting horizontal polylines in RED
+     * and vertical polylines in BLUE over the grayscale background.
+     */
+    private fun createLinesOverlayImage(
+        horizontalLines: List<PolyLineSegment>,
+        verticalLines: List<PolyLineSegment>,
+        gray: Mat
+    ): Mat {
         val linesDrawing = Mat.zeros(gray.size(), CvType.CV_8UC3)
 
-        // 2. horizontal on RED
-        for (y in rawYBelts) {
-            val pt1 = Point(0.0, y.toDouble())
-            val pt2 = Point(gray.cols().toDouble(), y.toDouble())
-            Imgproc.line(linesDrawing, pt1, pt2, Scalar(0.0, 0.0, 255.0), 2)
+        val redColor = Scalar(0.0, 0.0, 255.0)   // Horizontal lines -> RED (BGR)
+        val blueColor = Scalar(255.0, 0.0, 0.0)  // Vertical lines -> BLUE (BGR)
+        val lineThickness = 2
+
+        // 1. Draw horizontal polylines (RED)
+        for (line in horizontalLines) {
+            val matOfPoint = MatOfPoint(*line.points.toTypedArray())
+            Imgproc.polylines(
+                linesDrawing,
+                listOf(matOfPoint),
+                false, // isClosed = false (open path)
+                redColor,
+                lineThickness,
+                Imgproc.LINE_AA
+            )
+            matOfPoint.release()
         }
 
-        // vertical BLUE
-        for (x in rawXBelts) {
-            val pt1 = Point(x.toDouble(), 0.0)
-            val pt2 = Point(x.toDouble(), gray.rows().toDouble())
-            Imgproc.line(linesDrawing, pt1, pt2, Scalar(255.0, 0.0, 0.0), 2)
+        // 2. Draw vertical polylines (BLUE)
+        for (line in verticalLines) {
+            val matOfPoint = MatOfPoint(*line.points.toTypedArray())
+            Imgproc.polylines(
+                linesDrawing,
+                listOf(matOfPoint),
+                false, // isClosed = false (open path)
+                blueColor,
+                lineThickness,
+                Imgproc.LINE_AA
+            )
+            matOfPoint.release()
         }
 
+        // 3. Prepare background image (convert gray to RGB)
         val linesOverlayImage = gray.clone()
         if (linesOverlayImage.channels() == 1) {
             Imgproc.cvtColor(linesOverlayImage, linesOverlayImage, Imgproc.COLOR_GRAY2RGB)
         }
+
+        // 4. Mask and copy colored polylines over gray background
         val linesMask = Mat()
         Imgproc.cvtColor(linesDrawing, linesMask, Imgproc.COLOR_BGR2GRAY)
         Imgproc.threshold(linesMask, linesMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
         linesDrawing.copyTo(linesOverlayImage, linesMask)
 
+        // 5. Cleanup temporary Mats
         linesDrawing.release()
         linesMask.release()
 
         return linesOverlayImage
     }
 
-    private fun createBelts(horizontal: Mat, vertical: Mat): Pair<List<Int>, List<Int>> {
-        // Get Global Projections to find "Line Belts"
-        val rowSums = Mat()
-        val colSums = Mat()
-        Core.reduce(horizontal, rowSums, 1, Core.REDUCE_SUM, CvType.CV_32F)
-        Core.reduce(vertical, colSums, 0, Core.REDUCE_SUM, CvType.CV_32F)
-
-        // Determine Thresholds (x Average)
-        val avgRow = Core.mean(rowSums).`val`[0]
-        val avgCol = Core.mean(colSums).`val`[0]
-        val rowThresh = avgRow * 1.2
-        val colThresh = avgCol * 1.2
-        Log.d("DEBUG", "avgRow = $avgRow")
-        Log.d("DEBUG", "avgCol = $avgCol")
-
-        // Identify Candidate X and Y positions (Line Belts)
-        // rawYBelts[0] has Y pixel position of the horizontal table line.
-        var rawYBelts = getBeltCenters(rowSums, rowThresh, true)
-        var rawXBelts = getBeltCenters(colSums, colThresh, false)
-        rowSums.release()
-        colSums.release()
-        return Pair(rawXBelts, rawYBelts)
-    }
-
-    private fun getBeltCenters(sums: Mat, threshold: Double, isRow: Boolean): List<Int> {
-        val size = if (isRow) sums.rows() else sums.cols()
-        val activeIndices = mutableListOf<Int>()
-
-        // 1. Collect all indices above threshold
-        for (i in 0 until size) {
-            val value = if (isRow) sums.get(i, 0)[0] else sums.get(0, i)[0]
-            if (value > threshold) activeIndices.add(i)
-        }
-
-        if (activeIndices.isEmpty()) return emptyList()
-
-        // 2. Group consecutive indices and find their middle
-        val centers = mutableListOf<Int>()
-        var group = mutableListOf<Int>()
-        group.add(activeIndices[0])
-
-        for (i in 1 until activeIndices.size) {
-            // If current index is continuous (difference of 1 or 2 pixels)
-            if (activeIndices[i] - activeIndices[i - 1] <= 2) {
-                group.add(activeIndices[i])
-            } else {
-                // End of group, take the middle index
-                centers.add(group[group.size / 2])
-                group = mutableListOf(activeIndices[i])
-            }
-        }
-        // Don't forget the last group
-        centers.add(group[group.size / 2])
-
-        return centers
-    }
-
-    private fun isLayingOnSide(xBelts: List<Int>, yBelts: List<Int>): Boolean {
-        if (xBelts.size < 2 || yBelts.size < 2) return false
-
-        // Calculate all gap sizes
-        val xGaps = xBelts.sorted().zipWithNext { a, b -> b - a }
-        val yGaps = yBelts.sorted().zipWithNext { a, b -> b - a }
+    /**
+     * Determines orientation using the PolyLineSegments
+     */
+    fun isLayingOnSide(
+        horizontalLines: List<PolyLineSegment>,
+        verticalLines: List<PolyLineSegment>,
+        sampleCount: Int = 5
+    ): Boolean {
+        if (horizontalLines.size < 2 || verticalLines.size < 2) return false
 
         // Use the Median instead of Average to be robust against:
         // - The "One Tall Header Row"
         // - Massive gaps from missing rows in the middle
         // - Paper edge noise
-        val medianColWidth = xGaps.sorted()[xGaps.size / 2].toDouble()
-        val medianRowHeight = yGaps.sorted()[yGaps.size / 2].toDouble()
+        val medianRowHeight = calculateMedianLineGaps(
+            lines = horizontalLines,
+            isHorizontal = true,
+            sampleCount = sampleCount
+        )
+
+        val medianColWidth = calculateMedianLineGaps(
+            lines = verticalLines,
+            isHorizontal = false,
+            sampleCount = sampleCount
+        )
+
+        if (medianRowHeight == null || medianColWidth == null) return false
 
         Log.d("DEBUG", "Orientation check: medianColWidth=$medianColWidth, medianRowHeight=$medianRowHeight")
 
         // Usually, Column Width > Row Height in standard landscape cells.
         // We use a small threshold (1.2) to ensure it's a clear rotation, not just a square cell.
         return medianRowHeight > (medianColWidth * 1.2)
+    }
+
+    private fun calculateMedianLineGaps(
+        lines: List<PolyLineSegment>,
+        isHorizontal: Boolean,
+        sampleCount: Int
+    ): Double? {
+        // 1. Find main-axis bounds across all lines
+        val allMainCoords = lines.flatMap { line ->
+            if (isHorizontal) listOf(line.firstPoint.x, line.lastPoint.x)
+            else listOf(line.firstPoint.y, line.lastPoint.y)
+        }
+
+        val minBound = allMainCoords.minOrNull() ?: return null
+        val maxBound = allMainCoords.maxOrNull() ?: return null
+        val totalSpan = maxBound - minBound
+        if (totalSpan <= 0) return null
+
+        val step = totalSpan / (sampleCount + 1)
+
+        // 2. Find the single best sample position (intersects the most lines)
+        val bestSamplePos = (1..sampleCount)
+            .map { minBound + (step * it) }
+            .maxByOrNull { pos -> lines.count { it.getOffAxisCoordinateAt(pos, isHorizontal) != null } }
+            ?: return null
+
+        // 3. Extract and sort off-axis coordinates at bestSamplePos
+        val positions = lines.mapNotNull { line ->
+            line.getOffAxisCoordinateAt(bestSamplePos, isHorizontal)
+        }.sorted()
+
+        if (positions.size < 2) return null
+
+        // 4. Calculate gaps between adjacent lines at this single best cross-section
+        val gaps = mutableListOf<Double>()
+        for (j in 0 until positions.size - 1) {
+            val gap = positions[j + 1] - positions[j]
+            gaps.add(gap)
+        }
+
+        if (gaps.isEmpty()) return null
+
+        // 5. Return median gap size for the best cross-section
+        val sortedGaps = gaps.sorted()
+        return sortedGaps[sortedGaps.size / 2]
     }
 
     private fun rotateMatNSteps(mat: Mat, steps: Int) {
@@ -372,219 +459,98 @@ object TableDetector {
     }
 
     /**
-     * Rotates belt coordinates 90 degrees Counter-Clockwise.
-     * newX = oldY
-     * newY = imageWidth - oldX
+     * Validates whether the top detected row matches the tall header row height proportion.
+     * Throws [MissingTopRowException] if the table appears upside down or missing its top row.
      */
-    private fun rotateBelts90(xBelts: List<Int>, yBelts: List<Int>, imgWidth: Int): Pair<List<Int>, List<Int>> {
-        val newX = yBelts.sorted()
-        val newY = xBelts.map { imgWidth - it }.sorted()
-        return Pair(newX, newY)
-    }
-
-    /**
-     * Rotates belt coordinates 180 degrees.
-     * newX = imgWidth - oldX
-     * newY = imgHeight - oldY
-     */
-    private fun rotateBelts180(xBelts: List<Int>, yBelts: List<Int>, imgWidth: Int, imgHeight: Int): Pair<List<Int>, List<Int>> {
-        val newX = xBelts.map { imgWidth - it }.sorted()
-        val newY = yBelts.map { imgHeight - it }.sorted()
-        return Pair(newX, newY)
-    }
-
-    // Transforms points based on a 90-degree Counter-Clockwise rotation.
-    fun rotatePoints90(points: List<Point>, imgWidth: Int): List<Point> {
-        return points.map { Point(it.y, imgWidth.toDouble() - it.x) }
-    }
-
-    // Transforms points for a 180-degree rotation.
-    fun rotatePoints180(points: List<Point>, imgWidth: Int, imgHeight: Int): List<Point> {
-        return points.map { Point(imgWidth.toDouble() - it.x, imgHeight.toDouble() - it.y) }
-    }
-
-    private fun listOfIntersections(intersections: Mat): List<Point> {
-        val jointContours = mutableListOf<MatOfPoint>()
-        Imgproc.findContours(intersections, jointContours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
-
-        return jointContours.mapNotNull { contour ->
-            val moments = Imgproc.moments(contour)
-            if (moments.m00 > 0) {
-                val cx = moments.m10 / moments.m00
-                val cy = moments.m01 / moments.m00
-                Point(cx, cy)
-            } else {
-                null
-            }
-        }
-    }
-
-    // Assumes that the image is properly fully rotated
-    private fun propagateHorizontalBeltsByStructure(
-        rawYBelts: List<Int>,
-        validYBelts: List<Int>,
-        expectedRows: Int,
+    private fun checkHeaderRowPresence(
+        horizontalLines: List<PolyLineSegment>,
         headerRowHeightMultiplier: Double
-    ): List<Int> {
-        if (validYBelts.size <= 1) return validYBelts
-        val detectionErrorCoeff = 0.08 // -> max 10% of difference between rows to be considered sane
-        val gapBucketMargin = 10 // px of difference between rows to fall in the same bucket
-        val gaps = mutableListOf<Int>()
-        for (i in 0 until validYBelts.size - 1) gaps.add(validYBelts[i+1] - validYBelts[i])
+    ) {
+        if (horizontalLines.size <= 1) return
+        val sortedHorizontalLines = sortLinesByBestCrossSection(horizontalLines, isHorizontal = true, sampleCount = 8)
 
-        // For each gap, count how many other gaps are within tolerance 'detectionErrorMargin' pixels
-        // The gap with the highest count is our "Model"
+        val gaps = mutableListOf<Double>()
+
+        // Find gaps directly between adjacent sorted lines
+        for (i in 0 until sortedHorizontalLines.size - 1) {
+            val lineA = sortedHorizontalLines[i]
+            val lineB = sortedHorizontalLines[i + 1]
+
+            // Measure gap using midpoints as a representative distance
+            val yA = (lineA.firstPoint.y + lineA.lastPoint.y) / 2.0
+            val yB = (lineB.firstPoint.y + lineB.lastPoint.y) / 2.0
+            gaps.add(abs(yB - yA))
+        }
+
+        if (gaps.isEmpty()) return
+
+        val gapBucketMargin = 10.0
+        val detectionErrorCoeff = 0.15
+
+        // Determine standard body row height using mode/clustering
         val bestGap = gaps.maxByOrNull { g ->
             gaps.count { abs(it - g) <= gapBucketMargin }
         } ?: gaps[0]
 
-        val smallRowErrorMargin = bestGap * detectionErrorCoeff // px of difference between rows height is considered sane
-        // To get a more precise value, average all gaps that fell into this cluster
-        val cluster = gaps.filter { Math.abs(it - bestGap) <= smallRowErrorMargin }
-        val rowHeight = cluster.average().toInt()
-        if (cluster.size * 2 < gaps.size)
-            Log.d(
-                "DEBUG",
-                "Warning: Only ${cluster.size} rows has similar heights of $rowHeight +- $smallRowErrorMargin out of all initially detected ${gaps.size} rows"
-            )
+        val smallRowErrorMargin = bestGap * detectionErrorCoeff
+        val cluster = gaps.filter { abs(it - bestGap) <= smallRowErrorMargin }
+        val rowHeight = if (cluster.isNotEmpty()) cluster.average() else bestGap
 
-        val propagatedBelts = mutableListOf<Int>()
-        val tallRowHeight = rowHeight * headerRowHeightMultiplier
-        val tallRowErrorMargin = tallRowHeight * detectionErrorCoeff
+        // Expected height of header row
+        val expectedTallRowHeight = rowHeight * headerRowHeightMultiplier
+        val tallRowErrorMargin = expectedTallRowHeight * detectionErrorCoeff
 
-            // ---- Adding rows before ----
-        if (gaps[0] < tallRowHeight - tallRowErrorMargin) { // first row is missing
-            // We will add any possible normal size rows above of what was found
-            // Until we manage to add the Tall Header Row
-            var currentTop = validYBelts[0]
-            // Look for rows above until we find tall Header or reach limit
-            while (propagatedBelts.size < expectedRows || expectedRows == -1) {
+        // Check gap 0 (Top row)
+        val firstGap = gaps[0]
+        val isTopHeaderPresent = firstGap >= (expectedTallRowHeight - tallRowErrorMargin)
 
-                // Try to find a standard small row above the current top
-                val predictedSmall = currentTop - rowHeight
-                val rawSmall = rawYBelts
-                    .filter { Math.abs(it - predictedSmall) < smallRowErrorMargin }
-                    .minByOrNull { Math.abs(it - predictedSmall) }
-
-                if (rawSmall != null) {
-                    // Found a small row! Add to beginning and update currentTop to keep climbing
-                    propagatedBelts.add(0, rawSmall)
-                    currentTop = rawSmall
-                    Log.d("DEBUG", "Found missing small row above validBelts, at $rawSmall")
-                } else {
-                    // No small row found in raw data try the Tall Top Row (the header).
-                    val predictedTall = currentTop - tallRowHeight
-                    val rawTall = rawYBelts
-                        .filter { Math.abs(it - predictedTall) < tallRowErrorMargin }
-                        .minByOrNull { Math.abs(it - predictedTall) }
-
-                    if (rawTall != null) {
-                        propagatedBelts.add(0, rawTall)
-                        Log.d("DEBUG", "Found missing top header row at $rawTall")
-                    } else {
-                        throw MissingTopRowException("Couldn't detect Header row while climbing up from detected table part")
-                    }
-
-                    break // After adding header row we are at the absolute top of the table.
-                }
-            }
+        if (!isTopHeaderPresent) {
+            Log.w("DEBUG", "Header check failed: Top gap (${firstGap.toInt()} px) < expected header (${expectedTallRowHeight.toInt()} px).")
+            throw MissingTopRowException("Header row missing at top of table structure.")
+        } else {
+            Log.d("DEBUG", "Header check passed: Top gap = ${firstGap.toInt()} px (Expected ~ ${expectedTallRowHeight.toInt()} px)")
         }
-        val startIndex = if (propagatedBelts.isEmpty()) 1 else 0 // if first row was missing we start from 0
-
-        if (startIndex == 1)
-            propagatedBelts.add(validYBelts[0])
-
-        // ---- Adding rows between ----
-        // Now we add any missing rows in the between of what was found
-        propagatedBelts.add(validYBelts[startIndex]) // adding first anhor at the start
-        for (i in startIndex until gaps.size) {
-            val currentAnchor = validYBelts[i]
-            val nextAnchor = validYBelts[i+1]
-            val gapSize = nextAnchor - currentAnchor
-
-            // Determine how many rows are actually in this gap
-            val numRowsInGap = Math.round(gapSize.toDouble() / rowHeight).toInt()
-            if (numRowsInGap == 0)
-                Log.d("DEBUG", "Error: ${i}th detected gap is very small")
-
-            // If more than 1 row exists in this gap, fill the missing ones
-            if (numRowsInGap > 1) {
-                val predictedRowHeight = gapSize / numRowsInGap
-                for (j in 1 until numRowsInGap) {
-                    val predictedPos = currentAnchor + (j * predictedRowHeight)
-
-                    val rawBeltExists = rawYBelts.any { abs(it - predictedPos) < smallRowErrorMargin }
-                    if (!rawBeltExists)
-                        Log.d("DEBUG", "${j}th raw belt between validBelts $i and ${i+1} not found")
-
-                    propagatedBelts.add(predictedPos)
-                }
-            }
-            propagatedBelts.add(nextAnchor)
-        }
-
-        // ---- Adding rows after ----
-        var currentBottom = propagatedBelts.last()
-        while (propagatedBelts.size < expectedRows || expectedRows == -1) {
-            val predictedPos = currentBottom + rowHeight
-
-            // Try to find a raw belt at the bottom
-            val rawBelt = rawYBelts
-                .filter { Math.abs(it - predictedPos) < smallRowErrorMargin }
-                .minByOrNull { Math.abs(it - predictedPos) }
-
-            // expectedRows == -1 means we don't have a target so if we didn't find a raw belt, stop propagating
-            if (expectedRows == -1 && rawBelt == null) break
-
-            val nextPos = rawBelt ?: predictedPos
-            propagatedBelts.add(nextPos)
-            currentBottom = nextPos
-
-            if (rowHeight <= 0) throw IllegalStateException("Horizontal row propagation couldn't determine rowHeight correctly")
-        }
-        return propagatedBelts
     }
 
-    private fun filterBeltsByDensity(
-        grid: Array<Array<Point?>>,
-        belts: List<Int>,
-        targetCount: Int,
-        isHorizontal: Boolean // true -> input are YBelts - each row's Y value
-    ): List<Int> {
-        if (belts.size <= targetCount) return belts
+    /**
+     * Filters out weak/spurious lines based on how many real intersections
+     * they share with the opposing set of structural lines (horizontal vs vertical).
+     */
+    fun filterLinesByIntersections(
+        linesToFilter: List<PolyLineSegment>,
+        opposingLines: List<PolyLineSegment>,
+        targetCount: Int = -1
+    ): List<PolyLineSegment> {
+        if (linesToFilter.isEmpty()) return emptyList()
+        if (targetCount != -1 && linesToFilter.size <= targetCount) return linesToFilter
 
-        val scores = belts.indices.map { index ->
-            var validIntersectionCount = 0
+        val scoredLines = linesToFilter.indices.map { i ->
+            val candidate = linesToFilter[i]
+            var intersectionCount = 0
 
-            if (isHorizontal) {
-                for (col in grid[index].indices) {
-                    if (grid[index][col] != null) validIntersectionCount++
-                }
-            } else { // XBelts[0] has X pixel position of first table vertical line
-                for (row in grid.indices) {
-                    if (grid[row][index] != null) validIntersectionCount++
+            for (opposing in opposingLines) {
+                if (candidate.intersects(opposing)) {
+                    intersectionCount++
                 }
             }
-            validIntersectionCount
+            Pair(linesToFilter[i], intersectionCount)
         }
-        val beltScorePairs = belts.zip(scores)
 
-        if (targetCount != -1) {
-            return beltScorePairs
+        val maxIntersections = scoredLines.maxOfOrNull { it.second } ?: 0
+
+        return if (targetCount != -1) {
+            // Keep the top N lines with the highest intersection counts
+            scoredLines
                 .sortedByDescending { it.second }
                 .take(targetCount)
                 .map { it.first }
-                .sorted()
         } else {
-            // Calculate threshold based on the amount of intersections on the most intersected belt.
-            val minRequiredPoints = scores.max() * minRequiredIntersectionsCoeff
-
-            return beltScorePairs
+            // Keep lines that have at least 50% of the maximum recorded intersection score
+            val minRequiredPoints = maxIntersections * MIN_REQUIRED_INTERSECTIONS_COEFF
+            scoredLines
                 .filter { it.second >= minRequiredPoints }
                 .map { it.first }
-                .sorted()
         }
-
     }
 
     fun deskewGrayMat(gray: Mat) : Mat? {
@@ -629,203 +595,6 @@ object TableDetector {
         }
         Log.d("ERROR", "Deskewing the image failed")
         return null
-    }
-
-    fun detectTableCellsByLines(gray: Mat): Mat {
-        val thresh = ImageProcessor.createThresh(gray)
-        val (horizontal, vertical) = createHorizontalVertical(thresh)
-
-        val gridMask = Mat()
-        Core.add(horizontal, vertical, gridMask)
-
-        return LineDetector.extractTableBorders(gridMask)
-    }
-
-    fun detectTableCellsDynamic(gray: Mat, settings: TableLayout): TableDetectionResult {
-        val expectedCols = settings.expectedCols
-
-        val thresh = ImageProcessor.createThresh(gray)
-        val (horizontal, vertical) = createHorizontalVertical(thresh)
-
-        val gridMask = Mat()
-        Core.add(horizontal, vertical, gridMask)
-
-        // 2. Find Raw Contours
-        val contours = ArrayList<MatOfPoint>()
-        val hierarchy = Mat()
-        Imgproc.findContours(gridMask, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE)
-
-        val rawRects = contours.map { Imgproc.boundingRect(it) }
-            .filter { it.width > 4 && it.height > 4 }
-
-        if (rawRects.isEmpty()) {
-            return TableDetectionResult.Failure(emptyArray(), gray, thresh, gridMask, gray.clone(), Exception("No contours found"))
-        }
-
-        // Dynamic scale calculation for row height
-        val sortedHeights = rawRects.map { it.height }.sorted()
-        val representativeCellHeight = sortedHeights[(sortedHeights.size * 0.85).toInt().coerceIn(0, sortedHeights.size - 1)]
-        val yTolerance = representativeCellHeight * 0.35
-
-        // Filter out obvious noise
-        val cellCandidates = rawRects.filter { it.height > (representativeCellHeight * 0.25) }
-
-        // 3. Group into Rows
-        val sortedByY = cellCandidates.sortedBy { it.y }
-        val groupedRows = mutableListOf<MutableList<Rect>>()
-        if (sortedByY.isNotEmpty()) {
-            var currentRow = mutableListOf<Rect>()
-            currentRow.add(sortedByY[0])
-            groupedRows.add(currentRow)
-
-            for (i in 1 until sortedByY.size) {
-                val lastY = currentRow.last().y
-                val currentY = sortedByY[i].y
-
-                if (abs(currentY - lastY) <= yTolerance) {
-                    currentRow.add(sortedByY[i])
-                } else {
-                    currentRow = mutableListOf(sortedByY[i])
-                    groupedRows.add(currentRow)
-                }
-            }
-        }
-
-        // Keep only rows that match expected column count
-        val validRows = groupedRows.map { it.sortedBy { rect -> rect.x } }
-            .filter { it.size == expectedCols }
-
-        // 4. Map to TableCells
-        val cells = Array(validRows.size) { r ->
-            val rowItems = validRows[r]
-            Array(expectedCols) { c ->
-                val rect = rowItems[c]
-                TableCell(
-                    topLeft = Point(rect.x.toDouble(), rect.y.toDouble()),
-                    topRight = Point((rect.x + rect.width).toDouble(), rect.y.toDouble()),
-                    bottomLeft = Point(rect.x.toDouble(), (rect.y + rect.height).toDouble()),
-                    bottomRight = Point((rect.x + rect.width).toDouble(), (rect.y + rect.height).toDouble())
-                )
-            }
-        }
-
-        // Cleanup
-        horizontal.release()
-        vertical.release()
-        hierarchy.release()
-        contours.forEach { it.release() }
-
-        val overlay = drawCells(gray, cells)
-        return TableDetectionResult.Success(cells, gray, thresh, gridMask, overlay)
-    }
-
-    fun detectTableCellsByContours(gray: Mat, settings: TableLayout): TableDetectionResult {
-        val expectedCols = settings.expectedCols
-
-        val thresh = ImageProcessor.createThresh(gray)
-        val (horizontal, vertical) = createHorizontalVertical(thresh)
-
-        val gridMask = Mat()
-        Core.add(horizontal, vertical, gridMask)
-
-        // 5. Detect raw structural contours
-        val contours = ArrayList<MatOfPoint>()
-        val hierarchy = Mat()
-        Imgproc.findContours(gridMask, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE)
-
-        // Clean up morph operations early
-        horizontal.release()
-        vertical.release()
-
-        // 6. Convert raw contours to robust rectangular boundaries
-        val candidates = mutableListOf<Rect>()
-        for (contour in contours) {
-            val rect = Imgproc.boundingRect(contour)
-            // Filter out extreme noise (too thin, microscopic speckles, etc.)
-            if (rect.width > 20 && rect.height > 10) {
-                candidates.add(rect)
-            }
-        }
-        hierarchy.release()
-        contours.forEach { it.release() }
-
-        if (candidates.isEmpty()) {
-            thresh.release()
-            gridMask.release()
-            return TableDetectionResult.Failure(
-                cells = emptyArray(),
-                gray = gray,
-                thresh = Mat(),
-                mask = Mat(),
-                lines = gray.clone(),
-                exception = IllegalStateException("No valid grid cells detected via contours.")
-            )
-        }
-
-        // 7. Sort and Group detected cells into 2D Grid rows/columns using center coordinates
-        val sortedByY = candidates.sortedBy { it.y + (it.height / 2) }
-        val rows = mutableListOf<MutableList<Rect>>()
-
-        // Dynamically group rows by allowing vertical coordinate drift up to 50% of the median cell height
-        val medianHeight = sortedByY.map { it.height }.sorted()[sortedByY.size / 2]
-        val yTolerance = medianHeight * 0.25
-
-        var currentRow = mutableListOf<Rect>()
-        currentRow.add(sortedByY[0])
-        rows.add(currentRow)
-
-        for (i in 1 until sortedByY.size) {
-            val lastRectInRow = currentRow.last()
-            val lastCenterY = lastRectInRow.y + (lastRectInRow.height / 2)
-            val currentCenterY = sortedByY[i].y + (sortedByY[i].height / 2)
-
-            if (abs(currentCenterY - lastCenterY) <= yTolerance) {
-                currentRow.add(sortedByY[i])
-            } else {
-                currentRow = mutableListOf(sortedByY[i])
-                rows.add(currentRow)
-            }
-        }
-
-        // Sort every row horizontally (left-to-right) and filter rows not matching your layout target
-        val validatedRows = rows.map { row -> row.sortedBy { it.x } }
-            .filter { it.size == expectedCols } // Keep rows that matched exactly the expected column template count
-
-        // 8. Transform Rect boundaries into exact TableCell points
-        val cells = Array(validatedRows.size) { r ->
-            val rowItems = validatedRows[r]
-            Array(expectedCols) { c ->
-                val rect = rowItems[c]
-                TableCell(
-                    topLeft = Point(rect.x.toDouble(), rect.y.toDouble()),
-                    topRight = Point((rect.x + rect.width).toDouble(), rect.y.toDouble()),
-                    bottomLeft = Point(rect.x.toDouble(), (rect.y + rect.height).toDouble()),
-                    bottomRight = Point((rect.x + rect.width).toDouble(), (rect.y + rect.height).toDouble())
-                )
-            }
-        }
-
-        // Draw the green debug overlay to visually verify cell tracking quality
-        val linesOverlayImage = drawCells(gray, cells)
-
-        return if (cells.isEmpty()) {
-            TableDetectionResult.Failure(
-                cells = cells,
-                gray = gray,
-                thresh = thresh,
-                mask = gridMask,
-                lines = linesOverlayImage,
-                exception = MissingTopRowException("Failed to construct layout grid from contours.")
-            )
-        } else {
-            TableDetectionResult.Success(
-                cells = cells,
-                gray = gray,
-                thresh = thresh,
-                mask = gridMask,
-                lines = linesOverlayImage
-            )
-        }
     }
 
     // Create Debug image with marked rectangles.

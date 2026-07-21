@@ -1,69 +1,89 @@
 package com.example.workflowocr
 
 import android.util.Log
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
-import org.opencv.core.Rect
-import org.opencv.imgproc.Imgproc
+import kotlin.math.abs
 
-class TablePropagator(
-    private val searchWindowSize: Int = 30
-) {
-    private var expectedRows: Int = 0
-    private var expectedCols: Int = 0
-
-    fun propagateRobustGrid(
-        intersections: Mat,
-        validX: List<Int>,
-        validY: List<Int>,
-        grid: Array<Array<Point?>>
+object TablePropagator {
+    /**
+     * Builds a complete (R x C) grid of intersection points.
+     * Uses the central row (midR) as a solid anchor spine, then propagates vertically
+     * for every column starting outward from midR.
+     */
+    fun propagateRobustPolyLineGrid(
+        sortedHorizontalLines: List<PolyLineSegment>,
+        sortedVerticalLines: List<PolyLineSegment>
     ): Array<Array<Point>> {
-        expectedRows = validY.size
-        expectedCols = validX.size
-        if (expectedRows == 0 || expectedCols == 0) {
-            Log.w("DEBUG", "Table propagation impossible, belts amount is 0, rows:$expectedRows, cols:$expectedCols")
+        val rows = sortedHorizontalLines.size
+        val cols = sortedVerticalLines.size
+        if (rows == 0 || cols == 0) {
+            Log.w("DEBUG", "Table propagation impossible, rows:$rows, cols:$cols")
             return emptyArray()
         }
 
-        val midR = expectedRows / 2
-        val midC = expectedCols / 2
+        val grid = Array(rows) { arrayOfNulls<Point>(cols) }
 
-        val idealSeed = Point(validX[midC].toDouble(), validY[midR].toDouble())
-        val actualSeed = findLocalIntersection(intersections, idealSeed) ?: idealSeed
-        grid[midR][midC] = actualSeed
-
-        // Propagate horizontally from center
-        propagateLine(grid, intersections, midR, midC, 0, 1, validX)  // Right
-        propagateLine(grid, intersections, midR, midC, 0, -1, validX) // Left
-
-        // Propagate vertically for every column but start from the columns neighbouring midC
-        for (c in midC until expectedCols) {
-            if (grid[midR][c] != null) {
-                propagateLine(grid, intersections, midR, c, 1, 0, validY)  // Down
-                propagateLine(grid, intersections, midR, c, -1, 0, validY) // Up
+        // Phase 1: Fill all direct Polyline Intersections found naturally
+        for (r in 0 until rows) {
+            for (c in 0 until cols) {
+                grid[r][c] = sortedHorizontalLines[r].findIntersection(sortedVerticalLines[c])
             }
         }
 
-        for (c in midC - 1 downTo 0) {
+        // Phase 2: Anchor at Center Seed (midR, midC)
+        val midR = rows / 2
+        val midC = cols / 2
+
+        if (grid[midR][midC] == null) {
+            grid[midR][midC] = estimateMissingPoint(sortedHorizontalLines, sortedVerticalLines, grid, midR, midC)
+        }
+
+        // Phase 3: Build the solid horizontal anchor spine at midR
+        // Right from midC
+        propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, startR = midR, startC = midC, dr = 0, dc = 1)
+        // Left from midC
+        propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, startR = midR, startC = midC, dr = 0, dc = -1)
+
+        // Phase 4: Propagate vertically for EVERY column, always starting from the midR anchor!
+        val colOrder = buildColumnOrder(cols, midC) // Starts at midC, then midC+1, midC-1, etc.
+
+        for (c in colOrder) {
             if (grid[midR][c] != null) {
-                propagateLine(grid, intersections, midR, c, 1, 0, validY)  // Down
-                propagateLine(grid, intersections, midR, c, -1, 0, validY) // Up
+                // Propagate DOWN from midR
+                propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, startR = midR, startC = c, dr = 1, dc = 0)
+                // Propagate UP from midR
+                propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, startR = midR, startC = c, dr = -1, dc = 0)
             }
         }
 
+        // Final safety pass to handle any unassigned edge points
+        for (r in 0 until rows) {
+            for (c in 0 until cols) {
+                if (grid[r][c] == null) {
+                    grid[r][c] = estimateMissingPoint(sortedHorizontalLines, sortedVerticalLines, grid, r, c)
+                }
+            }
+        }
+
+        @Suppress("UNCHECKED_CAST")
         return grid as Array<Array<Point>>
     }
 
+    /**
+     * Propagates line positions along a direction vector (dr, dc) starting from (startR, startC).
+     * Exactly mimics your original propagateLine loop structure!
+     */
     private fun propagateLine(
+        hLines: List<PolyLineSegment>,
+        vLines: List<PolyLineSegment>,
         grid: Array<Array<Point?>>,
-        intersections: Mat,
         startR: Int,
         startC: Int,
         dr: Int,
-        dc: Int,
-        belts: List<Int>
+        dc: Int
     ) {
+        val rows = grid.size
+        val cols = grid[0].size
         var currR = startR
         var currC = startC
 
@@ -71,176 +91,138 @@ class TablePropagator(
             val nextR = currR + dr
             val nextC = currC + dc
 
-            if (nextR !in 0 until expectedRows || nextC !in 0 until expectedCols) break
-            if (grid[nextR][nextC] != null) {
-                currR = nextR
-                currC = nextC
-                continue
+            if (nextR !in 0 until rows || nextC !in 0 until cols) break
+
+            // If next cell is missing, predict it from currR, currC
+            if (grid[nextR][nextC] == null) {
+                grid[nextR][nextC] = propagateStep(hLines, vLines, grid, currR, currC, nextR, nextC)
             }
 
-            val prevPoint = grid[currR][currC]!!
-
-            // Get the "Ideal" distance for the NEXT step and the PREVIOUS step from belts
-            val idealDist = if (dc != 0) belts[nextC] - belts[currC] else belts[nextR] - belts[currR]
-
-            // --- First Neighbour alignment strategy ---
-            var structuralPoint: Point? = null
-
-            // Look for neighbors in the adjacent lines (if moving vertically look at cols -1 and +1)
-            val lateralOffsets = listOf(-1, 1)
-            for (offset in lateralOffsets) {
-                val neighbourR = if (dr != 0) nextR else currR + offset
-                val neighbourC = if (dc != 0) nextC else currC + offset
-
-                if (
-                    neighbourR in 0 until expectedRows && neighbourC in 0 until expectedCols &&
-                    neighbourR - dr in 0 until expectedRows && neighbourC - dc in 0 until expectedCols &&
-                    grid[neighbourR][neighbourC] != null && grid[neighbourR - dr][neighbourC - dc] != null
-                ) {
-                    val neighbourDX = grid[neighbourR][neighbourC]!!.x - grid[neighbourR - dr][neighbourC - dc]!!.x
-                    val neighbourDY = grid[neighbourR][neighbourC]!!.y - grid[neighbourR - dr][neighbourC - dc]!!.y
-
-                    val candidate = Point(prevPoint.x + neighbourDX, prevPoint.y + neighbourDY)
-
-                    val found = findLocalIntersection(intersections, candidate)
-                    if (found != null) {
-                        structuralPoint = found
-                        break
-                    }
-                }
-            }
-
-            // --- Fallback: Momentum or pure prediction ---
-            if (structuralPoint != null) {
-                grid[nextR][nextC] = structuralPoint
-            } else {
-                val prediction = if (currR - dr in 0 until expectedRows && currC - dc in 0 until expectedCols && grid[currR - dr][currC - dc] != null) {
-                    // We have a previous segment to calculate local slope/skew
-                    val p0 = grid[currR - dr][currC - dc]!!
-
-                    // Calculate the local vector
-                    val localDX = prevPoint.x - p0.x
-                    val localDY = prevPoint.y - p0.y
-
-                    // Check if the model (belts) expects a size change here
-                    val prevIdealDist = if (dc != 0) belts[currC] - belts[currC - dc] else belts[currR] - belts[currR - dr]
-                    val expectedRatio = if (Math.abs(prevIdealDist.toDouble()) > 0.1) idealDist.toDouble() / prevIdealDist else 1.0
-
-                    // HYBRID DECISION:
-                    // If the ratio is close to 1.0 (e.g., 0.85 to 1.15), the model thinks rows are equal.
-                    // In this case, IGNORE the belt noise at the bottom and use Pure Momentum (scale = 1.0).
-                    // If the ratio is large (e.g., 2.0 for Header), use the scale.
-                    val scale = if (Math.abs(expectedRatio - 1.0) < 0.15) 1.0 else expectedRatio
-
-                    Point(prevPoint.x + (localDX * scale), prevPoint.y + (localDY * scale))
-                } else {
-                    // Fallback for the very first step of propagation, Use belts
-                    if (dc != 0) Point(prevPoint.x + idealDist, prevPoint.y)
-                    else Point(prevPoint.x, prevPoint.y + idealDist)
-                }
-
-                // Search for actual intersection near the scaled prediction
-                val found = findLocalIntersection(intersections, prediction)
-                grid[nextR][nextC] = found ?: prediction
-            }
-
+            // Advance step
             currR = nextR
             currC = nextC
         }
     }
 
-    private fun findLocalIntersection(intersections: Mat, target: Point): Point? {
-        val x = target.x.toInt()
-        val y = target.y.toInt()
-        val half = searchWindowSize / 2
+    /**
+     * Predicts a missing grid point at (targetR, targetC) based on neighboring structural vectors.
+     */
+    private fun propagateStep(
+        hLines: List<PolyLineSegment>,
+        vLines: List<PolyLineSegment>,
+        grid: Array<Array<Point?>>,
+        currentR: Int,
+        currentC: Int,
+        targetR: Int,
+        targetC: Int
+    ): Point {
+        val prevPoint = grid[currentR][currentC]!!
+        val dr = targetR - currentR
+        val dc = targetC - currentC
 
-        if (x - half < 0 || y - half < 0 || x + half >= intersections.cols() || y + half >= intersections.rows()) return null
+        // Strategy 1: Check lateral neighbor displacements (e.g. adjacent column/row offset)
+        val lateralOffsets = listOf(-1, 1)
+        for (offset in lateralOffsets) {
+            val neighborR = if (dr != 0) targetR else currentR + offset
+            val neighborC = if (dc != 0) targetC else currentC + offset
+            val neighborPrevR = neighborR - dr
+            val neighborPrevC = neighborC - dc
 
-        val roiRect = Rect(x - half, y - half, searchWindowSize, searchWindowSize)
-        val roi = intersections.submat(roiRect)
+            if (
+                neighborR in grid.indices && neighborC in grid[0].indices &&
+                neighborPrevR in grid.indices && neighborPrevC in grid[0].indices &&
+                grid[neighborR][neighborC] != null && grid[neighborPrevR][neighborPrevC] != null
+            ) {
+                val pNeighborTarget = grid[neighborR][neighborC]!!
+                val pNeighborPrev = grid[neighborPrevR][neighborPrevC]!!
 
-        val contours = mutableListOf<MatOfPoint>()
-        Imgproc.findContours(roi, contours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
+                // Delta vector from neighbor segment
+                val dx = pNeighborTarget.x - pNeighborPrev.x
+                val dy = pNeighborTarget.y - pNeighborPrev.y
 
-        val validContours = contours.filter {
-            val rect = Imgproc.boundingRect(it)
-            val aspect = rect.width.toDouble() / rect.height.toDouble()
-            aspect in 0.2..6.0
+                return Point(prevPoint.x + dx, prevPoint.y + dy)
+            }
         }
 
-        val bestContour = validContours.minByOrNull { contour ->
-            val moments = Imgproc.moments(contour)
-            if (moments.m00 < 1e-5) return@minByOrNull Double.MAX_VALUE
-
-            val cx = moments.m10 / moments.m00 + roiRect.x
-            val cy = moments.m01 / moments.m00 + roiRect.y
-
-            // Pythagorean distance from target
-            val dx = cx - target.x
-            val dy = cy - target.y
-            (dx * dx + dy * dy)
+        // Strategy 2: Ray projection of line trends
+        val hLine = hLines.getOrNull(targetR)
+        val vLine = vLines.getOrNull(targetC)
+        if (hLine != null && vLine != null) {
+            val estimatedPoint = estimateLineTrendCrossing(hLine, vLine)
+            if (estimatedPoint != null) return estimatedPoint
         }
 
-        var result: Point? = null
-        if (bestContour != null) {
-            val moments = Imgproc.moments(bestContour)
-            result = Point(moments.m10 / moments.m00 + roiRect.x, moments.m01 / moments.m00 + roiRect.y)
+        // Strategy 3: Pure momentum extrapolation using previous grid step in the same direction
+        val prev2R = currentR - dr
+        val prev2C = currentC - dc
+        if (prev2R in grid.indices && prev2C in grid[0].indices && grid[prev2R][prev2C] != null) {
+            val pPrev2 = grid[prev2R][prev2C]!!
+            val dx = prevPoint.x - pPrev2.x
+            val dy = prevPoint.y - pPrev2.y
+            return Point(prevPoint.x + dx, prevPoint.y + dy)
         }
 
-        roi.release()
-        return result
+        // Strategy 4: Fallback estimation
+        return estimateMissingPoint(hLines, vLines, grid, targetR, targetC)
     }
 
-    companion object {
-        fun gridFromClosestIntersections(
-            intersections: List<Point>,
-            validXBelts: List<Int>,
-            validYBelts: List<Int>,
-        ): Array<Array<Point?>> {
-            val rowEdgeCount = validYBelts.size
-            val colEdgeCount = validXBelts.size
+    /**
+     * Projects the general direction rays of two non-intersecting PolyLineSegments
+     * and finds their line-line intersection point.
+     */
+    private fun estimateLineTrendCrossing(hLine: PolyLineSegment, vLine: PolyLineSegment): Point? {
+        val hP1 = hLine.firstPoint
+        val hP2 = hLine.lastPoint
+        val vP1 = vLine.firstPoint
+        val vP2 = vLine.lastPoint
 
-            // Create a 2D Array to store the best point for each intersection
-            // Points are nullable because some intersections might be missing
-            val grid = Array(rowEdgeCount) { arrayOfNulls<Point>(colEdgeCount) }
+        val d = (hP1.x - hP2.x) * (vP1.y - vP2.y) - (hP1.y - hP2.y) * (vP1.x - vP2.x)
+        if (abs(d) < 1e-5) return null
 
-            // Tolerance for perspective/noise
-            val tolerance = 15.0
+        val t = ((hP1.x - vP1.x) * (vP1.y - vP2.y) - (hP1.y - vP1.y) * (vP1.x - vP2.x)) / d
 
-            for (intersection in intersections) {
-                val cx = intersection.x
-                val cy = intersection.y
-                // Find the closest index and check if it's within tolerance
-                val rowIndex = validYBelts.indices
-                    .minByOrNull { Math.abs(validYBelts[it] - cy) }
-                    ?.takeIf { Math.abs(validYBelts[it] - cy) < tolerance } ?: -1
+        return Point(
+            hP1.x + t * (hP2.x - hP1.x),
+            hP1.y + t * (hP2.y - hP1.y)
+        )
+    }
 
-                val colIndex = validXBelts.indices
-                    .minByOrNull { Math.abs(validXBelts[it] - cx) }
-                    ?.takeIf { Math.abs(validXBelts[it] - cx) < tolerance } ?: -1
+    /**
+     * Fallback point estimation based on bounding coordinates or line averages.
+     */
+    private fun estimateMissingPoint(
+        hLines: List<PolyLineSegment>,
+        vLines: List<PolyLineSegment>,
+        grid: Array<Array<Point?>>,
+        r: Int,
+        c: Int
+    ): Point {
+        val hLine = hLines.getOrNull(r)
+        val vLine = vLines.getOrNull(c)
 
-                if (rowIndex != -1 && colIndex != -1) {
-                    val point = Point(cx, cy)
-                    val currentBest = grid[rowIndex][colIndex]
+        val y = hLine?.let { (it.firstPoint.y + it.lastPoint.y) / 2.0 }
+            ?: (0 until grid[0].size).mapNotNull { grid[r][it]?.y }.average().takeIf { !it.isNaN() }
+            ?: (r * 50.0)
 
-                    if (currentBest == null) {
-                        grid[rowIndex][colIndex] = point
-                    } else {
-                        // Compare distances to the ideal "Global Belt" intersection
-                        val distNew =
-                            Math.hypot(cx - validXBelts[colIndex], cy - validYBelts[rowIndex])
-                        val distOld = Math.hypot(
-                            currentBest.x - validXBelts[colIndex],
-                            currentBest.y - validYBelts[rowIndex]
-                        )
+        val x = vLine?.let { (it.firstPoint.x + it.lastPoint.x) / 2.0 }
+            ?: (0 until grid.size).mapNotNull { grid[it][c]?.x }.average().takeIf { !it.isNaN() }
+            ?: (c * 50.0)
 
-                        if (distNew < distOld) {
-                            grid[rowIndex][colIndex] = point
-                        }
-                    }
-                }
-            }
-            return grid
+        return Point(x, y)
+    }
+
+    /**
+     * Helper to build column iteration order starting from middle column radiating outward.
+     */
+    private fun buildColumnOrder(cols: Int, midC: Int): List<Int> {
+        val order = mutableListOf<Int>()
+        order.add(midC)
+        var step = 1
+        while (midC + step < cols || midC - step >= 0) {
+            if (midC + step < cols) order.add(midC + step)
+            if (midC - step >= 0) order.add(midC - step)
+            step++
         }
+        return order
     }
 }
