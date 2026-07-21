@@ -1,5 +1,6 @@
 package com.example.workflowocr
 
+import android.util.Log
 import org.opencv.core.Mat
 import org.opencv.core.Point
 import org.opencv.core.Scalar
@@ -21,10 +22,53 @@ data class PolyLineSegment(val points: MutableList<Point> = mutableListOf()) {
 
     val length: Double
         get() = hypot(lastPoint.x - firstPoint.x, lastPoint.y - firstPoint.y)
+
+    /**
+     * Interpolates the off-axis coordinate (Y for horizontal, X for vertical) at a specific main-axis position.
+     */
+    fun getOffAxisCoordinateAt(
+        targetMainPos: Double,
+        isHorizontal: Boolean
+    ): Double? {
+        val points = points
+        for (i in 0 until points.size - 1) {
+            val p1 = points[i]
+            val p2 = points[i + 1]
+
+            val m1 = if (isHorizontal) p1.x else p1.y
+            val m2 = if (isHorizontal) p2.x else p2.y
+
+            val minM = minOf(m1, m2)
+            val maxM = maxOf(m1, m2)
+
+            if (targetMainPos in minM..maxM) {
+                val off1 = if (isHorizontal) p1.y else p1.x
+                val off2 = if (isHorizontal) p2.y else p2.x
+
+                if (minM == maxM) return off1 // Vertical step segment
+
+                // Linear interpolation between point nodes
+                val fraction = (targetMainPos - m1) / (m2 - m1)
+                return off1 + fraction * (off2 - off1)
+            }
+        }
+        return null
+    }
 }
 
 object LineDetector {
-    const val ANGLE_THRESHOLD = 10.0
+    enum class OverlapType {
+        NONE,               // Insufficient overlap (< 20% span)
+        OVERLAP_DIVERGENCE,  // Shared axis span, but off-axis distance exceeds proximity limit (Suspicious)
+        CONTAINED,          // One line is a complete sub-segment inside the other (Normal)
+        ONE_ENDED_EXTENSION,// Same on one end, but one line extends further on the other end (Normal)
+        MUTUAL_EXTENSION    // Lines overlap in middle, but BOTH extend past each other on opposite ends (Suspicious)
+    }
+
+    private const val ANGLE_THRESHOLD = 10.0 // (degrees)
+    private const val ENDPOINT_MATCH_TOLERANCE_PX = 5.0 // Epsilon tolerance for endpoint alignment (px)
+    private const val OVERLAP_SPAN_SAMPLE_COUNT = 10.0 // How often we take height checks across the overlap zone
+    private const val MIN_PROXIMITY_MATCH_RATIO = 0.80 // Minimum ratio of sampled points that must fall into ENDPOINT_MATCH_TOLERANCE_PX
 
     fun extractTableBorders(grayMat: Mat): Mat {
         require(grayMat.channels() == 1) {
@@ -124,8 +168,21 @@ object LineDetector {
         val minHorizontalLength = grayMat.width() / 2.0
         val minVerticalLength = grayMat.height() / 2.0
 
-        val finalHorizontal = mergedHorizontal.filter { it.length >= minHorizontalLength }
-        val finalVertical = mergedVertical.filter { it.length >= minVerticalLength }
+        val maxParallelDistanceCoeff = 0.002 // For 4000px picture we allow 8px difference
+        val minOverlapSpanCoeff = 0.05 // If two lines overlap over more than the 5% of the image's size we consider them to be the same
+        val finalHorizontal = deduplicatePolylines(
+            mergedHorizontal.filter { it.length >= minHorizontalLength },
+            true,
+            grayMat.height().toDouble() * maxParallelDistanceCoeff,
+            grayMat.width().toDouble() * minOverlapSpanCoeff
+        )
+        val finalVertical = deduplicatePolylines(
+            mergedVertical.filter { it.length >= minVerticalLength },
+            false,
+            grayMat.width().toDouble() * maxParallelDistanceCoeff,
+            grayMat.height().toDouble() * minOverlapSpanCoeff
+        )
+
 
         val drawMat = Mat()
         Imgproc.cvtColor(grayMat, drawMat, Imgproc.COLOR_GRAY2RGB)
@@ -334,6 +391,137 @@ object LineDetector {
         }
 
         return PolyLineSegment(combinedPoints)
+    }
+
+    /**
+     * Filters out duplicate polylines that overlap on at least [minOverlapSpan].
+     * When duplicates are detected, the longer line is kept and the shorter is discarded.
+     */
+    fun deduplicatePolylines(
+        lines: List<PolyLineSegment>,
+        isHorizontal: Boolean,
+        maxParallelDistance: Double,
+        minOverlapSpan: Double
+    ): List<PolyLineSegment> {
+        if (lines.isEmpty()) return emptyList()
+
+        // Sort by length descending so we always evaluate longer lines first
+        val sortedByLength = lines.sortedByDescending { it.length }
+        val keptLines = mutableListOf<PolyLineSegment>()
+
+        for (candidate in sortedByLength) {
+            var isDuplicate = false
+
+            for (existing in keptLines) {
+                val relation = evaluateOverlapRelation(
+                    candidate = candidate,
+                    existing = existing,
+                    isHorizontal = isHorizontal,
+                    maxParallelDistance = maxParallelDistance,
+                    minOverlapSpan = minOverlapSpan
+                )
+
+                if (relation != OverlapType.NONE) {
+                    // Log suspicious extension patterns for debugging/inspection
+                    when (relation) {
+                        OverlapType.OVERLAP_DIVERGENCE -> {
+                            Log.w("LineDetector", "⚠️ [OVERLAP_DIVERGENCE] Lines overlap partially but drift off-axis! ")
+                        }
+                        OverlapType.MUTUAL_EXTENSION -> {
+                            Log.w("LineDetector", "⚠️ [MUTUAL_EXTENSION] Lines overlap in middle but extend in opposite directions! Candidate length: ${candidate.length}, Existing length: ${existing.length}")
+                        }
+                        else -> { /* CONTAINED or ONE_ENDED_EXTENSION — completely expected */ }
+                    }
+
+                    // Since 'existing' is guaranteed to be longer (we sorted descending), drop candidate
+                    isDuplicate = true
+                    break
+                }
+            }
+
+            if (!isDuplicate) {
+                keptLines.add(candidate)
+            }
+        }
+
+        return keptLines
+    }
+
+    private fun evaluateOverlapRelation(
+        candidate: PolyLineSegment,
+        existing: PolyLineSegment,
+        isHorizontal: Boolean,
+        maxParallelDistance: Double,
+        minOverlapSpan: Double
+    ): OverlapType {
+        // Determine 1D bounding ranges along the primary trajectory axis
+        val candStart = if (isHorizontal) minOf(candidate.firstPoint.x, candidate.lastPoint.x) else minOf(candidate.firstPoint.y, candidate.lastPoint.y)
+        val candEnd   = if (isHorizontal) maxOf(candidate.firstPoint.x, candidate.lastPoint.x) else maxOf(candidate.firstPoint.y, candidate.lastPoint.y)
+
+        val existStart = if (isHorizontal) minOf(existing.firstPoint.x, existing.lastPoint.x) else minOf(existing.firstPoint.y, existing.lastPoint.y)
+        val existEnd   = if (isHorizontal) maxOf(existing.firstPoint.x, existing.lastPoint.x) else maxOf(existing.firstPoint.y, existing.lastPoint.y)
+
+        // Calculate axis overlap boundary bounds
+        val overlapStart = maxOf(candStart, existStart)
+        val overlapEnd = minOf(candEnd, existEnd)
+        val overlapSpan = overlapEnd - overlapStart
+
+        // Must overlap along the main axis by at least minOverlapSpan of image size
+        if (overlapSpan < minOverlapSpan) return OverlapType.NONE
+
+        // Verify perpendicular proximity across the overlap span to make sure they run parallel
+        val sampleStep = maxOf(1.0, overlapSpan / OVERLAP_SPAN_SAMPLE_COUNT)
+        var sampledPoints = 0
+        var withinProximityCount = 0
+
+        var pos = overlapStart
+        while (pos <= overlapEnd) {
+            val candOffAxis = candidate.getOffAxisCoordinateAt(pos, isHorizontal)
+            val existOffAxis = existing.getOffAxisCoordinateAt(pos, isHorizontal)
+
+            if (candOffAxis != null && existOffAxis != null) {
+                sampledPoints++
+                if (abs(candOffAxis - existOffAxis) <= maxParallelDistance) {
+                    withinProximityCount++
+                }
+            }
+            pos += sampleStep
+        }
+
+        if (sampledPoints == 0) {
+            return OverlapType.NONE
+        }
+        val proximityRatio = (withinProximityCount.toDouble() / sampledPoints)
+        // If less than MIN_PROXIMITY_MATCH_RATIO of sampled points are within proximity, they diverged spatially
+        if (proximityRatio < MIN_PROXIMITY_MATCH_RATIO) {
+            // If those lines were similar on a span of MIN_PROXIMITY_MATCH_RATIO * minOverlapSpan but not all of it, then it is suspicious
+            return if (withinProximityCount * sampleStep > MIN_PROXIMITY_MATCH_RATIO * minOverlapSpan)
+                OverlapType.OVERLAP_DIVERGENCE
+            else
+                OverlapType.NONE
+        }
+
+        // --- CLASSIFY EXTENSION PATTERN ---
+        val startDiff = candStart - existStart
+        val endDiff = candEnd - existEnd
+
+        return when {
+            // Candidate is completely inside existing (e.g. cand = BC, exist = ABCD)
+            candStart >= existStart - ENDPOINT_MATCH_TOLERANCE_PX && candEnd <= existEnd + ENDPOINT_MATCH_TOLERANCE_PX -> {
+                OverlapType.CONTAINED
+            }
+
+            // Overhanging on opposite ends (e.g. cand = ABC, exist = BCD)
+            (startDiff < -ENDPOINT_MATCH_TOLERANCE_PX && endDiff > ENDPOINT_MATCH_TOLERANCE_PX) ||
+                    (startDiff > ENDPOINT_MATCH_TOLERANCE_PX && endDiff < -ENDPOINT_MATCH_TOLERANCE_PX) -> {
+                OverlapType.MUTUAL_EXTENSION
+            }
+
+            // Aligned on one end, extended on the other (e.g. cand = BCF, exist = BCD)
+            else -> {
+                OverlapType.ONE_ENDED_EXTENSION
+            }
+        }
     }
 
     private fun distanceToSegment(p: Point, segA: Point, segB: Point): Double {
