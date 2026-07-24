@@ -131,14 +131,9 @@ object LineDetector {
         for (i in 0 until sortedWorkingList.size) {
             if (usedIndices.contains(i)) continue
 
-            val startSegment = sortedWorkingList[i]
-            // Expand active tracking container using the initial segment properties cleanly
-            val startPolySegment = PolyLineSegment(mutableListOf(startSegment.first, startSegment.second))
-
             // Collect the indices of the path segments used in the longest branching solution
             val bestPathIndices = mutableListOf<Int>()
             findLongestBranch(
-                activeLine = startPolySegment,
                 currentIndex = i,
                 previousIndex = i, // Initially anchored to itself
                 availableSegments = sortedWorkingList,
@@ -149,6 +144,7 @@ object LineDetector {
                 isHorizontal = isHorizontal,
                 longestAllowedBacktrack = longestAllowedBacktrack
             )
+
             if (bestPathIndices.isEmpty()) bestPathIndices.add(i)
             val bestMergedPoints = buildList {
                 add(sortedWorkingList[bestPathIndices.first()].first)
@@ -167,7 +163,6 @@ object LineDetector {
 
     // Depth-First Search with backtracking to find the path combination yielding the longest line
     private fun findLongestBranch(
-        activeLine: PolyLineSegment,
         currentIndex: Int,
         previousIndex: Int,
         availableSegments: List<HoughSegment>,
@@ -195,6 +190,7 @@ object LineDetector {
         // to count for segments which became available because of recently filled gap.
         // Skip previous segments cause they will be considered in parallel dfs.
         val searchStartIndex = previousIndex
+        val currentTailSeg = availableSegments[currentPath.last()]
 
         for (nextIdx in searchStartIndex until availableSegments.size) {
             if (usedIndices.contains(nextIdx) || currentPath.contains(nextIdx)) continue
@@ -203,18 +199,16 @@ object LineDetector {
 
             // Forward early-termination check using activeLine bounds
             if (isHorizontal) {
-                if (candidate.first.x > activeLine.lastPoint.x + distanceThreshold) break
+                if (candidate.first.x > currentTailSeg.second.x + distanceThreshold) break
             } else {
-                if (candidate.first.y > activeLine.lastPoint.y + distanceThreshold) break
+                if (candidate.first.y > currentTailSeg.second.y + distanceThreshold) break
             }
 
             // Verify connection compatibility at the boundary endpoint or overlapping trajectory tracks
-            val mergedResult = checkAndCombineBranch(activeLine, candidate, distanceThreshold, isHorizontal)
-            if (mergedResult != null) {
+            if (checkAndCombineBranch(currentPath, candidate, availableSegments, distanceThreshold, isHorizontal)) {
                 currentPath.add(nextIdx)
 
                 findLongestBranch(
-                    activeLine = mergedResult,
                     currentIndex = nextIdx,
                     previousIndex = currentIndex, // Updates lookback to be anchored to the index of the segment we just attached
                     availableSegments = availableSegments,
@@ -227,8 +221,7 @@ object LineDetector {
                 )
 
                 // Backtrack to try alternative branches
-                currentPath.removeAt(currentPath.size - 1)
-                mergedResult.points.removeLast()
+                currentPath.removeLast()
             }
         }
 
@@ -245,26 +238,34 @@ object LineDetector {
 
     // Strictly blends the start of a candidate to the end of our current active line and handles appending of what overextends
     private fun checkAndCombineBranch(
-        active: PolyLineSegment,
+        currentPath: List<Int>,
         candidate: HoughSegment,
+        availableSegments: List<HoughSegment>,
         maxGapThreshold: Double,
         isHorizontal: Boolean
-    ): PolyLineSegment? {
-        if (isHorizontal && candidate.second.x <= active.lastPoint.x)
-            return null
-        if (!isHorizontal && candidate.second.y <= active.lastPoint.y)
-            return null // 1 min 22 sec. bez tego 1 min 44 sec
-        // 1. Angle verification check
-        val candidateAngle = Math.toDegrees(atan2(candidate.second.y - candidate.first.y, candidate.second.x - candidate.first.x))
-        val angleDifference = abs(active.angle - candidateAngle) % 180
-        val normalizedAngleDiff = minOf(angleDifference, 180 - angleDifference)
-        if (normalizedAngleDiff > ANGLE_THRESHOLD)
-            return null
+    ): Boolean {
+        val lastSeg = availableSegments[currentPath.last()]
+
+        if (isHorizontal && candidate.second.x <= lastSeg.second.x)
+            return false
+        if (!isHorizontal && candidate.second.y <= lastSeg.second.y)
+            return false
 
         // Extract the final segment of the current line to check overlapping
-        val linePoints = active.points
-        val lastSegStart = if (linePoints.size >= 2) linePoints[linePoints.size - 2] else active.firstPoint
-        val lastSegEnd = active.lastPoint
+        val lastSegStart = if (currentPath.size >= 2) {
+            availableSegments[currentPath[currentPath.size - 2]].second
+        } else {
+            lastSeg.first
+        }
+        val lastSegEnd = lastSeg.second
+
+        // 1. Angle verification check
+        val activeAngle = Math.toDegrees(atan2(lastSegEnd.y - lastSegStart.y, lastSegEnd.x - lastSegStart.x))
+        val candidateAngle = Math.toDegrees(atan2(candidate.second.y - candidate.first.y, candidate.second.x - candidate.first.x))
+        val angleDifference = abs(activeAngle - candidateAngle) % 180
+        val normalizedAngleDiff = minOf(angleDifference, 180 - angleDifference)
+        if (normalizedAngleDiff > ANGLE_THRESHOLD)
+            return false
 
         // Check if candidate starts near the end of our line (end-to-start gap)
         val endToStartDistance = hypot(candidate.first.x - lastSegEnd.x, candidate.first.y - lastSegEnd.y)
@@ -274,33 +275,7 @@ object LineDetector {
         val overlapDistance = distanceToSegment(candidate.first, lastSegStart, lastSegEnd)
         val isOverlapMatch = overlapDistance <= maxGapThreshold
 
-        if (!isTipToTailMatch && !isOverlapMatch)
-            return null
-
-//        // Unnecessary because by definition of our HoughLine the furthest forward reach(Point) is the .second one
-//        val furthestCandidatePoint = if (isHorizontal) {
-//            if (candidate.first.x > candidate.second.x) candidate.first else candidate.second
-//        } else {
-//            if (candidate.first.y > candidate.second.y) candidate.first else candidate.second
-//        }
-
-//        // Guaranteed at the beginning of out function: Verify if this point actually extends our line forward past our current maximum reach boundary
-//        val extendsLine = if (isHorizontal) {
-//            furthestCandidatePoint.x > lastSegEnd.x
-//        } else {
-//            furthestCandidatePoint.y > lastSegEnd.y
-//        }
-//        if (!extendsLine) return null
-
-//        // Don't construct from scratch the unified dynamic path chain extension mapping layout
-//        val combinedPoints = mutableListOf<Point>().apply {
-//            addAll(active.points)
-//            add(candidate.second) // Snap directly to the new furthest forward boundary position point
-//        }
-        // Instead modify the activePath
-        active.points.addLast(candidate.second)
-
-        return active
+        return isTipToTailMatch || isOverlapMatch
     }
 
     /**
