@@ -485,7 +485,7 @@ object TableDetector {
         if (gaps.isEmpty()) return
 
         val gapBucketMargin = 10.0
-        val detectionErrorCoeff = 0.15
+        val detectionErrorCoeff = 0.3
 
         // Determine standard body row height using mode/clustering
         val bestGap = gaps.maxByOrNull { g ->
@@ -502,7 +502,7 @@ object TableDetector {
 
         // Check gap 0 (Top row)
         val firstGap = gaps[0]
-        val isTopHeaderPresent = firstGap >= (expectedTallRowHeight - tallRowErrorMargin)
+        val isTopHeaderPresent = firstGap >= (expectedTallRowHeight - tallRowErrorMargin) && firstGap <= (expectedTallRowHeight + tallRowErrorMargin)
 
         if (!isTopHeaderPresent) {
             Log.w("DEBUG", "Header check failed: Top gap (${firstGap.toInt()} px) < expected header (${expectedTallRowHeight.toInt()} px).")

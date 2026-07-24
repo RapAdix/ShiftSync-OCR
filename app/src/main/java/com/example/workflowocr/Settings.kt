@@ -30,7 +30,7 @@ object PresetDefaults {
         firstModificationCol = 6,
         changeCol = 7,
         managerCol = 9,
-        headerRowHeightMultiplier = 3.78, // ratio of height between header_row / normal_row
+        headerRowHeightMultiplier = 3.64, // ratio of height between header_row / normal_row
         isCustom = false // Flag indicating this is a factory default
     )
 }
