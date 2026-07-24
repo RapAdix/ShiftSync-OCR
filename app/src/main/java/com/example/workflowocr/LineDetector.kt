@@ -3,6 +3,7 @@ package com.example.workflowocr
 import android.util.Log
 import org.opencv.core.Mat
 import org.opencv.core.Point
+import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -75,7 +76,7 @@ object LineDetector {
         }
 
         val proximityThreshold = kotlin.math.max(grayMat.width(), grayMat.height()) * 0.005
-        val longestAllowedBacktrackRatio = 0.2 // Assume that the false line (e.g. user made) spans at most 20% of the paper
+        val longestAllowedBacktrackRatio = 0.1 // Assume that the false line (e.g. user made) spans at most 20% of the paper
 
         // Process using proximity-sorted arrays
         val mergedHorizontal = mergeOrderedTracks(horizontalLines, proximityThreshold, isHorizontal = true, grayMat.width().toDouble() * longestAllowedBacktrackRatio)
@@ -136,7 +137,7 @@ object LineDetector {
 
             // Collect the indices of the path segments used in the longest branching solution
             val bestPathIndices = mutableListOf<Int>()
-            val bestMergedLine = findLongestBranch(
+            findLongestBranch(
                 activeLine = startPolySegment,
                 currentIndex = i,
                 previousIndex = i, // Initially anchored to itself
@@ -148,6 +149,13 @@ object LineDetector {
                 isHorizontal = isHorizontal,
                 longestAllowedBacktrack = longestAllowedBacktrack
             )
+            if (bestPathIndices.isEmpty()) bestPathIndices.add(i)
+            val bestMergedPoints = buildList {
+                add(sortedWorkingList[bestPathIndices.first()].first)
+                addAll(bestPathIndices.map { sortedWorkingList[it].second })
+            }
+
+            val bestMergedLine = PolyLineSegment(bestMergedPoints.toMutableList())
 
             completedPool.add(bestMergedLine)
             // Permanently consume the winning path components from the pool
@@ -169,20 +177,19 @@ object LineDetector {
         distanceThreshold: Double,
         isHorizontal: Boolean,
         longestAllowedBacktrack: Double
-    ): PolyLineSegment {
-
-        var longestLine = activeLine
+    ) {
 
         val bestPathLength = getPathLength(bestPath, availableSegments)
+        val currentPathLength = getPathLength(currentPath, availableSegments)
         // If this is the first execution or we found a path that beats our previous global maximum length, record it
-        if (bestPath.isEmpty() || activeLine.length > bestPathLength) {
+        if (bestPath.isEmpty() || currentPathLength > bestPathLength) {
             bestPath.clear()
             bestPath.addAll(currentPath)
         }
 
         // Early termination
-        if (bestPathLength - activeLine.length > longestAllowedBacktrack)
-            return longestLine
+        if (bestPathLength - currentPathLength > longestAllowedBacktrack) //TODO lets check if this distance is one step, if so then allow
+            return
 
         // Scan from the index of the previously attached segment
         // to count for segments which became available because of recently filled gap.
@@ -206,7 +213,7 @@ object LineDetector {
             if (mergedResult != null) {
                 currentPath.add(nextIdx)
 
-                val branchResult = findLongestBranch(
+                findLongestBranch(
                     activeLine = mergedResult,
                     currentIndex = nextIdx,
                     previousIndex = currentIndex, // Updates lookback to be anchored to the index of the segment we just attached
@@ -219,16 +226,13 @@ object LineDetector {
                     longestAllowedBacktrack = longestAllowedBacktrack
                 )
 
-                if (branchResult.length > longestLine.length) {
-                    longestLine = branchResult
-                }
-
                 // Backtrack to try alternative branches
                 currentPath.removeAt(currentPath.size - 1)
+                mergedResult.points.removeLast()
             }
         }
 
-        return longestLine
+        return
     }
 
     // Estimate total spatial length of a specific path array
@@ -246,6 +250,10 @@ object LineDetector {
         maxGapThreshold: Double,
         isHorizontal: Boolean
     ): PolyLineSegment? {
+        if (isHorizontal && candidate.second.x <= active.lastPoint.x)
+            return null
+        if (!isHorizontal && candidate.second.y <= active.lastPoint.y)
+            return null // 1 min 22 sec. bez tego 1 min 44 sec
         // 1. Angle verification check
         val candidateAngle = Math.toDegrees(atan2(candidate.second.y - candidate.first.y, candidate.second.x - candidate.first.x))
         val angleDifference = abs(active.angle - candidateAngle) % 180
@@ -269,28 +277,30 @@ object LineDetector {
         if (!isTipToTailMatch && !isOverlapMatch)
             return null
 
-        // Extension method: we will just append the furthest forward reach(Point)
-        val furthestCandidatePoint = if (isHorizontal) {
-            if (candidate.first.x > candidate.second.x) candidate.first else candidate.second
-        } else {
-            if (candidate.first.y > candidate.second.y) candidate.first else candidate.second
-        }
+//        // Unnecessary because by definition of our HoughLine the furthest forward reach(Point) is the .second one
+//        val furthestCandidatePoint = if (isHorizontal) {
+//            if (candidate.first.x > candidate.second.x) candidate.first else candidate.second
+//        } else {
+//            if (candidate.first.y > candidate.second.y) candidate.first else candidate.second
+//        }
 
-        // Verify if this point actually extends our line forward past our current maximum reach boundary
-        val extendsLine = if (isHorizontal) {
-            furthestCandidatePoint.x > lastSegEnd.x
-        } else {
-            furthestCandidatePoint.y > lastSegEnd.y
-        }
-        if (!extendsLine) return null
+//        // Guaranteed at the beginning of out function: Verify if this point actually extends our line forward past our current maximum reach boundary
+//        val extendsLine = if (isHorizontal) {
+//            furthestCandidatePoint.x > lastSegEnd.x
+//        } else {
+//            furthestCandidatePoint.y > lastSegEnd.y
+//        }
+//        if (!extendsLine) return null
 
-        // Construct unified dynamic path chain extension mapping layout
-        val combinedPoints = mutableListOf<Point>().apply {
-            addAll(active.points)
-            add(furthestCandidatePoint) // Snap directly to the new furthest forward boundary position point
-        }
+//        // Don't construct from scratch the unified dynamic path chain extension mapping layout
+//        val combinedPoints = mutableListOf<Point>().apply {
+//            addAll(active.points)
+//            add(candidate.second) // Snap directly to the new furthest forward boundary position point
+//        }
+        // Instead modify the activePath
+        active.points.addLast(candidate.second)
 
-        return PolyLineSegment(combinedPoints)
+        return active
     }
 
     /**
