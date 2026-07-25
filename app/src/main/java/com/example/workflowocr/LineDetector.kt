@@ -45,7 +45,7 @@ object LineDetector {
         val linesMat = Mat()
 
         // Probabilistic Hough Transform (Extracting structural fragments)
-        Imgproc.HoughLinesP(grayMat, linesMat, 1.0, Math.PI / 180.0, 40, 20.0, 5.0)
+        Imgproc.HoughLinesP(grayMat, linesMat, 1.0, Math.PI / 180.0, 20, 35.0, 20.0)
 
         val horizontalLines = mutableListOf<HoughSegment>()
         val verticalLines = mutableListOf<HoughSegment>()

@@ -64,10 +64,17 @@ object TableDetector {
         val expectedVerticalLines = expectedCols + 1
 
         val thresh = ImageProcessor.createThresh(gray)
-        val (horizontal, vertical) = createHorizontalVertical(thresh)
 
-        val gridMask = Mat()
-        Core.add(horizontal, vertical, gridMask)
+        val gridMask = createGridMask(thresh) // create a short horizontal/vertical grid mask
+
+        // Combine it with more strictly horizontal and vertical lines that tried to breach the gaps
+        val (horizontal, vertical) = createHorizontalVertical(thresh)
+        Core.add(gridMask, horizontal, gridMask)
+        Core.add(gridMask, vertical, gridMask)
+        // Somehow this approach gives the best result
+
+        horizontal.release()
+        vertical.release()
 
         val (horizontalLines, verticalLines) = LineDetector.extractTableLines(gridMask)
 
@@ -116,6 +123,30 @@ object TableDetector {
         verticalStructure.release()
 
         return Pair(horizontal, vertical)
+    }
+
+    private fun createGridMask(thresh: Mat): Mat {
+        val horizontal = Mat()
+        val horizontalKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(15.0, 1.0))
+        Imgproc.morphologyEx(thresh, horizontal, Imgproc.MORPH_OPEN, horizontalKernel)
+        val vertical = Mat()
+        val verticalKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(1.0, 15.0))
+        Imgproc.morphologyEx(thresh, vertical, Imgproc.MORPH_OPEN, verticalKernel)
+
+        val gridMask = Mat()
+        Core.add(horizontal, vertical, gridMask)
+
+        val squareKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+        Imgproc.erode(gridMask, gridMask, squareKernel)
+        Imgproc.dilate(gridMask, gridMask, squareKernel)
+
+        horizontal.release()
+        vertical.release()
+        horizontalKernel.release()
+        verticalKernel.release()
+        squareKernel.release()
+
+        return gridMask
     }
 
     /**
