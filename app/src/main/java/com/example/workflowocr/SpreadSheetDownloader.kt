@@ -12,7 +12,6 @@ import org.apache.poi.ss.usermodel.Workbook
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 sealed interface ProjectionResult {
     data class Success(val data: List<Int?>) : ProjectionResult
@@ -181,7 +180,7 @@ object SpreadSheetDownloader {
                 } else {
                     try {
                         rawProjectionList.add(cell.numericCellValue.toInt())
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         rawProjectionList.add(null)
                     }
                 }
@@ -209,7 +208,7 @@ object SpreadSheetDownloader {
         return downloadResult.fold(
             onSuccess = { workbook ->
                 val outcome = getProjectionForDate(dateStr, targetCellCoordinate, workbook)
-                try { workbook.close() } catch (ignored: Exception) {}
+                try { workbook.close() } catch (_: Exception) {}
                 outcome
             },
             onFailure = { error ->

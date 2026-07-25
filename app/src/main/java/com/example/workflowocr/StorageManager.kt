@@ -20,8 +20,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
-import kotlin.math.abs
 
 private val Context.dataStore by preferencesDataStore(name = "app_preferences")
 
@@ -146,7 +144,7 @@ class StorageManager(private val context: Context) {
         return try {
             val list: List<ProcessorRow> = json.decodeFromString(file.readText())
             list.associateBy { it.id }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptyMap()
         }
     }

@@ -1,5 +1,4 @@
 package com.example.workflowocr
-import android.text.BoringLayout
 import kotlinx.serialization.Serializable
 
 enum class PresetType {

@@ -3,7 +3,6 @@ package com.example.workflowocr
 import android.util.Log
 import org.opencv.core.Mat
 import org.opencv.core.Point
-import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 import kotlin.math.atan2
