@@ -220,7 +220,7 @@ object LineDetector {
                 )
 
                 // Backtrack to try alternative branches
-                currentPath.removeLast()
+                currentPath.removeAt(currentPath.size - 1)
             }
         }
 
