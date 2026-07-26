@@ -132,6 +132,10 @@ object LineDetector {
 
             // Collect the indices of the path segments used in the longest branching solution
             val bestPathIndices = mutableListOf<Int>()
+
+            // Cache to store visited tail configurations for this specific root line branch traversal
+            val visitedTails = HashSet<Pair<Point, Point>>()
+
             findLongestBranch(
                 currentIndex = i,
                 previousIndex = i, // Initially anchored to itself
@@ -139,6 +143,7 @@ object LineDetector {
                 usedIndices = usedIndices,
                 currentPath = mutableListOf(i),
                 bestPath = bestPathIndices,
+                visitedTails = visitedTails,
                 distanceThreshold = distanceThreshold,
                 isHorizontal = isHorizontal,
                 longestAllowedBacktrack = longestAllowedBacktrack
@@ -168,6 +173,7 @@ object LineDetector {
         usedIndices: Set<Int>,
         currentPath: MutableList<Int>, // track indices to permanently consume them after merging whole line
         bestPath: MutableList<Int>,
+        visitedTails: HashSet<Pair<Point, Point>>, // track last sections for each started merge to prune what we already checked
         distanceThreshold: Double,
         isHorizontal: Boolean,
         longestAllowedBacktrack: Double
@@ -182,14 +188,31 @@ object LineDetector {
         }
 
         // Early termination
-        if (bestPathLength - currentPathLength > longestAllowedBacktrack) //TODO lets check if this distance is one step, if so then allow
+        if (bestPathLength - currentPathLength > longestAllowedBacktrack &&
+            bestPath[bestPath.size - 2] != currentPath.last()) // If we are one step behind best then allow backtrack even if distance breached
             return
+
+        // Extract the tail trajectory of the current path
+        val lastSeg = availableSegments[currentPath.last()]
+        val lastSegStart = if (currentPath.size >= 2) {
+            availableSegments[currentPath[currentPath.size - 2]].second
+        } else {
+            lastSeg.first
+        }
+        val lastSegEnd = lastSeg.second
+
+        // Prune branch if this exact tail trajectory was already evaluated under this root search
+        // Because all the logic is dependant at most at the last section of PolyLine so if it was visited before
+        // for the current merge then there is no need to check it again since nothing changed
+        val tailKey = Pair(lastSegStart, lastSegEnd)
+        if (!visitedTails.add(tailKey)) {
+            return
+        }
 
         // Scan from the index of the previously attached segment
         // to count for segments which became available because of recently filled gap.
         // Skip previous segments cause they will be considered in parallel dfs.
         val searchStartIndex = previousIndex
-        val currentTailSeg = availableSegments[currentPath.last()]
 
         for (nextIdx in searchStartIndex until availableSegments.size) {
             if (usedIndices.contains(nextIdx) || currentPath.contains(nextIdx)) continue
@@ -198,9 +221,9 @@ object LineDetector {
 
             // Forward early-termination check using activeLine bounds
             if (isHorizontal) {
-                if (candidate.first.x > currentTailSeg.second.x + distanceThreshold) break
+                if (candidate.first.x > lastSegEnd.x + distanceThreshold) break
             } else {
-                if (candidate.first.y > currentTailSeg.second.y + distanceThreshold) break
+                if (candidate.first.y > lastSegEnd.y + distanceThreshold) break
             }
 
             // Verify connection compatibility at the boundary endpoint or overlapping trajectory tracks
@@ -214,6 +237,7 @@ object LineDetector {
                     usedIndices = usedIndices,
                     currentPath = currentPath,
                     bestPath = bestPath,
+                    visitedTails = visitedTails,
                     distanceThreshold = distanceThreshold,
                     isHorizontal = isHorizontal,
                     longestAllowedBacktrack = longestAllowedBacktrack
