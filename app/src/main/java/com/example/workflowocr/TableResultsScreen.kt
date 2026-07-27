@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -104,7 +105,9 @@ data class ProcessorRow(
     val finishTimeSnippetPath: String? = null,
     val oldModificationsSnippetPath: String? = null, // the remaining part of the row
     val newModificationsSnippetPath: String? = null,
-    val isAbsent: Boolean = false
+    val isAbsent: Boolean = false,
+    val originalStartTime: String = startTime,
+    val originalFinishTime: String = finishTime
 ) {
     fun isManualEntry(): Boolean = id.startsWith(MANUAL_ID_PREFIX)
 
@@ -445,6 +448,9 @@ fun TableResultsScreen(viewModel: TableViewModel) {
             items(rowsList, key = { it.id }) { row ->
                 val status = row.getRowStatus(isScheduleForToday, viewModel.activeLayout)
 
+                // Check if non-manual row was modified from original scanned values
+                val isModified = row.isModified()
+
                 ListItem(
                     modifier = Modifier.clickable { viewModel.startEditing(row.id) },
                     colors = ListItemDefaults.colors(
@@ -464,6 +470,17 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                     },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Edit icon right next to the start time column
+                            if (isModified) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Edit,
+                                    contentDescription = "Modified row",
+                                    modifier = Modifier
+                                        .padding(horizontal = 0.dp)
+                                        .size(24.dp),
+                                    tint = SoftEmeraldGreen
+                                )
+                            }
                             displayTextTimeOrSnippet(row, row.startTimeSnippetPath, row.startTime)
                             Spacer(Modifier.width(8.dp))
                             displayTextTimeOrSnippet(row, row.finishTimeSnippetPath, row.finishTime)
@@ -555,7 +572,7 @@ fun TimeBadge(time: String, isAbsent: Boolean = false) {
         }
     ) {
         Text(
-            text = if (time.isEmpty()) "??:??" else time,
+            text = time.ifEmpty { "??:??" },
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
             style = MaterialTheme.typography.bodyMedium.copy(
                 fontFamily = FontFamily.Monospace,
@@ -1055,5 +1072,7 @@ fun ProcessorRow.hasRecentlyWrittenModifications(settings: TableLayout): Boolean
 fun ProcessorRow.isRelevantButUltimatelyAbsent(): Boolean {
     return isAbsent || (hasValidTimes() && startTime == finishTime)
 }
+
+fun ProcessorRow.isModified(): Boolean = !isManualEntry() && (startTime != originalStartTime || finishTime != originalFinishTime)
 
 fun Point.move(dx: Double = 0.0, dy: Double = 0.0) = Point(this.x + dx, this.y + dy)
