@@ -1102,7 +1102,7 @@ fun AboutScreen() {
             color = MaterialTheme.colorScheme.primary
         )
         Text(
-            text = "v1.0.0 (Production Stable)",
+            text = "v2.0.0 (Accurate Table Detection)",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
