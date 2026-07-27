@@ -768,7 +768,10 @@ fun EditTimeDialog(
                         TextButton(onClick = onDismiss) { Text("Cancel") }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(onClick = {
-                            onSave(TimeUtils.minutesToTimeString(start), TimeUtils.minutesToTimeString(end), isAbsent)
+                            if (isAbsent)
+                                onSave(row.startTime, row.finishTime, true) // Don't update the times if saved as absent
+                            else
+                                onSave(TimeUtils.minutesToTimeString(start), TimeUtils.minutesToTimeString(end), isAbsent)
                         }) {
                             Text("Save")
                         }
@@ -1001,7 +1004,7 @@ fun ProcessorRow.getRowStatus(isScheduleForToday: Boolean, settings: TableLayout
     val isExtraEmployee = hasHoliday() && hasRecentlyWrittenModifications(settings)
 
     return when {
-        !hasValidTimes() -> RowStatus.DANGER
+        !hasValidTimes() && !isAbsent -> RowStatus.DANGER // if marked isAbsent then show as ABSENT
         isManualEntry() -> RowStatus.MANUALLY_ADDED
         hasTimeRecentlyCrossed() && startTime != finishTime -> RowStatus.DANGER
         isExtraEmployee && hasValidTimes() -> RowStatus.NEUTRAL // !hasValidTimes() is already covered

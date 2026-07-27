@@ -71,7 +71,8 @@ object CellAnalyzer {
      * @param thresh: Inverted threshold Mat (255=ink, 0=paper)
      * @param cell: The 4-corner TableCell
      * @param hExclusionPct: Horizontal margin to skip on left/right (e.g., 0.10 for 10%)
-     * @param vStripHeightPct: Vertical height of the strips (e.g., 0.20 for 20%)
+     * @param topStripHeightPct: Vertical height of the strip above (e.g., 0.20 for 20%)
+     * @param btmStripHeightPct: Vertical height of the strip below
      */
     fun detectPenCrossing(
         thresh: Mat,
@@ -171,7 +172,8 @@ object CellAnalyzer {
      * Searches for string patterns indicating that the person is shift manager (kz1, kz2, kzn)
      */
     fun isKZ(team: String?): Boolean{
-        return team?.contains("kz", ignoreCase = true) ?: false
+        if (team == null) return false
+        return team.contains("kz", ignoreCase = true) && !team.contains("zkz", ignoreCase = true)
     }
 
     /**
