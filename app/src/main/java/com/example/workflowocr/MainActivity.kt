@@ -20,6 +20,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +32,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -80,6 +85,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -87,8 +93,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -246,7 +256,7 @@ class OcrFlowCoordinator(
     var isDebugCapture by mutableStateOf(false)
         private set
 
-    var activeScanningPage by mutableStateOf<ScanPageType>(ScanPageType.EMPLOYEE_P1)
+    var activeScanningPage by mutableStateOf(ScanPageType.EMPLOYEE_P1)
         private set
 
     var showPagePicker by mutableStateOf(false)
@@ -371,9 +381,9 @@ class OcrFlowCoordinator(
                     grayMat = ImageProcessor.bitmapToGrayMat(bitmap)
 
                     // Note: deskewGrayMat should return a NEW Mat if it modifies it
-                    deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
+                    deskewMat = TableDetector.deskewGrayMat(grayMat) ?: grayMat
 
-                    val detection = TableDetector.detectTableCellsByLines(deskewMat!!, tableViewModel.activeLayout)
+                    val detection = TableDetector.detectTableCellsByLines(deskewMat, tableViewModel.activeLayout)
 
                     detection
                 } finally {
@@ -404,7 +414,7 @@ class OcrFlowCoordinator(
                         val imageBitmap = ImageProcessor.matToBitmap(detection.gray)
                         val date = try {
                             TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeLayout)
-                        } catch (e: TextProcessor.CouldNotDetermineDateException) {
+                        } catch (_: TextProcessor.CouldNotDetermineDateException) {
                             tableViewModel.onDateSupplied = { manualDate ->
                                 proceedWithExtraction(manualDate, detection, imageBitmap, onSuccess)
                             }
@@ -943,9 +953,9 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                             grayMat = ImageProcessor.bitmapToGrayMat(originalBitmap)
 
                             // Note: deskewGrayMat should return a NEW Mat if it modifies it
-                            deskewMat = TableDetector.deskewGrayMat(grayMat!!) ?: grayMat!!
+                            deskewMat = TableDetector.deskewGrayMat(grayMat) ?: grayMat
 
-                            val detection = TableDetector.detectTableCellsByLines(deskewMat!!, settings)
+                            val detection = TableDetector.detectTableCellsByLines(deskewMat, settings)
                             Log.d("DEBUG", "detectTableCells exited")
 
                             // 2. Prepare Bitmaps for UI
@@ -992,7 +1002,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                             }
                             val marginsBmp = ImageProcessor.matToBitmap(marginsDrawn)
                             marginsDrawn.release()
-                            val boxedBmp = ImageProcessor.matToBitmap(boxedMat!!)
+                            val boxedBmp = ImageProcessor.matToBitmap(boxedMat)
 
                             // Convert deskewMat to bitmap now so we can release the Mat
                             val deskewedBmp = ImageProcessor.matToBitmap(detection.gray)
@@ -1029,7 +1039,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
 
                     // Update all UI state variables at once on the Main thread
                     threshBitmap = results.thresh.scaleForPreview()
-                    maskBitmap = results.mask.scaleForPreview()
+                    maskBitmap = results.margins.scaleForPreview()
                     linesBitmap = results.lines.scaleForPreview()
                     displayedBitmap = results.boxed.scaleForPreview()
 
@@ -1040,7 +1050,6 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                             results.deskewedBmp,
                             listOf(settings.nameCol, settings.timeStartCol, settings.timeEndCol)
                         )
-                        val textGrid = TextProcessor.refineTableData(rawTextGrid, settings)
 
                         // Build Log Text
                         val logBuilder = StringBuilder()
@@ -1061,25 +1070,116 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // UI Previews
-        Image(bitmap = displayedBitmap.asImageBitmap(), contentDescription = "Result")
+        // UI Previews - zoomable!
+        ZoomableImage(
+            bitmap = displayedBitmap.asImageBitmap(),
+            contentDescription = "Result"
+        )
 
         threshBitmap?.let {
             Text("Adaptive Threshold", style = MaterialTheme.typography.labelSmall)
-            Image(bitmap = it.asImageBitmap(), contentDescription = "thresh")
+            ZoomableImage(
+                bitmap = it.asImageBitmap(),
+                contentDescription = "thresh"
+            )
         }
 
         maskBitmap?.let {
             Text("Table Mask", style = MaterialTheme.typography.labelSmall)
-            Image(bitmap = it.asImageBitmap(), contentDescription = "mask")
+            ZoomableImage(
+                bitmap = it.asImageBitmap(),
+                contentDescription = "mask"
+            )
         }
 
         linesBitmap?.let {
-            Image(bitmap = it.asImageBitmap(), contentDescription = "linesDebug")
+            ZoomableImage(
+                bitmap = it.asImageBitmap(),
+                contentDescription = "linesDebug"
+            )
         }
 
         Text("OCR log:", modifier = Modifier.padding(top = 16.dp))
         Text(logText, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+fun ZoomableImage(
+    bitmap: ImageBitmap,
+    contentDescription: String?,
+    modifier: Modifier = Modifier
+) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    // Track touch timestamps manually to detect double tap inside gesture loop
+    var lastTapTime by remember { mutableFloatStateOf(0f) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 200.dp, max = 500.dp)
+            .clipToBounds()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val currentTime = down.uptimeMillis.toFloat()
+
+                    // Check for double-tap (tap within 300ms)
+                    if (currentTime - lastTapTime < 300f) {
+                        if (scale > 1f) {
+                            scale = 1f
+                            offsetX = 0f
+                            offsetY = 0f
+                        } else {
+                            scale = 2.5f
+                        }
+                        down.consume()
+                        lastTapTime = 0f // Reset double tap timer
+                    } else {
+                        lastTapTime = currentTime
+                    }
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val zoomChange = event.calculateZoom()
+                        val panChange = event.calculatePan()
+
+                        val isMultiTouch = event.changes.size > 1
+                        val isZoomed = scale > 1f
+
+                        if (isZoomed || isMultiTouch || zoomChange != 1f) {
+                            scale = (scale * zoomChange).coerceIn(1f, 5f)
+
+                            if (scale > 1f) {
+                                offsetX += panChange.x
+                                offsetY += panChange.y
+                            } else {
+                                offsetX = 0f
+                                offsetY = 0f
+                            }
+
+                            // Consume changes so outer page scroll ignores gesture while zoomed
+                            event.changes.forEach { it.consume() }
+                        }
+                        // Unzoomed single-finger touches remain unconsumed for normal vertical scrolling
+                    } while (event.changes.any { it.pressed })
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = contentDescription,
+            modifier = Modifier.graphicsLayer(
+                scaleX = scale,
+                scaleY = scale,
+                translationX = offsetX,
+                translationY = offsetY
+            )
+        )
     }
 }
 
