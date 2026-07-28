@@ -427,15 +427,17 @@ class OcrFlowCoordinator(
 
                 is TableDetector.TableDetectionResult.Failure -> {
                     // 2. Handle Structural Error Path
+                    val failureMessage = detection.exception.message ?: "Cannot find table layout"
+
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            message = "Extraction aborted: Cannot find table header layout!",
+                            message = "Extraction aborted: " + failureMessage,
                             duration = SnackbarDuration.Long
                         )
                     }
 
                     val linesBitmap = ImageProcessor.matToBitmap(detection.lines)
-                    setPreview(cellPreview.scaleForPreview(1000), linesBitmap.scaleForPreview(1000), "Cannot find table header row")
+                    setPreview(cellPreview.scaleForPreview(1000), linesBitmap.scaleForPreview(1000), failureMessage)
 
                     detection.gray.release()
                     detection.thresh.release()

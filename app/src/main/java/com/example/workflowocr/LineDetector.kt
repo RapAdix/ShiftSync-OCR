@@ -23,6 +23,12 @@ data class PolyLineSegment(val points: MutableList<Point> = mutableListOf()) {
         get() = hypot(lastPoint.x - firstPoint.x, lastPoint.y - firstPoint.y)
 }
 
+class TooManyLinesException(
+    message: String,
+    val horizontal: List<HoughSegment>,
+    val vertical: List<HoughSegment>
+) : Exception(message)
+
 object LineDetector {
     enum class OverlapType {
         NONE,               // Insufficient overlap (< 20% span)
@@ -36,6 +42,7 @@ object LineDetector {
     private const val ENDPOINT_MATCH_TOLERANCE_PX = 5.0 // Epsilon tolerance for endpoint alignment (px)
     private const val OVERLAP_SPAN_SAMPLE_COUNT = 10.0 // How often we take height checks across the overlap zone
     private const val MIN_PROXIMITY_MATCH_RATIO = 0.80 // Minimum ratio of sampled points that must fall into ENDPOINT_MATCH_TOLERANCE_PX
+    const val MAX_MERGE_SET_SIZE = 5000 // Maximum size of the Hough segments to allow computing MergeLines in a reasonable time.
 
     fun extractTableLines(grayMat: Mat): Pair<List<PolyLineSegment>, List<PolyLineSegment>> {
         require(grayMat.channels() == 1) {
@@ -72,6 +79,16 @@ object LineDetector {
                 val segment = if (pt1.y > pt2.y) Pair(pt2, pt1) else Pair(pt1, pt2)
                 verticalLines.add(segment)
             }
+        }
+
+        // Check for too complex(time consuming) computation and terminate early based on the lists size
+        if (horizontalLines.size > MAX_MERGE_SET_SIZE || verticalLines.size > MAX_MERGE_SET_SIZE) {
+            linesMat.release()
+            throw TooManyLinesException(
+                "Background is too noisy (${horizontalLines.size} horizontal lines, ${verticalLines.size} vertical lines). Please take picture on a plain background closer to the paper sheet.",
+                horizontalLines,
+                verticalLines
+            )
         }
 
         val proximityThreshold = kotlin.math.max(grayMat.width(), grayMat.height()) * 0.005

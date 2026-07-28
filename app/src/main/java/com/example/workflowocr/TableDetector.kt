@@ -76,9 +76,31 @@ object TableDetector {
         horizontal.release()
         vertical.release()
 
-        val (horizontalLines, verticalLines) = LineDetector.extractTableLines(gridMask)
+        return try {
+            val (horizontalLines, verticalLines) = LineDetector.extractTableLines(gridMask)
+            findRefinedCorners(gray, thresh, horizontalLines, verticalLines, expectedVerticalLines, headerRowHeightMultiplier, gridMask)
+        } catch (e: TooManyLinesException) {
+            // Draw the noisy detected lines onto a preview image for the user
+            val noisyLinesMat = gray.clone()
+            if (noisyLinesMat.channels() == 1) {
+                Imgproc.cvtColor(noisyLinesMat, noisyLinesMat, Imgproc.COLOR_GRAY2RGB)
+            }
+            for (seg in e.horizontal) {
+                Imgproc.line(noisyLinesMat, seg.first, seg.second, Scalar(0.0, 0.0, 255.0), 2)
+            }
+            for (seg in e.vertical) {
+                Imgproc.line(noisyLinesMat, seg.first, seg.second, Scalar(255.0,  0.0, 0.0), 2)
+            }
 
-        return findRefinedCorners(gray, thresh, horizontalLines, verticalLines, expectedVerticalLines, headerRowHeightMultiplier, gridMask)
+            TableDetectionResult.Failure(
+                cells = emptyArray(),
+                gray = gray.clone(),
+                thresh = thresh,
+                mask = gridMask,
+                lines = noisyLinesMat,
+                exception = e
+            )
+        }
     }
 
     private fun createHorizontalVertical(thresh: Mat): Pair<Mat, Mat> {
