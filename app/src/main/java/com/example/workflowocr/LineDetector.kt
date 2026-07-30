@@ -42,7 +42,7 @@ object LineDetector {
     private const val ENDPOINT_MATCH_TOLERANCE_PX = 5.0 // Epsilon tolerance for endpoint alignment (px)
     private const val OVERLAP_SPAN_SAMPLE_COUNT = 10.0 // How often we take height checks across the overlap zone
     private const val MIN_PROXIMITY_MATCH_RATIO = 0.80 // Minimum ratio of sampled points that must fall into ENDPOINT_MATCH_TOLERANCE_PX
-    const val MAX_MERGE_SET_SIZE = 5000 // Maximum size of the Hough segments to allow computing MergeLines in a reasonable time.
+    const val MAX_MERGE_SET_SIZE = 6000 // Maximum size of the Hough segments to allow computing MergeLines in a reasonable time.
 
     fun extractTableLines(grayMat: Mat): Pair<List<PolyLineSegment>, List<PolyLineSegment>> {
         require(grayMat.channels() == 1) {
@@ -98,20 +98,22 @@ object LineDetector {
         val mergedHorizontal = mergeOrderedTracks(horizontalLines, proximityThreshold, isHorizontal = true, grayMat.width().toDouble() * longestAllowedBacktrackRatio)
         val mergedVertical = mergeOrderedTracks(verticalLines, proximityThreshold, isHorizontal = false, grayMat.height().toDouble() * longestAllowedBacktrackRatio)
 
-        // Length Filtering (Keep components stretching across at least half the target field)
-        val minHorizontalLength = grayMat.width() / 2.0
-        val minVerticalLength = grayMat.height() / 2.0
+        // Length Filtering (Keep components stretching across at least 10% the target field)
+        val minHorizontalLength = grayMat.width() * 0.1
+        val minVerticalLength = grayMat.height() * 0.1
+        val filteredHorizontal = mergedHorizontal.filter { it.length >= minHorizontalLength }
+        val filteredVertical = mergedVertical.filter { it.length >= minVerticalLength }
 
         val maxParallelDistanceCoeff = 0.002 // For 4000px picture we allow 8px difference
         val minOverlapSpanCoeff = 0.05 // If two lines overlap over more than the 5% of the image's size we consider them to be the same
         val finalHorizontal = deduplicatePolylines(
-            mergedHorizontal.filter { it.length >= minHorizontalLength },
+            filteredHorizontal,
             true,
             grayMat.height().toDouble() * maxParallelDistanceCoeff,
             grayMat.width().toDouble() * minOverlapSpanCoeff
         )
         val finalVertical = deduplicatePolylines(
-            mergedVertical.filter { it.length >= minVerticalLength },
+            filteredVertical,
             false,
             grayMat.width().toDouble() * maxParallelDistanceCoeff,
             grayMat.height().toDouble() * minOverlapSpanCoeff

@@ -3,6 +3,7 @@ package com.example.workflowocr
 import android.util.Log
 import org.opencv.core.Point
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 object TablePropagator {
     /**
@@ -12,7 +13,8 @@ object TablePropagator {
      */
     fun propagateRobustPolyLineGrid(
         sortedHorizontalLines: List<PolyLineSegment>,
-        sortedVerticalLines: List<PolyLineSegment>
+        sortedVerticalLines: List<PolyLineSegment>,
+        physicalJunctions: List<Point>
     ): Array<Array<Point>> {
         val rows = sortedHorizontalLines.size
         val cols = sortedVerticalLines.size
@@ -23,14 +25,20 @@ object TablePropagator {
 
         val grid = Array(rows) { arrayOfNulls<Point>(cols) }
 
-        // Phase 1: Fill all direct Polyline Intersections found naturally
+        // Phase 1: Direct Polyline Intersections found naturally
         for (r in 0 until rows) {
             for (c in 0 until cols) {
-                grid[r][c] = sortedHorizontalLines[r].findIntersection(sortedVerticalLines[c])
+                val directIntersection = sortedHorizontalLines[r].findIntersection(sortedVerticalLines[c])
+                grid[r][c] = if (directIntersection != null) {
+                    // If direct crossing exists, snap to physical centroid if within small radius (e.g. 8px)
+                    findNearestPhysicalJunction(directIntersection, physicalJunctions, maxSearchRadiusPx = 8.0) ?: directIntersection
+                } else {
+                    null
+                }
             }
         }
 
-        // Phase 2: Anchor at Center Seed (midR, midC)
+        // Phase 2: Anchor Seed (midR, midC)
         val midR = rows / 2
         val midC = cols / 2
 
@@ -38,21 +46,21 @@ object TablePropagator {
             grid[midR][midC] = estimateMissingPoint(sortedHorizontalLines, sortedVerticalLines, grid, midR, midC)
         }
 
-        // Phase 3: Build the solid horizontal anchor spine at midR
+        // Phase 3 & 4: Propagation
         // Right from midC
-        propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, startR = midR, startC = midC, dr = 0, dc = 1)
+        propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, physicalJunctions, startR = midR, startC = midC, dr = 0, dc = 1)
         // Left from midC
-        propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, startR = midR, startC = midC, dr = 0, dc = -1)
+        propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, physicalJunctions, startR = midR, startC = midC, dr = 0, dc = -1)
 
-        // Phase 4: Propagate vertically for EVERY column, always starting from the midR anchor!
+        // Propagate vertically for EVERY column, always starting from the midR anchor!
         val colOrder = buildColumnOrder(cols, midC) // Starts at midC, then midC+1, midC-1, etc.
 
         for (c in colOrder) {
             if (grid[midR][c] != null) {
                 // Propagate DOWN from midR
-                propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, startR = midR, startC = c, dr = 1, dc = 0)
+                propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, physicalJunctions, startR = midR, startC = c, dr = 1, dc = 0)
                 // Propagate UP from midR
-                propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, startR = midR, startC = c, dr = -1, dc = 0)
+                propagateLine(sortedHorizontalLines, sortedVerticalLines, grid, physicalJunctions, startR = midR, startC = c, dr = -1, dc = 0)
             }
         }
 
@@ -70,13 +78,31 @@ object TablePropagator {
     }
 
     /**
-     * Propagates line positions along a direction vector (dr, dc) starting from (startR, startC).
-     * Exactly mimics your original propagateLine loop structure!
+     * Finds the nearest physical contour junction centroid near an estimated point within a given radius.
      */
+    private fun findNearestPhysicalJunction(
+        targetPoint: Point,
+        junctions: List<Point>,
+        maxSearchRadiusPx: Double
+    ): Point? {
+        if (junctions.isEmpty()) return null
+
+        return junctions.minByOrNull { j ->
+            val dx = j.x - targetPoint.x
+            val dy = j.y - targetPoint.y
+            dx * dx + dy * dy
+        }?.takeIf { j ->
+            val dx = j.x - targetPoint.x
+            val dy = j.y - targetPoint.y
+            sqrt(dx * dx + dy * dy) <= maxSearchRadiusPx
+        }
+    }
+
     private fun propagateLine(
         hLines: List<PolyLineSegment>,
         vLines: List<PolyLineSegment>,
         grid: Array<Array<Point?>>,
+        junctions: List<Point>,
         startR: Int,
         startC: Int,
         dr: Int,
@@ -95,7 +121,7 @@ object TablePropagator {
 
             // If next cell is missing, predict it from currR, currC
             if (grid[nextR][nextC] == null) {
-                grid[nextR][nextC] = propagateStep(hLines, vLines, grid, currR, currC, nextR, nextC)
+                grid[nextR][nextC] = propagateStep(hLines, vLines, grid, junctions, currR, currC, nextR, nextC)
             }
 
             // Advance step
@@ -111,6 +137,7 @@ object TablePropagator {
         hLines: List<PolyLineSegment>,
         vLines: List<PolyLineSegment>,
         grid: Array<Array<Point?>>,
+        junctions: List<Point>,
         currentR: Int,
         currentC: Int,
         targetR: Int,
@@ -120,7 +147,10 @@ object TablePropagator {
         val dr = targetR - currentR
         val dc = targetC - currentC
 
-        // Strategy 1: Check lateral neighbor displacements (e.g. adjacent column/row offset)
+        val hLine = hLines.getOrNull(targetR)
+        val vLine = vLines.getOrNull(targetC)
+
+        // Strategy 1: Lateral neighbor displacement
         val lateralOffsets = listOf(-1, 1)
         for (offset in lateralOffsets) {
             val neighborR = if (dr != 0) targetR else currentR + offset
@@ -139,31 +169,38 @@ object TablePropagator {
                 // Delta vector from neighbor segment
                 val dx = pNeighborTarget.x - pNeighborPrev.x
                 val dy = pNeighborTarget.y - pNeighborPrev.y
+                val candidatePoint = Point(prevPoint.x + dx, prevPoint.y + dy)
 
-                return Point(prevPoint.x + dx, prevPoint.y + dy)
+                // Snap to physical junction if close (radius: 12px)
+                return findNearestPhysicalJunction(candidatePoint, junctions, maxSearchRadiusPx = 12.0) ?: candidatePoint
             }
         }
 
-        // Strategy 2: Ray projection of line trends
-        val hLine = hLines.getOrNull(targetR)
-        val vLine = vLines.getOrNull(targetC)
+        // Strategy 2: Ray projection
         if (hLine != null && vLine != null) {
-            val estimatedPoint = estimateLineTrendCrossing(hLine, vLine)
-            if (estimatedPoint != null) return estimatedPoint
+            val candidatePoint = estimateLineTrendCrossing(hLine, vLine)
+            if (candidatePoint != null) {
+                // Snap to physical junction if close (radius: 15px)
+                return findNearestPhysicalJunction(candidatePoint, junctions, maxSearchRadiusPx = 15.0) ?: candidatePoint
+            }
         }
 
-        // Strategy 3: Pure momentum extrapolation using previous grid step in the same direction
+        // Strategy 3: Momentum extrapolation
         val prev2R = currentR - dr
         val prev2C = currentC - dc
         if (prev2R in grid.indices && prev2C in grid[0].indices && grid[prev2R][prev2C] != null) {
             val pPrev2 = grid[prev2R][prev2C]!!
             val dx = prevPoint.x - pPrev2.x
             val dy = prevPoint.y - pPrev2.y
-            return Point(prevPoint.x + dx, prevPoint.y + dy)
+            val candidatePoint = Point(prevPoint.x + dx, prevPoint.y + dy)
+
+            // Snap to physical junction if close (radius: 12px)
+            return findNearestPhysicalJunction(candidatePoint, junctions, maxSearchRadiusPx = 12.0) ?: candidatePoint
         }
 
         // Strategy 4: Fallback estimation
-        return estimateMissingPoint(hLines, vLines, grid, targetR, targetC)
+        val fallbackPoint = estimateMissingPoint(hLines, vLines, grid, targetR, targetC)
+        return findNearestPhysicalJunction(fallbackPoint, junctions, maxSearchRadiusPx = 20.0) ?: fallbackPoint
     }
 
     /**

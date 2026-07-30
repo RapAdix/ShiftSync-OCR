@@ -50,7 +50,7 @@ object TableDetector {
 
     class MissingTopRowException(message: String) : Exception(message)
 
-    private const val MIN_REQUIRED_INTERSECTIONS_COEFF : Double = 0.5 // Require at least 50% of the most intersected belt's points
+    private const val MIN_REQUIRED_INTERSECTIONS_COEFF : Double = 0.4 // Require at least 40% of the most intersected belt's points
 
     /**
      * Input: a grayscale Mat
@@ -73,12 +73,14 @@ object TableDetector {
         Core.add(gridMask, vertical, gridMask)
         // Somehow this approach gives the best result
 
+        val physicalJunctions = extractPhysicalJunctions(horizontal, vertical)
+
         horizontal.release()
         vertical.release()
 
         return try {
             val (horizontalLines, verticalLines) = LineDetector.extractTableLines(gridMask)
-            findRefinedCorners(gray, thresh, horizontalLines, verticalLines, expectedVerticalLines, headerRowHeightMultiplier, gridMask)
+            findRefinedCorners(gray, thresh, horizontalLines, verticalLines, expectedVerticalLines, headerRowHeightMultiplier, gridMask, physicalJunctions)
         } catch (e: TooManyLinesException) {
             // Draw the noisy detected lines onto a preview image for the user
             val noisyLinesMat = gray.clone()
@@ -172,6 +174,24 @@ object TableDetector {
     }
 
     /**
+     * Extracts physical junction centroids from the mask where horizontal and vertical lines cross.
+     */
+    private fun extractPhysicalJunctions(vertical: Mat, horizontal: Mat): List<Point> {
+        val jointContours = mutableListOf<MatOfPoint>()
+        val intersections = Mat()
+        Core.bitwise_and(horizontal, vertical, intersections)
+        Imgproc.findContours(intersections, jointContours, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
+        intersections.release()
+
+        return jointContours.mapNotNull { contour ->
+            val moments = Imgproc.moments(contour)
+            if (moments.m00 > 0) {
+                Point(moments.m10 / moments.m00, moments.m01 / moments.m00)
+            } else null
+        }
+    }
+
+    /**
      * Detects table corners by combining polyline density filtering and spatial line intersections.
      */
     private fun findRefinedCorners(
@@ -181,7 +201,8 @@ object TableDetector {
         rawVerticalLines: List<PolyLineSegment>,
         expectedVerticalLines: Int,
         headerRowHeightMultiplier: Double,
-        gridMask: Mat
+        gridMask: Mat,
+        physicalJunctions: List<Point>
     ): TableDetectionResult {
         val gray = originalGray.clone()
         var structuralException: Exception? = null
@@ -257,7 +278,7 @@ object TableDetector {
         validHorizontal = sortLinesByBestCrossSection(validHorizontal, true, 8)
         validVertical = sortLinesByBestCrossSection(validVertical, false, 8)
         // Build spatial intersection grid directly from polylines
-        val propagatedGrid = TablePropagator.propagateRobustPolyLineGrid(validHorizontal, validVertical)
+        val propagatedGrid = TablePropagator.propagateRobustPolyLineGrid(validHorizontal, validVertical, physicalJunctions)
 
         // Build TableCell matrix
         val cells = if (propagatedGrid.size <= 1 || propagatedGrid[0].size <= 1) {
@@ -598,7 +619,7 @@ object TableDetector {
                 .take(targetCount)
                 .map { it.first }
         } else {
-            // Keep lines that have at least 50% of the maximum recorded intersection score
+            // Keep lines that have at least 40% of the maximum recorded intersection score
             val minRequiredPoints = maxIntersections * MIN_REQUIRED_INTERSECTIONS_COEFF
             scoredLines
                 .filter { it.second >= minRequiredPoints }

@@ -1290,7 +1290,7 @@ fun AboutScreen() {
 }
 
 fun Bitmap.scaleForPreview(maxWidth: Int = 1000): Bitmap {
-    if (this.width <= maxWidth) return this
+    if (this.width <= maxWidth) return this.copy(this.config ?: Bitmap.Config.ARGB_8888, true)
     val aspectRatio = this.height.toFloat() / this.width.toFloat()
     val targetHeight = (maxWidth * aspectRatio).toInt()
     return Bitmap.createScaledBitmap(this, maxWidth, targetHeight, true)
