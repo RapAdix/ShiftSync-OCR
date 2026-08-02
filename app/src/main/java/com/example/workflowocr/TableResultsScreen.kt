@@ -1026,6 +1026,7 @@ fun ProcessorRow.getRowStatus(isScheduleForToday: Boolean, settings: TableLayout
         hasTimeRecentlyCrossed() && startTime != finishTime -> RowStatus.DANGER
         isExtraEmployee && hasValidTimes() -> RowStatus.NEUTRAL // !hasValidTimes() is already covered
         hasRecentlyWrittenModifications(settings) && (!isScheduleForToday || hasTimeCrossed()) -> RowStatus.WARNING
+        isScheduleForToday && hasRecentlyWrittenImportantModifications(settings) -> RowStatus.WARNING
         isRelevantButUltimatelyAbsent() -> RowStatus.ABSENT
         else -> RowStatus.NEUTRAL
     }
@@ -1056,16 +1057,23 @@ fun ProcessorRow.currentlyHasWrittenModifications(settings: TableLayout): Boolea
     val analysis = newAnalysis?: confirmedAnalysis
     if (analysis == null) return true // if analyzing failed we assume there were some modifications
     val emptinessThreshold = 0.05
-    return analysis.penCoverage[settings.changeCol] > emptinessThreshold || analysis.penCoverage[settings.managerCol] > emptinessThreshold
+    return settings.modificationColumns.any { analysis.penCoverage[it] > emptinessThreshold }
 }
 
 fun ProcessorRow.hasRecentlyWrittenModifications(settings: TableLayout): Boolean {
     if (confirmedAnalysis == null) return currentlyHasWrittenModifications(settings)
-    if (newAnalysis == null) return false // because the other changes were already confirmed so are NOT recent
+    if (newAnalysis == null) return false // There are no recent changes. They were already confirmed so are NOT recent.
     val coverageDifferenceThreshold = 0.08
     val columnsChanged =
         settings.modificationColumns.filter { newAnalysis.penCoverage[it] - confirmedAnalysis.penCoverage[it] > coverageDifferenceThreshold }
     return columnsChanged.any()
+}
+
+fun ProcessorRow.hasRecentlyWrittenImportantModifications(settings: TableLayout): Boolean {
+    if (newAnalysis == null) return false // There are no recent changes.
+    val coverageDifferenceThreshold = 0.08
+    if (confirmedAnalysis == null) return newAnalysis.penCoverage[settings.changeCol] > coverageDifferenceThreshold
+    return newAnalysis.penCoverage[settings.changeCol] - confirmedAnalysis.penCoverage[settings.changeCol] > coverageDifferenceThreshold
 }
 
 // At some point appeared in the schedule but is not present.
