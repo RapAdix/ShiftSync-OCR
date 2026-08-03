@@ -24,12 +24,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.workflowocr.ui.theme.*
 import kotlinx.coroutines.launch
-
-// Color guidelines for the tracking statuses
-val SoftEmeraldGreen = Color(0xFF2E7D32)
-val SoftCrimsonRed = Color(0xFFC62828)
-val MutedSlateGrey = Color(0xFF757575)
 
 data class TimeBlock(val label: String, val count: Int)
 

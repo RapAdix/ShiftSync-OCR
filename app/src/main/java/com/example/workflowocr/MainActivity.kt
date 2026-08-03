@@ -104,6 +104,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.example.workflowocr.ui.theme.ShiftSyncTheme
+import com.example.workflowocr.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -132,11 +134,6 @@ enum class Screen(val displayName: String) {
     ABOUT("About")
 }
 
-val PaperWhite = Color(0xFFF5F5F0)
-val InkBlack = Color(0xFF1A1A1A)
-val MutedGrey = Color(0xFF8A8A85)
-val AccentOlive = Color(0xFF5A5A40)
-
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
 
@@ -157,19 +154,9 @@ class MainActivity : ComponentActivity() {
 
         val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_7_nodpi)
 
-        val paperColorScheme = lightColorScheme(
-            primary = AccentOlive,
-            onPrimary = Color.White,
-            surface = PaperWhite,
-            onSurface = InkBlack,
-            background = PaperWhite,
-            onBackground = InkBlack,
-            outline = InkBlack.copy(alpha = 0.1f)
-        )
-
         setContent {
             CompositionLocalProvider(LocalTableViewModel provides tableViewModel) {
-                MaterialTheme(colorScheme = paperColorScheme) {
+                ShiftSyncTheme {
                     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                     val composeScope = rememberCoroutineScope()
                     val availableDates by tableViewModel.availableDates.collectAsState()
