@@ -14,6 +14,7 @@ mlkit-text = "16.0.0"
 kotlinxSerialization = "1.7.3"
 datastore = "1.1.1"
 camerax = "1.4.0"
+opencv = "4.12.0"
 poi = "5.2.5"
 
 [libraries]
@@ -42,6 +43,7 @@ androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycl
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 apache-poi = { group = "org.apache.poi", name = "poi", version.ref = "poi" }
 apache-poi-ooxml = { group = "org.apache.poi", name = "poi-ooxml", version.ref = "poi" }
+opencv-android = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 
 [bundles]
 camerax = [

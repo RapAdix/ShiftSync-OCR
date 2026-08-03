@@ -115,7 +115,7 @@ dependencies {
     implementation(libs.bundles.camerax)
     implementation(libs.apache.poi)
     implementation(libs.apache.poi.ooxml)
-    implementation(project(":opencv"))
+    implementation(libs.opencv.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

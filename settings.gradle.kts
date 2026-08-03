@@ -21,5 +21,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Work Flow OCR"
-include(":app", ":opencv")
+include(":app")
  
