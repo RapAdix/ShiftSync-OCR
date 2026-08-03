@@ -1,0 +1,21 @@
+# Gradle Build Directories
+/build/
+/*/build/
+/app/build/
+app/production/
+app/internal/
+
+# IDE & Local Project Settings
+/.idea/
+.gradle/
+*.iml
+.DS_Store
+
+/.kotlin/
+.gradle
+/local.properties
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.jks
