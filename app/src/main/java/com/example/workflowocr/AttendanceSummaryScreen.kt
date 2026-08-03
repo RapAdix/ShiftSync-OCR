@@ -172,7 +172,6 @@ fun AttendanceSummaryScreen() {
                         IconButton(
                             onClick = {
                                 downloadProjection(
-                                    date = viewModel.currentWorkingDate,
                                     settings = settings,
                                     viewModel = viewModel,
                                     scope = coroutineScope,
@@ -459,15 +458,12 @@ fun DayTypeSlidingToggle(
 }
 
 private fun downloadProjection(
-    date: String?,
     settings: UniversalSettings,
     viewModel: TableViewModel,
     scope: kotlinx.coroutines.CoroutineScope,
     onSyncStateChange: (Boolean) -> Unit,
     onSyncError: (ProjectionResult.Failure?) -> Unit
 ) {
-    val activeDate = date ?: return
-
     scope.launch {
         onSyncStateChange(true)
         onSyncError(null) // Reset errors on a fresh attempt execution

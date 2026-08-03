@@ -157,7 +157,7 @@ data class VlhTableState(
                     // If it crosses midnight (e.g., 22:00 - 04:00)
                     hour >= startHour || hour < endHour || (hour == endHour && endHourMinutes > 0)
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 false
             }
         }
@@ -169,7 +169,7 @@ data class VlhTableState(
     fun calculateResultIndex(hour: Int, gcValue: Int): Int? {
         // Find which column configuration contains this physical hour segment
         val matchedColumns = columns.filter { column ->
-            TimeframeValidator.containsHour(column.name, hour)
+            containsHour(column.name, hour)
         }
         if (matchedColumns.isEmpty()) return null // No matching timeline configuration found on disk
 
@@ -212,7 +212,7 @@ data class VlhTableState(
         // Verify every hour lands in a column that is populated
         return hoursToCheck.all { hour ->
             val matchedColumns = columns.filter { column ->
-                TimeframeValidator.containsHour(column.name, hour)
+                containsHour(column.name, hour)
             }
             // The hour is covered only if a matching column exists AND its data row list is not empty
             matchedColumns.isNotEmpty() && matchedColumns.any { it.scannedRows.isNotEmpty() }
