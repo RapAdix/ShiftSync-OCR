@@ -11,7 +11,15 @@ app/internal/
 *.iml
 .DS_Store
 
+# Secret samples
+**/src/internal/
+app/src/androidTest/assets/test_fixtures_secret/
+*.dll
+
 /.kotlin/
+.env
+.venv/
+__pycache__/
 .gradle
 /local.properties
 /captures
