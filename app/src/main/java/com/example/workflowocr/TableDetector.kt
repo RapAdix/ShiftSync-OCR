@@ -67,16 +67,19 @@ object TableDetector {
 
         val gridMask = createGridMask(thresh) // create a short horizontal/vertical grid mask
 
-        // Combine it with more strictly horizontal and vertical lines that tried to breach the gaps
         val (horizontal, vertical) = createHorizontalVertical(thresh)
-        Core.add(gridMask, horizontal, gridMask)
-        Core.add(gridMask, vertical, gridMask)
-        // Somehow this approach gives the best result
-
         val physicalJunctions = extractPhysicalJunctions(horizontal, vertical)
+
+        val (closedHorizontal, closedVertical) = createClosedHorizontalVertical(horizontal, vertical)
+        // Combine gridMask with more strictly horizontal and vertical lines that tried to breach the gaps
+        Core.add(gridMask, closedHorizontal, gridMask)
+        Core.add(gridMask, closedVertical, gridMask)
+        // Somehow this approach gives the best result
 
         horizontal.release()
         vertical.release()
+        closedHorizontal.release()
+        closedVertical.release()
 
         return try {
             val (horizontalLines, verticalLines) = LineDetector.extractTableLines(gridMask)
@@ -105,6 +108,14 @@ object TableDetector {
         }
     }
 
+    /**
+     * Extracts horizontal and vertical line masks directly from the thresholded image.
+     *
+     * These masks intentionally contain only the lines recovered by the initial
+     * erosion/dilation pass. They are used for physical-junction detection, where
+     * closing nearby lines could merge a table line with a neighbouring mark and
+     * produce an artificial junction.
+     */
     private fun createHorizontalVertical(thresh: Mat): Pair<Mat, Mat> {
         // Detect horizontal and vertical lines separately
         val horizontal = Mat(thresh.size(), CvType.CV_8UC1)
@@ -119,15 +130,35 @@ object TableDetector {
         val horizontalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineLength, lineThickness))
         Imgproc.erode(thresh, horizontal, horizontalStructure)
         Imgproc.dilate(horizontal, horizontal, horizontalStructure)
-//        Imgproc.morphologyEx(horizontal, horizontal, Imgproc.MORPH_CLOSE, horizontalStructure)
 
         // Vertical lines
         val verticalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineThickness, lineLength))
         Imgproc.erode(thresh, vertical, verticalStructure)
         Imgproc.dilate(vertical, vertical, verticalStructure)
-//        Imgproc.morphologyEx(vertical, vertical, Imgproc.MORPH_CLOSE, verticalStructure)
 
-        // Now close small gaps created at the intersection of lines by threshold // TODO I think it creates false text/pen intersections with table lines
+        horizontalStructure.release()
+        verticalStructure.release()
+
+        return Pair(horizontal, vertical)
+    }
+
+    /**
+     * Builds the line masks used to strengthen the table grid mask.
+     *
+     * The horizontal and vertical masks are combined, small gaps are closed in
+     * both directions, and the result is separated back into horizontal and
+     * vertical masks. This is kept separate from [createHorizontalVertical] so
+     * the closing step affects grid extraction without changing physical-junction
+     * detection.
+     */
+    private fun createClosedHorizontalVertical(horizontal: Mat, vertical: Mat): Pair<Mat, Mat> {
+        val lineThickness = 1.0
+        val lineLength = 30.0
+        val horizontalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineLength, lineThickness))
+        val verticalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineThickness, lineLength))
+        val closedHorizontal = horizontal.clone()
+        val closedVertical = vertical.clone()
+
         val structure = Mat()
         Core.bitwise_or(horizontal, vertical, structure)
         val closelineLength = lineLength / 2
@@ -137,16 +168,16 @@ object TableDetector {
         Imgproc.morphologyEx(structure, structure, Imgproc.MORPH_CLOSE, closeHorizontalStructure)
 
         // Detect lines again
-        Imgproc.erode(structure, horizontal, horizontalStructure)
-        Imgproc.dilate(horizontal, horizontal, horizontalStructure)
-        Imgproc.erode(structure, vertical, verticalStructure)
-        Imgproc.dilate(vertical, vertical, verticalStructure)
+        Imgproc.erode(structure, closedHorizontal, horizontalStructure)
+        Imgproc.dilate(closedHorizontal, closedHorizontal, horizontalStructure)
+        Imgproc.erode(structure, closedVertical, verticalStructure)
+        Imgproc.dilate(closedVertical, closedVertical, verticalStructure)
 
         structure.release()
         horizontalStructure.release()
         verticalStructure.release()
 
-        return Pair(horizontal, vertical)
+        return Pair(closedHorizontal, closedVertical)
     }
 
     private fun createGridMask(thresh: Mat): Mat {

@@ -125,7 +125,7 @@ object CellAnalyzer {
         topQuad2f.release()
         btmQuad2f.release()
 
-        val pixelDetectionThreshold = area * 0.015
+        val pixelDetectionThreshold = area * 0.025
         return Triple(inkPixelCount > pixelDetectionThreshold, topQuad, bottomQuad)
     }
 
