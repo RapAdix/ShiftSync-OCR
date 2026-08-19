@@ -42,6 +42,7 @@ object LineDetector {
     private const val ENDPOINT_MATCH_TOLERANCE_PX = 5.0 // Epsilon tolerance for endpoint alignment (px)
     private const val OVERLAP_SPAN_SAMPLE_COUNT = 10.0 // How often we take height checks across the overlap zone
     private const val MIN_PROXIMITY_MATCH_RATIO = 0.80 // Minimum ratio of sampled points that must fall into ENDPOINT_MATCH_TOLERANCE_PX
+    private const val PERPENDICULAR_GAP_FACTOR = 0.25 // When merging lines decrease the allowed proximity gap to this factor if point is perpendicular to the current line's axis
     const val MAX_MERGE_SET_SIZE = 6000 // Maximum size of the Hough segments to allow computing MergeLines in a reasonable time.
 
     fun extractTableLines(grayMat: Mat): Pair<List<PolyLineSegment>, List<PolyLineSegment>> {
@@ -310,14 +311,39 @@ object LineDetector {
             return false
 
         // Check if candidate starts near the end of our line (end-to-start gap)
-        val endToStartDistance = hypot(candidate.first.x - lastSegEnd.x, candidate.first.y - lastSegEnd.y)
-        val isTipToTailMatch = endToStartDistance <= maxGapThreshold
+        val gapX = candidate.first.x - lastSegEnd.x
+        val gapY = candidate.first.y - lastSegEnd.y
+        val endToStartDistance = hypot(gapX, gapY)
+        val allowedGapThreshold = directionalGapThreshold(
+            gapAlongLine = if (isHorizontal) gapX else gapY,
+            gapPerpendicularToLine = if (isHorizontal) gapY else gapX,
+            maxGapThreshold = maxGapThreshold
+        )
+        val isTipToTailMatch = endToStartDistance <= allowedGapThreshold
 
         // Check if candidate starts close enough to our line's last segment (overlapping/parallel lines)
         val overlapDistance = distanceToSegment(candidate.first, lastSegStart, lastSegEnd)
-        val isOverlapMatch = overlapDistance <= maxGapThreshold
+        val isOverlapMatch = overlapDistance <= PERPENDICULAR_GAP_FACTOR * maxGapThreshold // PERPENDICULAR_GAP_FACTOR because it is the perpendicular distance case
 
         return isTipToTailMatch || isOverlapMatch
+    }
+
+    /**
+     * Keeps the original gap allowance for gaps in the line's travel direction,
+     * while reducing the allowance for gaps that are mostly perpendicular to it.
+     */
+    private fun directionalGapThreshold(
+        gapAlongLine: Double,
+        gapPerpendicularToLine: Double,
+        maxGapThreshold: Double
+    ): Double {
+        val gapMagnitude = hypot(gapAlongLine, gapPerpendicularToLine)
+        if (gapMagnitude == 0.0) return maxGapThreshold
+
+        val longitudinalAlignment = abs(gapAlongLine) / gapMagnitude
+        val allowanceFactor = PERPENDICULAR_GAP_FACTOR +
+            (1.0 - PERPENDICULAR_GAP_FACTOR) * longitudinalAlignment
+        return maxGapThreshold * allowanceFactor
     }
 
     /**
