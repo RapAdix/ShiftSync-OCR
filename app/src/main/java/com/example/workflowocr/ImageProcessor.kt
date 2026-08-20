@@ -11,7 +11,7 @@ import org.opencv.imgproc.Imgproc
 object ImageProcessor {
     fun createThresh(gray: Mat): Mat {
         // 1. Create a mask of the "Paper" area,
-        // // Background is pure black (0) after rotation
+        // Background is pure black (0) after rotation
         val validMask = Mat()
         Imgproc.threshold(gray, validMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
 

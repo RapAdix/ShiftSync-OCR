@@ -70,16 +70,13 @@ object TableDetector {
         val (horizontal, vertical) = createHorizontalVertical(thresh)
         val physicalJunctions = extractPhysicalJunctions(horizontal, vertical)
 
-        val (closedHorizontal, closedVertical) = createClosedHorizontalVertical(horizontal, vertical)
         // Combine gridMask with more strictly horizontal and vertical lines that tried to breach the gaps
-        Core.add(gridMask, closedHorizontal, gridMask)
-        Core.add(gridMask, closedVertical, gridMask)
+        Core.add(gridMask, horizontal, gridMask)
+        Core.add(gridMask, vertical, gridMask)
         // Somehow this approach gives the best result
 
         horizontal.release()
         vertical.release()
-        closedHorizontal.release()
-        closedVertical.release()
 
         return try {
             val (horizontalLines, verticalLines) = LineDetector.extractTableLines(gridMask)
@@ -140,44 +137,6 @@ object TableDetector {
         verticalStructure.release()
 
         return Pair(horizontal, vertical)
-    }
-
-    /**
-     * Builds the line masks used to strengthen the table grid mask.
-     *
-     * The horizontal and vertical masks are combined, small gaps are closed in
-     * both directions, and the result is separated back into horizontal and
-     * vertical masks. This is kept separate from [createHorizontalVertical] so
-     * the closing step affects grid extraction without changing physical-junction
-     * detection.
-     */
-    private fun createClosedHorizontalVertical(horizontal: Mat, vertical: Mat): Pair<Mat, Mat> {
-        val lineThickness = 1.0
-        val lineLength = 30.0
-        val horizontalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineLength, lineThickness))
-        val verticalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineThickness, lineLength))
-        val closedHorizontal = horizontal.clone()
-        val closedVertical = vertical.clone()
-
-        val structure = Mat()
-        Core.bitwise_or(horizontal, vertical, structure)
-        val closelineLength = lineLength / 2
-        val closeHorizontalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closelineLength, lineThickness))
-        val closeVerticalStructure = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(lineThickness, closelineLength))
-        Imgproc.morphologyEx(structure, structure, Imgproc.MORPH_CLOSE, closeVerticalStructure)
-        Imgproc.morphologyEx(structure, structure, Imgproc.MORPH_CLOSE, closeHorizontalStructure)
-
-        // Detect lines again
-        Imgproc.erode(structure, closedHorizontal, horizontalStructure)
-        Imgproc.dilate(closedHorizontal, closedHorizontal, horizontalStructure)
-        Imgproc.erode(structure, closedVertical, verticalStructure)
-        Imgproc.dilate(closedVertical, closedVertical, verticalStructure)
-
-        structure.release()
-        horizontalStructure.release()
-        verticalStructure.release()
-
-        return Pair(closedHorizontal, closedVertical)
     }
 
     private fun createGridMask(thresh: Mat): Mat {
