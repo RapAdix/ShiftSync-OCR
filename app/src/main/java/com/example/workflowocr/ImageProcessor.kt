@@ -9,6 +9,38 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 
 object ImageProcessor {
+    /**
+     * Creates a threshold suited to detecting diagonal pen marks: adaptive mean
+     * thresholding with block size 55 and C=8, followed by 2x2 closing and 3x3 opening.
+     * Another potentially good combination is block size 55 with C=12 followed by 2x2 opening.
+     */
+    fun createCrossingThresh(gray: Mat): Mat {
+        // Create a mask of the "Paper" area, background is pure black (0) after rotation
+        val validMask = Mat()
+        Imgproc.threshold(gray, validMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
+        val threshold = Mat()
+        Imgproc.adaptiveThreshold(
+            gray, threshold, 255.0,
+            Imgproc.ADAPTIVE_THRESH_MEAN_C,
+            Imgproc.THRESH_BINARY_INV,
+            55, 8.0
+        )
+        val closeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
+        val closed = Mat()
+        Imgproc.morphologyEx(threshold, closed, Imgproc.MORPH_CLOSE, closeKernel)
+        threshold.release()
+        closeKernel.release()
+
+        val openKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+        val result = Mat()
+        Imgproc.morphologyEx(closed, result, Imgproc.MORPH_OPEN, openKernel)
+        closed.release()
+        openKernel.release()
+        Core.bitwise_and(result, validMask, result)
+        validMask.release()
+        return result
+    }
+
     fun createThresh(gray: Mat): Mat {
         // 1. Create a mask of the "Paper" area,
         // Background is pure black (0) after rotation

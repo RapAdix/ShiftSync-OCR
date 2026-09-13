@@ -12,8 +12,10 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import kotlin.math.hypot
 
 object CellAnalyzer {
+    private const val CROSSING_LENGTH_FRACTION = 0.70
     @Serializable
     data class RowAnalysis (
         val penCoverage: Array<Double>,
@@ -21,24 +23,25 @@ object CellAnalyzer {
         val endTimeCrossed: Boolean
     )
 
-    fun analyzeCells(thresh: Mat, cells: Array<Array<TableCell>>, settings: TableLayout): Array<RowAnalysis> {
+    fun analyzeCells(gray: Mat, thresh: Mat, cells: Array<Array<TableCell>>, settings: TableLayout): Array<RowAnalysis> {
         if (cells.isEmpty()) return emptyArray()
         val cleanedThresh = Mat()
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
         Imgproc.erode(thresh, cleanedThresh, kernel)
         Imgproc.dilate(cleanedThresh, cleanedThresh, kernel)
         val penCoverage = detectPenStrokes(cleanedThresh, cells, settings.modificationColumns + listOf(settings.timeStartCol, settings.timeEndCol))
+        val crossingThresh = ImageProcessor.createCrossingThresh(gray)
 
         val startTimeCrossed = Array(cells.size) {false}
         for (row in cells.indices) {
-            val (isCrossed, _, _) = detectPenCrossing(cleanedThresh, cells[row][settings.timeStartCol])
+            val (isCrossed, _) = detectPenCrossing(crossingThresh, cells[row][settings.timeStartCol])
             startTimeCrossed[row] = isCrossed
             if (isCrossed)
                 Log.d("DEBUG", "Row: $row, col: ${settings.timeStartCol} has a crossing over time")
         }
         val endTimeCrossed = Array(cells.size) {false}
         for (row in cells.indices) {
-            val (isCrossed, _, _) = detectPenCrossing(cleanedThresh, cells[row][settings.timeEndCol])
+            val (isCrossed, _) = detectPenCrossing(crossingThresh, cells[row][settings.timeEndCol])
             endTimeCrossed[row] = isCrossed
             if (isCrossed)
                 Log.d("DEBUG", "Row: $row, col: ${settings.timeEndCol} has a crossing over time")
@@ -52,6 +55,7 @@ object CellAnalyzer {
                 )
         }.toTypedArray()
         cleanedThresh.release()
+        crossingThresh.release()
         kernel.release()
         return analysis
     }
@@ -67,66 +71,133 @@ object CellAnalyzer {
     }
 
     /**
-     * Detects pen marks by looking at "Internal Safety Windows" within a distorted cell.
-     * @param thresh: Inverted threshold Mat (255=ink, 0=paper)
-     * @param cell: The 4-corner TableCell
-     * @param hExclusionPct: Horizontal margin to skip on left/right (e.g., 0.10 for 10%)
-     * @param topStripHeightPct: Vertical height of the strip above (e.g., 0.20 for 20%)
-     * @param btmStripHeightPct: Vertical height of the strip below
+     * Detects a pen crossing in a cell using a precomputed crossing threshold.
+     * The cell is perspective-warped, masked with a 4% margin on every edge, and
+     * evaluated using the directional DP crossing detector.
+     *
+     * @param crossingThresh binary threshold created from the source grayscale image
+     * @param cell the four-corner cell geometry in [crossingThresh]'s coordinates
+     * @return whether a crossing was detected and the four inset cell corners for debugging
      */
-    fun detectPenCrossing(
-        thresh: Mat,
-        cell: TableCell,
-        hExclusionPct: Double = 0.14,
-        topStripHeightPct: Double = 0.19,
-        btmStripHeightPct: Double = 0.24
-    ): Triple<Boolean, Array<Point>, Array<Point>> {
-        val mask = Mat.zeros(thresh.size(), CvType.CV_8UC1)
-
-        // 1. Inset to definitively avoid the black physical cell borders (in pixels)
-        val borderInset = (cell.bottomRight.y - cell.topLeft.y) * 0.1
-
-        // 2. Define Top Safety Quad
-        // Start at top (0.0), go down to strip height (vStripHeightPct)
-        // Exclude horizontal margins (hExclusionPct to 1.0 - hExclusionPct)
-        val topQuad = getSubQuad(
-            cell,
-            yStart = 0.0, yEnd = topStripHeightPct,
-            xStart = hExclusionPct, xEnd = 1.0 - hExclusionPct,
-            inset = borderInset, insetTop = true, insetBtm = false
+    fun detectPenCrossing(crossingThresh: Mat, cell: TableCell): Pair<Boolean, Array<Point>> {
+        val sourceCorners = listOf(cell.topLeft, cell.topRight, cell.bottomRight, cell.bottomLeft)
+        val warped = warpCell(crossingThresh, sourceCorners)
+        val innerMask = Mat.zeros(warped.size(), CvType.CV_8UC1)
+        val xInset = warped.width() * 0.04
+        val yInset = warped.height() * 0.04
+        Imgproc.rectangle(
+            innerMask,
+            Point(xInset, yInset),
+            Point(warped.width() - xInset, warped.height() - yInset),
+            Scalar(255.0),
+            -1
         )
+        Core.bitwise_and(warped, innerMask, warped)
+        innerMask.release()
 
-        // 3. Define Bottom Safety Quad
-        // Start at bottom (1.0), go up by strip height
-        val bottomQuad = getSubQuad(
-            cell,
-            yStart = 1.0 - btmStripHeightPct, yEnd = 1.0,
-            xStart = hExclusionPct, xEnd = 1.0 - hExclusionPct,
-            inset = borderInset, insetTop = false, insetBtm = true
+        val dp = directionalDp(warped)
+        val longestLine = (1..9).maxOf { direction ->
+            dp.maxOf { row -> row.maxOf { values -> values[direction] } }
+        }
+        val crossed = longestLine >= warped.height() * CROSSING_LENGTH_FRACTION
+        warped.release()
+        val margin = 0.04
+        val innerPoints = arrayOf(
+            getPointInCell(cell, margin, margin),
+            getPointInCell(cell, 1.0 - margin, margin),
+            getPointInCell(cell, 1.0 - margin, 1.0 - margin),
+            getPointInCell(cell, margin, 1.0 - margin)
         )
+        return Pair(crossed, innerPoints)
+    }
 
-        // 4. Draw Polygons on Mask
-        val listOfPolys = listOf(MatOfPoint(*topQuad), MatOfPoint(*bottomQuad))
-        Imgproc.fillPoly(mask, listOfPolys, Scalar(255.0))
+    private fun warpCell(source: Mat, corners: List<Point>): Mat {
+        val width = maxOf(
+            hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y),
+            hypot(corners[2].x - corners[3].x, corners[2].y - corners[3].y)
+        ).toInt()
+        val height = maxOf(
+            hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y),
+            hypot(corners[2].x - corners[1].x, corners[2].y - corners[1].y)
+        ).toInt()
+        val sourcePoints = MatOfPoint2f(*corners.toTypedArray())
+        val destinationPoints = MatOfPoint2f(
+            Point(0.0, 0.0), Point(width - 1.0, 0.0),
+            Point(width - 1.0, height - 1.0), Point(0.0, height - 1.0)
+        )
+        val transform = Imgproc.getPerspectiveTransform(sourcePoints, destinationPoints)
+        val result = Mat()
+        Imgproc.warpPerspective(source, result, transform, Size(width.toDouble(), height.toDouble()))
+        sourcePoints.release()
+        destinationPoints.release()
+        transform.release()
+        return result
+    }
 
-        // 5. Count intersection
-        val evidence = Mat()
-        Core.bitwise_and(thresh, mask, evidence)
-        val inkPixelCount = Core.countNonZero(evidence)
+    /**
+     * Calculates the longest white line beginning at every pixel.
+     *
+     * Each direction is represented by one of the eleven points on the far
+     * edges of a 6x6 square around the starting pixel:
+     *
+     *   0=(up 5, right 0), 1=(up 5, right 1), ... 5=(up 5, right 5),
+     *   6=(up 4, right 5), ... 9=(up 1, right 5), 10=(up 0, right 5).
+     *
+     * Direction 0 is vertical and is intentionally not calculated or used as
+     * continuation support. Direction 10 is horizontal; the crossing decision
+     * considers only directions 1 through 9.
+     *
+     * The DP is evaluated from the top row downward because an upward path at
+     * (row, column) depends on values at (row - deltaRow, column + deltaColumn),
+     * which have already been calculated in the rows above.
+     */
+    private fun directionalDp(binary: Mat): Array<Array<DoubleArray>> {
+        val pixels = ByteArray(binary.rows() * binary.cols())
+        binary.get(0, 0, pixels)
+        val dp = Array(binary.rows()) { Array(binary.cols()) { DoubleArray(11) } }
+        // Each state first checks its local 5-pixel jump, then optionally joins
+        // one of the neighboring directions at the jump's destination.
+        // Skip vertical(0) and horizontal(10) directions because they are mostly invalid.
+        for (row in 0 until binary.rows()) for (col in 0 until binary.cols()) for (direction in 1 until 11) {
+            val (dr, dc) = if (direction <= 5) 5 to direction else 4 - (direction - 6) to 5
+            val endRow = row - dr
+            val endCol = col + dc
+            if (endRow < 0 || endCol >= binary.cols()) continue
+            val (whitePixels, directLength) = whiteRun(pixels, binary.rows(), binary.cols(), row, col, endRow, endCol)
+            val stepCount = maxOf(kotlin.math.abs(dr), kotlin.math.abs(dc))
+            val stepLength = hypot(dr.toDouble(), dc.toDouble())
+            val continued = if (whitePixels == stepCount + 1) {
+                when (direction) {
+                    1 -> maxOf(dp[endRow][endCol][1], dp[endRow][endCol][2])
+                    10 -> maxOf(dp[endRow][endCol][9], dp[endRow][endCol][10])
+                    else -> maxOf(
+                        dp[endRow][endCol][direction - 1],
+                        dp[endRow][endCol][direction],
+                        dp[endRow][endCol][direction + 1]
+                    )
+                }
+            } else 0.0
+            dp[row][col][direction] = maxOf(directLength, continued + stepLength)
+        }
+        return dp
+    }
 
-        // 4. Calculate the Area of the Quad
-        val topQuad2f = MatOfPoint2f(*topQuad)
-        val btmQuad2f = MatOfPoint2f(*bottomQuad)
-        val area = Imgproc.contourArea(topQuad2f) + Imgproc.contourArea(btmQuad2f)
-
-        // Release temporary resources
-        evidence.release()
-        mask.release()
-        topQuad2f.release()
-        btmQuad2f.release()
-
-        val pixelDetectionThreshold = area * 0.025
-        return Triple(inkPixelCount > pixelDetectionThreshold, topQuad, bottomQuad)
+    private fun whiteRun(pixels: ByteArray, rows: Int, cols: Int, row: Int, col: Int, endRow: Int, endCol: Int): Pair<Int, Double> {
+        val steps = maxOf(kotlin.math.abs(endRow - row), kotlin.math.abs(endCol - col))
+        var count = 0
+        for (step in 0..steps) {
+            val r = row + (endRow - row) * step / steps.coerceAtLeast(1)
+            val c = col + (endCol - col) * step / steps.coerceAtLeast(1)
+            var isWhite = false
+            for (neighborRow in (r - 1).coerceAtLeast(0)..(r + 1).coerceAtMost(rows - 1)) {
+                for (neighborCol in (c - 1).coerceAtLeast(0)..(c + 1).coerceAtMost(cols - 1)) {
+                    if ((pixels[neighborRow * cols + neighborCol].toInt() and 0xFF) == 255) isWhite = true
+                }
+            }
+            if (isWhite) count++ else break
+        }
+        val geometricStep = hypot((endRow - row).toDouble(), (endCol - col).toDouble()) / steps.coerceAtLeast(1)
+        return count to (count - 1).coerceAtLeast(0) * geometricStep
     }
 
     fun detectPenWriting(

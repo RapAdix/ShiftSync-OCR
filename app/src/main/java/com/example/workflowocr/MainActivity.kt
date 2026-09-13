@@ -459,7 +459,7 @@ class OcrFlowCoordinator(
                 }
                 val (table, analysis, rowPaths) = withContext(Dispatchers.IO) {
                     val table = TextProcessor.refineTableData(rawTextGrid, settings)
-                    val analysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells, settings)
+                    val analysis = CellAnalyzer.analyzeCells(detection.gray, detection.thresh, detection.cells, settings)
 
                     // Fallback snippets cut out from the table image
                     val rowPaths = tableViewModel.storageManager.createSnippets(imageBitmap, detection.cells, date, settings)
@@ -968,26 +968,25 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
 
                             // Draw the "Boxed" debug image
                             boxedMat = TableDetector.drawCells(detection.gray, detection.cells)
-                            val cellsAnalysis = CellAnalyzer.analyzeCells(detection.thresh, detection.cells, settings)
+                            val cellsAnalysis = CellAnalyzer.analyzeCells(detection.gray, detection.thresh, detection.cells, settings)
 
                             val marginsDrawn = detection.gray.clone()
                             if (marginsDrawn.channels() == 1) {
                                 Imgproc.cvtColor(marginsDrawn, marginsDrawn, Imgproc.COLOR_GRAY2RGB)
                             }
                             val red = Scalar(255.0, 0.0, 0.0)
+                            val crossingThresh = ImageProcessor.createCrossingThresh(detection.gray)
                             for (row in detection.cells.indices) {
                                 for (col in listOf(settings.timeStartCol, settings.timeEndCol)) {
-                                    val (isCrossed, pointsTop, pointsBtm) = CellAnalyzer.detectPenCrossing(detection.thresh, detection.cells[row][col])
+                                    val (isCrossed, points) = CellAnalyzer.detectPenCrossing(crossingThresh, detection.cells[row][col])
                                     if (isCrossed)
                                         Log.d("DEBUG", "Row: $row, col: $col has a crossing over time")
-                                    val matTop = MatOfPoint(*pointsTop)
-                                    val matBtm = MatOfPoint(*pointsBtm)
-                                    Imgproc.polylines(marginsDrawn, listOf(matTop), true, red, 2)
-                                    Imgproc.polylines(marginsDrawn, listOf(matBtm), true, red, 2)
-                                    matTop.release()
-                                    matBtm.release()
+                                    val marginMat = MatOfPoint(*points)
+                                    Imgproc.polylines(marginsDrawn, listOf(marginMat), true, red, 2)
+                                    marginMat.release()
                                 }
                             }
+                            crossingThresh.release()
                             val marginsBmp = ImageProcessor.matToBitmap(marginsDrawn)
                             marginsDrawn.release()
                             val boxedBmp = ImageProcessor.matToBitmap(boxedMat)
