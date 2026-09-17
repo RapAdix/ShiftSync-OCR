@@ -13,6 +13,7 @@ android {
     compileSdk {
         version = release(36)
     }
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.example.workflowocr"
@@ -82,6 +83,11 @@ android {
     buildFeatures {
         compose = true
         viewBinding = true
+    }
+    externalNativeBuild {
+        ndkBuild {
+            path = file("src/main/cpp/Android.mk")
+        }
     }
     splits {
         abi {

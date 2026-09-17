@@ -30,6 +30,12 @@ class TooManyLinesException(
 ) : Exception(message)
 
 object LineDetector {
+    data class HoughSegments(
+        val raw: List<IntArray>,
+        val horizontal: List<HoughSegment>,
+        val vertical: List<HoughSegment>
+    )
+
     enum class OverlapType {
         NONE,               // Insufficient overlap (< 20% span)
         OVERLAP_DIVERGENCE,  // Shared axis span, but off-axis distance exceeds proximity limit (Suspicious)
@@ -45,15 +51,18 @@ object LineDetector {
     private const val PERPENDICULAR_GAP_FACTOR = 0.25 // When merging lines decrease the allowed proximity gap to this factor if point is perpendicular to the current line's axis
     const val MAX_MERGE_SET_SIZE = 6000 // Maximum size of the Hough segments to allow computing MergeLines in a reasonable time.
 
-    fun extractTableLines(grayMat: Mat): Pair<List<PolyLineSegment>, List<PolyLineSegment>> {
+    /**
+     * Runs the existing probabilistic Hough extraction and returns both its raw
+     * segments and the normalized horizontal/vertical lists consumed by merging.
+     */
+    fun extractHoughSegments(grayMat: Mat): HoughSegments {
         require(grayMat.channels() == 1) {
-            "extractTableBorders expects a single-channel (grayscale) Mat, but received ${grayMat.channels()} channels."
+            "extractHoughSegments expects a single-channel (grayscale) Mat, but received ${grayMat.channels()} channels."
         }
         val linesMat = Mat()
-
-        // Probabilistic Hough Transform (Extracting structural fragments)
         Imgproc.HoughLinesP(grayMat, linesMat, 1.0, Math.PI / 180.0, 20, 35.0, 20.0)
 
+        val raw = mutableListOf<IntArray>()
         val horizontalLines = mutableListOf<HoughSegment>()
         val verticalLines = mutableListOf<HoughSegment>()
         val angleTolerance = 15.0
@@ -61,6 +70,7 @@ object LineDetector {
         for (i in 0 until linesMat.rows()) {
             val data = IntArray(4)
             linesMat.get(i, 0, data)
+            raw.add(data.copyOf())
 
             val pt1 = Point(data[0].toDouble(), data[1].toDouble())
             val pt2 = Point(data[2].toDouble(), data[3].toDouble())
@@ -91,13 +101,42 @@ object LineDetector {
                 verticalLines
             )
         }
+        linesMat.release()
+        return HoughSegments(raw, horizontalLines, verticalLines)
+    }
+
+    /** Test hook exposing the unchanged Kotlin merger for native equivalence tests. */
+    fun mergeOrderedTracksForTesting(
+        lines: List<HoughSegment>,
+        distanceThreshold: Double,
+        isHorizontal: Boolean,
+        longestAllowedBacktrack: Double
+    ): List<PolyLineSegment> = mergeOrderedTracks(lines, distanceThreshold, isHorizontal, longestAllowedBacktrack)
+
+    fun extractTableLines(grayMat: Mat): Pair<List<PolyLineSegment>, List<PolyLineSegment>> {
+        require(grayMat.channels() == 1) {
+            "extractTableBorders expects a single-channel (grayscale) Mat, but received ${grayMat.channels()} channels."
+        }
+        val extracted = extractHoughSegments(grayMat)
+        val horizontalLines = extracted.horizontal
+        val verticalLines = extracted.vertical
 
         val proximityThreshold = kotlin.math.max(grayMat.width(), grayMat.height()) * 0.005
         val longestAllowedBacktrackRatio = 0.1 // Assume that the false line (e.g. user made) spans at most 20% of the paper
 
         // Process using proximity-sorted arrays
-        val mergedHorizontal = mergeOrderedTracks(horizontalLines, proximityThreshold, isHorizontal = true, grayMat.width().toDouble() * longestAllowedBacktrackRatio)
-        val mergedVertical = mergeOrderedTracks(verticalLines, proximityThreshold, isHorizontal = false, grayMat.height().toDouble() * longestAllowedBacktrackRatio)
+        val mergedHorizontal = LineDetectorNative.mergeOrderedTracks(
+            horizontalLines,
+            proximityThreshold,
+            isHorizontal = true,
+            longestAllowedBacktrack = grayMat.width().toDouble() * longestAllowedBacktrackRatio
+        )
+        val mergedVertical = LineDetectorNative.mergeOrderedTracks(
+            verticalLines,
+            proximityThreshold,
+            isHorizontal = false,
+            longestAllowedBacktrack = grayMat.height().toDouble() * longestAllowedBacktrackRatio
+        )
 
         // Length Filtering (Keep components stretching across at least 10% the target field)
         val minHorizontalLength = grayMat.width() * 0.1
@@ -122,8 +161,6 @@ object LineDetector {
         //TODO Add connecting of lines that seem to be the same line separated by a gap
 
         // Garbage collection manual release
-        linesMat.release()
-
         return Pair(finalHorizontal, finalVertical)
     }
 
