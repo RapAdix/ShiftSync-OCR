@@ -44,11 +44,9 @@ object LineDetector {
         MUTUAL_EXTENSION    // Lines overlap in middle, but BOTH extend past each other on opposite ends (Suspicious)
     }
 
-    private const val ANGLE_THRESHOLD = 10.0 // (degrees)
     private const val ENDPOINT_MATCH_TOLERANCE_PX = 5.0 // Epsilon tolerance for endpoint alignment (px)
     private const val OVERLAP_SPAN_SAMPLE_COUNT = 10.0 // How often we take height checks across the overlap zone
     private const val MIN_PROXIMITY_MATCH_RATIO = 0.80 // Minimum ratio of sampled points that must fall into ENDPOINT_MATCH_TOLERANCE_PX
-    private const val PERPENDICULAR_GAP_FACTOR = 0.25 // When merging lines decrease the allowed proximity gap to this factor if point is perpendicular to the current line's axis
     const val MAX_MERGE_SET_SIZE = 6000 // Maximum size of the Hough segments to allow computing MergeLines in a reasonable time.
 
     /**
@@ -105,14 +103,6 @@ object LineDetector {
         return HoughSegments(raw, horizontalLines, verticalLines)
     }
 
-    /** Test hook exposing the unchanged Kotlin merger for native equivalence tests. */
-    fun mergeOrderedTracksForTesting(
-        lines: List<HoughSegment>,
-        distanceThreshold: Double,
-        isHorizontal: Boolean,
-        longestAllowedBacktrack: Double
-    ): List<PolyLineSegment> = mergeOrderedTracks(lines, distanceThreshold, isHorizontal, longestAllowedBacktrack)
-
     fun extractTableLines(grayMat: Mat): Pair<List<PolyLineSegment>, List<PolyLineSegment>> {
         require(grayMat.channels() == 1) {
             "extractTableBorders expects a single-channel (grayscale) Mat, but received ${grayMat.channels()} channels."
@@ -162,225 +152,6 @@ object LineDetector {
 
         // Garbage collection manual release
         return Pair(finalHorizontal, finalVertical)
-    }
-
-    // Merging logic using branching (backtracking) to find the longest combined lines
-    private fun mergeOrderedTracks(
-        lines: List<HoughSegment>,
-        distanceThreshold: Double,
-        isHorizontal: Boolean,
-        longestAllowedBacktrack: Double
-    ): List<PolyLineSegment> {
-        if (lines.isEmpty()) return emptyList()
-
-        // Spatial Pre-Sort Sweep: Organize items sequentially by position to prevent out-of-order merging anomalies
-        // Sticking left-to-right for horizontal, and top-to-bottom for vertical
-        val sortedWorkingList = if (isHorizontal) {
-            lines.sortedBy { it.first.x }
-        } else {
-            lines.sortedBy { it.first.y }
-        }
-
-        val completedPool = mutableListOf<PolyLineSegment>()
-        val usedIndices = HashSet<Int>()
-
-        for (i in 0 until sortedWorkingList.size) {
-            if (usedIndices.contains(i)) continue
-
-            // Collect the indices of the path segments used in the longest branching solution
-            val bestPathIndices = mutableListOf<Int>()
-
-            // Cache to store visited tail configurations for this specific root line branch traversal
-            val visitedTails = HashSet<Pair<Point, Point>>()
-
-            findLongestBranch(
-                currentIndex = i,
-                previousIndex = i, // Initially anchored to itself
-                availableSegments = sortedWorkingList,
-                usedIndices = usedIndices,
-                currentPath = mutableListOf(i),
-                bestPath = bestPathIndices,
-                visitedTails = visitedTails,
-                distanceThreshold = distanceThreshold,
-                isHorizontal = isHorizontal,
-                longestAllowedBacktrack = longestAllowedBacktrack
-            )
-
-            if (bestPathIndices.isEmpty()) bestPathIndices.add(i)
-            val bestMergedPoints = buildList {
-                add(sortedWorkingList[bestPathIndices.first()].first)
-                addAll(bestPathIndices.map { sortedWorkingList[it].second })
-            }
-
-            val bestMergedLine = PolyLineSegment(bestMergedPoints.toMutableList())
-
-            completedPool.add(bestMergedLine)
-            // Permanently consume the winning path components from the pool
-            usedIndices.addAll(bestPathIndices)
-        }
-
-        return completedPool
-    }
-
-    // Depth-First Search with backtracking to find the path combination yielding the longest line
-    private fun findLongestBranch(
-        currentIndex: Int,
-        previousIndex: Int,
-        availableSegments: List<HoughSegment>,
-        usedIndices: Set<Int>,
-        currentPath: MutableList<Int>, // track indices to permanently consume them after merging whole line
-        bestPath: MutableList<Int>,
-        visitedTails: HashSet<Pair<Point, Point>>, // track last sections for each started merge to prune what we already checked
-        distanceThreshold: Double,
-        isHorizontal: Boolean,
-        longestAllowedBacktrack: Double
-    ) {
-
-        val bestPathLength = getPathLength(bestPath, availableSegments)
-        val currentPathLength = getPathLength(currentPath, availableSegments)
-        // If this is the first execution or we found a path that beats our previous global maximum length, record it
-        if (bestPath.isEmpty() || currentPathLength > bestPathLength) {
-            bestPath.clear()
-            bestPath.addAll(currentPath)
-        }
-
-        // Early termination
-        if (bestPathLength - currentPathLength > longestAllowedBacktrack &&
-            bestPath[bestPath.size - 2] != currentPath.last()) // If we are one step behind best then allow backtrack even if distance breached
-            return
-
-        // Extract the tail trajectory of the current path
-        val lastSeg = availableSegments[currentPath.last()]
-        val lastSegStart = if (currentPath.size >= 2) {
-            availableSegments[currentPath[currentPath.size - 2]].second
-        } else {
-            lastSeg.first
-        }
-        val lastSegEnd = lastSeg.second
-
-        // Prune branch if this exact tail trajectory was already evaluated under this root search
-        // Because all the logic is dependant at most at the last section of PolyLine so if it was visited before
-        // for the current merge then there is no need to check it again since nothing changed
-        val tailKey = Pair(lastSegStart, lastSegEnd)
-        if (!visitedTails.add(tailKey)) {
-            return
-        }
-
-        // Scan from the index of the previously attached segment
-        // to count for segments which became available because of recently filled gap.
-        // Skip previous segments cause they will be considered in parallel dfs.
-        val searchStartIndex = previousIndex
-
-        for (nextIdx in searchStartIndex until availableSegments.size) {
-            if (usedIndices.contains(nextIdx) || currentPath.contains(nextIdx)) continue
-
-            val candidate = availableSegments[nextIdx]
-
-            // Forward early-termination check using activeLine bounds
-            if (isHorizontal) {
-                if (candidate.first.x > lastSegEnd.x + distanceThreshold) break
-            } else {
-                if (candidate.first.y > lastSegEnd.y + distanceThreshold) break
-            }
-
-            // Verify connection compatibility at the boundary endpoint or overlapping trajectory tracks
-            if (checkAndCombineBranch(currentPath, candidate, availableSegments, distanceThreshold, isHorizontal)) {
-                currentPath.add(nextIdx)
-
-                findLongestBranch(
-                    currentIndex = nextIdx,
-                    previousIndex = currentIndex, // Updates lookback to be anchored to the index of the segment we just attached
-                    availableSegments = availableSegments,
-                    usedIndices = usedIndices,
-                    currentPath = currentPath,
-                    bestPath = bestPath,
-                    visitedTails = visitedTails,
-                    distanceThreshold = distanceThreshold,
-                    isHorizontal = isHorizontal,
-                    longestAllowedBacktrack = longestAllowedBacktrack
-                )
-
-                // Backtrack to try alternative branches
-                currentPath.removeAt(currentPath.size - 1)
-            }
-        }
-
-        return
-    }
-
-    // Estimate total spatial length of a specific path array
-    private fun getPathLength(path: List<Int>, segments: List<HoughSegment>): Double {
-        if (path.isEmpty()) return 0.0
-        val firstSeg = segments[path.first()]
-        val lastSeg = segments[path.last()]
-        return hypot(lastSeg.second.x - firstSeg.first.x, lastSeg.second.y - firstSeg.first.y)
-    }
-
-    // Strictly blends the start of a candidate to the end of our current active line and handles appending of what overextends
-    private fun checkAndCombineBranch(
-        currentPath: List<Int>,
-        candidate: HoughSegment,
-        availableSegments: List<HoughSegment>,
-        maxGapThreshold: Double,
-        isHorizontal: Boolean
-    ): Boolean {
-        val lastSeg = availableSegments[currentPath.last()]
-
-        if (isHorizontal && candidate.second.x <= lastSeg.second.x)
-            return false
-        if (!isHorizontal && candidate.second.y <= lastSeg.second.y)
-            return false
-
-        // Extract the final segment of the current line to check overlapping
-        val lastSegStart = if (currentPath.size >= 2) {
-            availableSegments[currentPath[currentPath.size - 2]].second
-        } else {
-            lastSeg.first
-        }
-        val lastSegEnd = lastSeg.second
-
-        // 1. Angle verification check
-        val activeAngle = Math.toDegrees(atan2(lastSegEnd.y - lastSegStart.y, lastSegEnd.x - lastSegStart.x))
-        val candidateAngle = Math.toDegrees(atan2(candidate.second.y - candidate.first.y, candidate.second.x - candidate.first.x))
-        val angleDifference = abs(activeAngle - candidateAngle) % 180
-        val normalizedAngleDiff = minOf(angleDifference, 180 - angleDifference)
-        if (normalizedAngleDiff > ANGLE_THRESHOLD)
-            return false
-
-        // Check if candidate starts near the end of our line (end-to-start gap)
-        val gapX = candidate.first.x - lastSegEnd.x
-        val gapY = candidate.first.y - lastSegEnd.y
-        val endToStartDistance = hypot(gapX, gapY)
-        val allowedGapThreshold = directionalGapThreshold(
-            gapAlongLine = if (isHorizontal) gapX else gapY,
-            gapPerpendicularToLine = if (isHorizontal) gapY else gapX,
-            maxGapThreshold = maxGapThreshold
-        )
-        val isTipToTailMatch = endToStartDistance <= allowedGapThreshold
-
-        // Check if candidate starts close enough to our line's last segment (overlapping/parallel lines)
-        val overlapDistance = distanceToSegment(candidate.first, lastSegStart, lastSegEnd)
-        val isOverlapMatch = overlapDistance <= PERPENDICULAR_GAP_FACTOR * maxGapThreshold // PERPENDICULAR_GAP_FACTOR because it is the perpendicular distance case
-
-        return isTipToTailMatch || isOverlapMatch
-    }
-
-    /**
-     * Keeps the original gap allowance for gaps in the line's travel direction,
-     * while reducing the allowance for gaps that are mostly perpendicular to it.
-     */
-    private fun directionalGapThreshold(
-        gapAlongLine: Double,
-        gapPerpendicularToLine: Double,
-        maxGapThreshold: Double
-    ): Double {
-        val gapMagnitude = hypot(gapAlongLine, gapPerpendicularToLine)
-        if (gapMagnitude == 0.0) return maxGapThreshold
-
-        val longitudinalAlignment = abs(gapAlongLine) / gapMagnitude
-        val allowanceFactor = PERPENDICULAR_GAP_FACTOR +
-            (1.0 - PERPENDICULAR_GAP_FACTOR) * longitudinalAlignment
-        return maxGapThreshold * allowanceFactor
     }
 
     /**
@@ -514,26 +285,6 @@ object LineDetector {
         }
     }
 
-    private fun distanceToSegment(p: Point, segA: Point, segB: Point): Double {
-        val dx = segB.x - segA.x
-        val dy = segB.y - segA.y
-
-        if (dx == 0.0 && dy == 0.0) {
-            return hypot(p.x - segA.x, p.y - segA.y)
-        }
-
-        val t = ((p.x - segA.x) * dx + (p.y - segA.y) * dy) / (dx * dx + dy * dy)
-
-        return when {
-            t < 0.0 -> hypot(p.x - segA.x, p.y - segA.y)
-            t > 1.0 -> hypot(p.x - segB.x, p.y - segB.y)
-            else -> {
-                val projectionX = segA.x + t * dx
-                val projectionY = segA.y + t * dy
-                return hypot(p.x - projectionX, p.y - projectionY)
-            }
-        }
-    }
 }
 
 /**

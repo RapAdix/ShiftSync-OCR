@@ -22,6 +22,8 @@ struct Segment {
     Point second;
 };
 
+// The merger revisits the same tail configurations while backtracking. Hashing
+// the four endpoint coordinates lets us prune those duplicate searches.
 struct PointPairHash {
     std::size_t operator()(const std::pair<Point, Point>& value) const noexcept {
         const auto hashDouble = [](double number) {
@@ -39,6 +41,8 @@ double distance(const Point& a, const Point& b) {
     return std::hypot(a.x - b.x, a.y - b.y);
 }
 
+// A path's effective length is measured from its first segment's beginning to
+// its last segment's end, matching the Kotlin implementation.
 double pathLength(const std::vector<int>& path, const std::vector<Segment>& segments) {
     if (path.empty()) return 0.0;
     const Segment& first = segments[path.front()];
@@ -56,6 +60,8 @@ double distanceToSegment(const Point& p, const Point& a, const Point& b) {
     return distance(p, Point{a.x + t * dx, a.y + t * dy});
 }
 
+// Keep the original gap allowance for gaps along the line, but reduce it when
+// the candidate is displaced mainly perpendicular to the line.
 double directionalGapThreshold(double along, double perpendicular, double maximum) {
     const double magnitude = std::hypot(along, perpendicular);
     if (magnitude == 0.0) return maximum;
@@ -72,11 +78,16 @@ bool contains(const std::vector<int>& values, int value) {
 bool canCombine(const std::vector<int>& path, const std::vector<Segment>& segments,
                 const Segment& candidate, double maximumGap, bool horizontal) {
     const Segment& last = segments[path.back()];
+
+    // Segments must extend forward along the table line; backward candidates
+    // are handled by a different root search.
     if (horizontal && candidate.second.x <= last.second.x) return false;
     if (!horizontal && candidate.second.y <= last.second.y) return false;
 
     const Point lastStart = path.size() >= 2 ? segments[path[path.size() - 2]].second : last.first;
     const Point lastEnd = last.second;
+    // Compare the candidate with the recent trajectory, not only with
+    // the general trajectory of the whole merged path.
     const double activeAngle = std::atan2(lastEnd.y - lastStart.y, lastEnd.x - lastStart.x) * 180.0 / M_PI;
     const double candidateAngle = std::atan2(candidate.second.y - candidate.first.y,
                                              candidate.second.x - candidate.first.x) * 180.0 / M_PI;
@@ -89,6 +100,8 @@ bool canCombine(const std::vector<int>& path, const std::vector<Segment>& segmen
     const double allowed = directionalGapThreshold(horizontal ? gapX : gapY,
                                                    horizontal ? gapY : gapX,
                                                    maximumGap);
+    // A candidate may either begin near the active endpoint or overlap the
+    // active segment closely enough to be a continuation of it.
     const bool tipToTail = std::hypot(gapX, gapY) <= allowed;
     const bool overlap = distanceToSegment(candidate.first, lastStart, lastEnd) <=
                          kPerpendicularGapFactor * maximumGap;
@@ -100,17 +113,23 @@ void findLongestBranch(int current, int previous, const std::vector<Segment>& se
                        std::vector<int>& bestPath,
                        std::unordered_set<std::pair<Point, Point>, PointPairHash>& visited,
                        double threshold, bool horizontal, double backtrack) {
+    // Depth-first search with backtracking finds the longest compatible path
+    // beginning at the current root segment.
     const double bestLength = pathLength(bestPath, segments);
     const double currentLength = pathLength(currentPath, segments);
     if (bestPath.empty() || currentLength > bestLength) bestPath = currentPath;
 
     const double updatedBestLength = pathLength(bestPath, segments);
+    // Stop branches that have fallen too far behind the best path, while
+    // retaining the original one-step look-back exception.
     if (updatedBestLength - currentLength > backtrack &&
         (bestPath.size() < 2 || bestPath[bestPath.size() - 2] != currentPath.back())) return;
 
     const Segment& last = segments[currentPath.back()];
     const Point lastStart = currentPath.size() >= 2 ? segments[currentPath[currentPath.size() - 2]].second : last.first;
     const Point lastEnd = last.second;
+    // Nothing after this tail depends on the earlier part of the path, so a
+    // tail already visited during this root search needs no second traversal.
     if (!visited.insert({lastStart, lastEnd}).second) return;
 
     for (int next = previous; next < static_cast<int>(segments.size()); ++next) {
@@ -131,6 +150,10 @@ std::vector<std::vector<Point>> mergeOrderedTracks(const std::vector<Segment>& i
                                                     double threshold, bool horizontal,
                                                     double backtrack) {
     std::vector<Segment> segments = input;
+
+    // Spatial pre-sort sweep: horizontal segments move left-to-right and
+    // vertical segments move top-to-bottom. Stable sorting preserves Hough's
+    // original order when two segments share the same starting coordinate.
     std::stable_sort(segments.begin(), segments.end(), [horizontal](const Segment& a, const Segment& b) {
         return horizontal ? a.first.x < b.first.x : a.first.y < b.first.y;
     });
@@ -140,6 +163,8 @@ std::vector<std::vector<Point>> mergeOrderedTracks(const std::vector<Segment>& i
     used.reserve(segments.size());
     for (int i = 0; i < static_cast<int>(segments.size()); ++i) {
         if (used.find(i) != used.end()) continue;
+        // Each root gets its own best path and visited-tail cache. Winning
+        // segments are consumed permanently after the search completes.
         std::vector<int> bestPath;
         std::unordered_set<std::pair<Point, Point>, PointPairHash> visited;
         visited.reserve(segments.size());
@@ -162,6 +187,9 @@ extern "C" JNIEXPORT jdoubleArray JNICALL
 Java_com_example_workflowocr_LineDetectorNative_mergeOrderedTracksRaw(
     JNIEnv* env, jobject, jdoubleArray input, jdouble threshold, jboolean horizontal,
     jdouble backtrack) {
+    // Kotlin passes x1,y1,x2,y2 for each segment. The native algorithm works
+    // with typed points, then returns a compact variable-length representation:
+    // lineCount, pointCount, x,y... for each merged line.
     const jsize length = env->GetArrayLength(input);
     std::vector<jdouble> values(static_cast<size_t>(length));
     env->GetDoubleArrayRegion(input, 0, length, values.data());
