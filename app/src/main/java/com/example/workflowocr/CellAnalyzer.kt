@@ -16,6 +16,7 @@ import kotlin.math.hypot
 
 object CellAnalyzer {
     private const val CROSSING_LENGTH_FRACTION = 0.70
+    private const val LEGACY_CROSSING_AREA_FRACTION = 0.03
     @Serializable
     data class RowAnalysis (
         val penCoverage: Array<Double>,
@@ -79,7 +80,10 @@ object CellAnalyzer {
      * @param cell the four-corner cell geometry in [crossingThresh]'s coordinates
      * @return whether a crossing was detected and the four inset cell corners for debugging
      */
-    fun detectPenCrossing(crossingThresh: Mat, cell: TableCell): Pair<Boolean, Array<Point>> {
+    fun detectPenCrossing(
+        crossingThresh: Mat,
+        cell: TableCell
+    ): Pair<Boolean, Array<Point>> {
         val sourceCorners = listOf(cell.topLeft, cell.topRight, cell.bottomRight, cell.bottomLeft)
         val warped = warpCell(crossingThresh, sourceCorners)
         val innerMask = Mat.zeros(warped.size(), CvType.CV_8UC1)
@@ -99,8 +103,12 @@ object CellAnalyzer {
         val longestLine = (1..9).maxOf { direction ->
             dp.maxOf { row -> row.maxOf { values -> values[direction] } }
         }
-        val crossed = longestLine >= warped.height() * CROSSING_LENGTH_FRACTION
+        val dpCrossed = longestLine >= warped.height() * CROSSING_LENGTH_FRACTION
         warped.release()
+        // The DP detector is optimized for the common bottom-left to top-right
+        // stroke. Use the older strip-area detector only as a fallback for the
+        // opposite stroke direction; this avoids running another DP pass.
+        val crossed = dpCrossed || detectPenCrossingFast(crossingThresh, cell)
         val margin = 0.04
         val innerPoints = arrayOf(
             getPointInCell(cell, margin, margin),
@@ -109,6 +117,51 @@ object CellAnalyzer {
             getPointInCell(cell, margin, 1.0 - margin)
         )
         return Pair(crossed, innerPoints)
+    }
+
+    /**
+     * Fast fallback detector for crossings that the directional DP can miss.
+     * It reuses the original legacy top and bottom strip-area test instead of
+     * running a second directional DP pass.
+     */
+    private fun detectPenCrossingFast(thresh: Mat, cell: TableCell): Boolean {
+        val hExclusionPct = 0.14
+        val topStripHeightPct = 0.19
+        val btmStripHeightPct = 0.24
+        val mask = Mat.zeros(thresh.size(), CvType.CV_8UC1)
+        val borderInset = (cell.bottomRight.y - cell.topLeft.y) * 0.1
+        val topQuad = getSubQuad(
+            cell,
+            yStart = 0.0, yEnd = topStripHeightPct,
+            xStart = hExclusionPct, xEnd = 1.0 - hExclusionPct,
+            inset = borderInset, insetTop = true, insetBtm = false
+        )
+        val bottomQuad = getSubQuad(
+            cell,
+            yStart = 1.0 - btmStripHeightPct, yEnd = 1.0,
+            xStart = hExclusionPct, xEnd = 1.0 - hExclusionPct,
+            inset = borderInset, insetTop = false, insetBtm = true
+        )
+
+        val topMaskPoints = MatOfPoint(*topQuad)
+        val bottomMaskPoints = MatOfPoint(*bottomQuad)
+        Imgproc.fillPoly(mask, listOf(topMaskPoints, bottomMaskPoints), Scalar(255.0))
+
+        val evidence = Mat()
+        Core.bitwise_and(thresh, mask, evidence)
+        val inkPixelCount = Core.countNonZero(evidence)
+        val topQuadPoints = MatOfPoint2f(*topQuad)
+        val bottomQuadPoints = MatOfPoint2f(*bottomQuad)
+        val area = Imgproc.contourArea(topQuadPoints) + Imgproc.contourArea(bottomQuadPoints)
+
+        evidence.release()
+        mask.release()
+        topMaskPoints.release()
+        bottomMaskPoints.release()
+        topQuadPoints.release()
+        bottomQuadPoints.release()
+
+        return area > 0.0 && inkPixelCount > area * LEGACY_CROSSING_AREA_FRACTION
     }
 
     private fun warpCell(source: Mat, corners: List<Point>): Mat {
