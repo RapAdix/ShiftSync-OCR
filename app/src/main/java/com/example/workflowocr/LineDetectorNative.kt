@@ -4,8 +4,29 @@ import org.opencv.core.Point
 
 /** Native, behavior-preserving port of the ordered Hough-track merger and its data conversion. */
 object LineDetectorNative {
+    private var libraryLoaded = false
+    private var loadingError: UnsatisfiedLinkError? = null
+
     init {
-        System.loadLibrary("line_detector_native")
+        loadLibraryFromSystemPath()
+    }
+
+    /**
+     * Loads the Windows test DLL built by `buildWindowsLineDetectorNative`.
+     * Android uses the packaged library loaded during object initialization;
+     * this opt-in path exists only for local JVM tests.
+     */
+    @Synchronized
+    fun loadDesktopTestLibrary(absolutePath: String) {
+        if (libraryLoaded) return
+        try {
+            System.load(absolutePath)
+            libraryLoaded = true
+            loadingError = null
+        } catch (error: UnsatisfiedLinkError) {
+            loadingError = error
+            throw error
+        }
     }
 
     /** Merges normalized Hough segments using the native implementation. */
@@ -16,6 +37,7 @@ object LineDetectorNative {
         longestAllowedBacktrack: Double
     ): List<PolyLineSegment> {
         if (lines.isEmpty()) return emptyList()
+        ensureLibraryLoaded()
         val input = lines.flatMap { (first, second) ->
             listOf(first.x, first.y, second.x, second.y)
         }.toDoubleArray()
@@ -46,4 +68,25 @@ object LineDetectorNative {
         isHorizontal: Boolean,
         longestAllowedBacktrack: Double
     ): DoubleArray
+
+    private fun loadLibraryFromSystemPath() {
+        try {
+            System.loadLibrary("line_detector_native")
+            libraryLoaded = true
+        } catch (error: UnsatisfiedLinkError) {
+            loadingError = error
+        }
+    }
+
+    private fun ensureLibraryLoaded() {
+        if (libraryLoaded) return
+        System.getProperty(DESKTOP_LIBRARY_PROPERTY)
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::loadDesktopTestLibrary)
+        if (!libraryLoaded) {
+            throw loadingError ?: UnsatisfiedLinkError("Could not load line_detector_native")
+        }
+    }
+
+    const val DESKTOP_LIBRARY_PROPERTY = "workflowocr.lineDetectorNativePath"
 }

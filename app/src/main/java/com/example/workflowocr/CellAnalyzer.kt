@@ -87,8 +87,9 @@ object CellAnalyzer {
         val sourceCorners = listOf(cell.topLeft, cell.topRight, cell.bottomRight, cell.bottomLeft)
         val warped = warpCell(crossingThresh, sourceCorners)
         val innerMask = Mat.zeros(warped.size(), CvType.CV_8UC1)
-        val xInset = warped.width() * 0.04
-        val yInset = warped.height() * 0.04
+        val margin = 0.04
+        val xInset = warped.width() * margin
+        val yInset = warped.height() * margin
         Imgproc.rectangle(
             innerMask,
             Point(xInset, yInset),
@@ -109,7 +110,6 @@ object CellAnalyzer {
         // stroke. Use the older strip-area detector only as a fallback for the
         // opposite stroke direction; this avoids running another DP pass.
         val crossed = dpCrossed || detectPenCrossingFast(crossingThresh, cell)
-        val margin = 0.04
         val innerPoints = arrayOf(
             getPointInCell(cell, margin, margin),
             getPointInCell(cell, 1.0 - margin, margin),
@@ -163,6 +163,7 @@ object CellAnalyzer {
 
         return area > 0.0 && inkPixelCount > area * LEGACY_CROSSING_AREA_FRACTION
     }
+
 
     private fun warpCell(source: Mat, corners: List<Point>): Mat {
         val width = maxOf(

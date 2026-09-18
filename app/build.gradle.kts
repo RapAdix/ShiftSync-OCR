@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     alias(libs.plugins.android.application)
@@ -129,6 +130,28 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// A local JVM test can opt into the Windows JNI DLL without making normal
+// Android builds or tests depend on a desktop-specific native library.
+val desktopNativeLibrary = providers.gradleProperty("desktopNativeLibrary")
+tasks.withType<Test>().configureEach {
+    desktopNativeLibrary.orNull?.let { library ->
+        systemProperty("workflowocr.lineDetectorNativePath", file(library).absolutePath)
+    }
+}
+
+tasks.register<Exec>("buildWindowsLineDetectorNative") {
+    group = "build"
+    description = "Builds the Windows x64 JNI DLL used only by local JVM tests."
+    onlyIf { System.getProperty("os.name").startsWith("Windows", ignoreCase = true) }
+    inputs.file("src/main/cpp/line_detector_native.cpp")
+    inputs.file("src/test/native/line_detector_native/CMakeLists.txt")
+    outputs.file(layout.buildDirectory.file("desktopNative/windows-x64/Release/line_detector_native.dll"))
+    commandLine(
+        "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+        file("src/test/native/build_windows_line_detector_native.ps1").absolutePath
+    )
 }
 
 // Guardrail: Sabotage the build if trying to compile the internal flavor as a Release

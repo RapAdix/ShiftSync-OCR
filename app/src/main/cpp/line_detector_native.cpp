@@ -10,6 +10,7 @@ namespace {
 
 constexpr double kAngleThreshold = 10.0;
 constexpr double kPerpendicularGapFactor = 0.25;
+constexpr double kPi = 3.14159265358979323846;
 
 struct Point {
     double x;
@@ -88,9 +89,9 @@ bool canCombine(const std::vector<int>& path, const std::vector<Segment>& segmen
     const Point lastEnd = last.second;
     // Compare the candidate with the recent trajectory, not only with
     // the general trajectory of the whole merged path.
-    const double activeAngle = std::atan2(lastEnd.y - lastStart.y, lastEnd.x - lastStart.x) * 180.0 / M_PI;
+    const double activeAngle = std::atan2(lastEnd.y - lastStart.y, lastEnd.x - lastStart.x) * 180.0 / kPi;
     const double candidateAngle = std::atan2(candidate.second.y - candidate.first.y,
-                                             candidate.second.x - candidate.first.x) * 180.0 / M_PI;
+                                             candidate.second.x - candidate.first.x) * 180.0 / kPi;
     const double angleDifference = std::fmod(std::abs(activeAngle - candidateAngle), 180.0);
     const double normalized = std::min(angleDifference, 180.0 - angleDifference);
     if (normalized > kAngleThreshold) return false;
