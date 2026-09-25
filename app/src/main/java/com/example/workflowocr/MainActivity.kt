@@ -444,7 +444,7 @@ class OcrFlowCoordinator(
         scope.launch(Dispatchers.IO) {
             if (date != null) {
                 val rawTextGrid = withContext(Dispatchers.IO) {
-                    TextProcessor.extractTextFromCells(
+                    TextProcessor.extractTextFromColumns(
                         detection.cells,
                         imageBitmap,
                         buildList {
@@ -1032,7 +1032,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
 
                     logText = withContext(Dispatchers.Default) {
                         // OCR (Text Extraction)
-                        val rawTextGrid = TextProcessor.extractTextFromCells(
+                        val rawTextGrid = TextProcessor.extractTextFromColumns(
                             results.cells,
                             results.deskewedBmp,
                             listOf(settings.nameCol, settings.timeStartCol, settings.timeEndCol)

@@ -15,7 +15,7 @@ import java.io.File
 import kotlin.system.measureTimeMillis
 
 @RunWith(AndroidJUnit4::class)
-class TextProcessorWholeImageFixtureInstrumentedTest {
+class TextProcessorColumnOcrExperiment {
     @Serializable private data class Fixture(val image: String, val layout: String, val cells: List<ExpectedCell>)
     @Serializable private data class ExpectedCell(val row: Int, val column: Int, val corners: List<List<Double>>)
 
@@ -23,7 +23,7 @@ class TextProcessorWholeImageFixtureInstrumentedTest {
 
     @Test
     @Ignore("Manual OCR approach benchmark; run explicitly when evaluating OCR changes.")
-    fun comparePerCellAndHybridColumnScales() = runBlocking {
+    fun comparePerCellAndColumnOcr() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val assets = instrumentation.context.assets
         val reportRoot = File(instrumentation.targetContext.getExternalFilesDir(null), "ocr_comparison")
@@ -47,40 +47,25 @@ class TextProcessorWholeImageFixtureInstrumentedTest {
                 val perCellMillis = measureTimeMillis {
                     perCell = TextProcessor.extractTextFromCells(cells, bitmap, targetCols)
                 }
-                lateinit var columnWithFallback: Array<Array<String>>
-                val columnWithFallbackMillis = measureTimeMillis {
-                    columnWithFallback = TextProcessor.extractTextFromColumnsWithCellFallback(cells, bitmap, targetCols)
-                }
-                lateinit var columnV15WithFallback: Array<Array<String>>
-                val columnV15WithFallbackMillis = measureTimeMillis {
-                    columnV15WithFallback = TextProcessor.extractTextFromColumnsV15WithCellFallback(cells, bitmap, targetCols)
-                }
-                lateinit var columnV2WithFallback: Array<Array<String>>
-                val columnV2WithFallbackMillis = measureTimeMillis {
-                    columnV2WithFallback = TextProcessor.extractTextFromColumnsV2WithCellFallback(cells, bitmap, targetCols)
+                lateinit var columns: Array<Array<String>>
+                val columnsMillis = measureTimeMillis {
+                    columns = TextProcessor.extractTextFromColumns(cells, bitmap, targetCols)
                 }
 
                 var baselineNonBlank = 0
-                var columnWithFallbackNonBlank = 0
-                var columnV15WithFallbackNonBlank = 0
-                var columnV2WithFallbackNonBlank = 0
+                var columnsNonBlank = 0
                 cells.indices.forEach { row ->
                     targetCols.forEach { col ->
                         val baseline = perCell[row][col]
                         if (baseline.isNotBlank()) baselineNonBlank++
-                        if (columnWithFallback[row][col].isNotBlank()) columnWithFallbackNonBlank++
-                        if (columnV15WithFallback[row][col].isNotBlank()) columnV15WithFallbackNonBlank++
-                        if (columnV2WithFallback[row][col].isNotBlank()) columnV2WithFallbackNonBlank++
+                        if (columns[row][col].isNotBlank()) columnsNonBlank++
                     }
                 }
-                reports += "TEXT_OCR_SCALE_COMPARISON path=$path perCellMs=$perCellMillis " +
-                    "hybrid2Ms=$columnWithFallbackMillis hybrid15Ms=$columnV15WithFallbackMillis " +
-                    "hybrid25Ms=$columnV2WithFallbackMillis baselineNonBlank=$baselineNonBlank " +
-                    "hybrid2NonBlank=$columnWithFallbackNonBlank hybrid15NonBlank=$columnV15WithFallbackNonBlank " +
-                    "hybrid25NonBlank=$columnV2WithFallbackNonBlank"
+                reports += "TEXT_OCR_COLUMN_COMPARISON path=$path perCellMs=$perCellMillis " +
+                    "columnsMs=$columnsMillis baselineNonBlank=$baselineNonBlank columnsNonBlank=$columnsNonBlank"
                 writeComparisonReport(
                     File(reportRoot, "${path.substringBeforeLast('/')}/text_ocr_comparison.txt"), cells, targetCols,
-                    perCell, columnWithFallback, columnV15WithFallback, columnV2WithFallback
+                    perCell, columns
                 )
             } finally {
                 bitmap.recycle()
@@ -95,9 +80,7 @@ class TextProcessorWholeImageFixtureInstrumentedTest {
         cells: Array<Array<TableDetector.TableCell>>,
         targetCols: List<Int>,
         perCell: Array<Array<String>>,
-        columnWithFallback: Array<Array<String>>,
-        columnV15WithFallback: Array<Array<String>>,
-        columnV2WithFallback: Array<Array<String>>
+        columns: Array<Array<String>>
     ) {
         file.parentFile?.mkdirs()
         file.writeText(buildString {
@@ -105,15 +88,11 @@ class TextProcessorWholeImageFixtureInstrumentedTest {
             cells.indices.forEach { row ->
                 targetCols.forEach { col ->
                     val baseline = perCell[row][col]
-                    val hybrid2 = columnWithFallback[row][col]
-                    val hybrid15 = columnV15WithFallback[row][col]
-                    val hybrid25 = columnV2WithFallback[row][col]
+                    val columnText = columns[row][col]
                     appendLine()
                     appendLine("row=$row column=$col")
                     appendLine("per_cell: ${display(baseline)}")
-                    appendLine("hybrid_2x [${comparisonLabel(baseline, hybrid2)}]: ${display(hybrid2)}")
-                    appendLine("hybrid_1_5x [${comparisonLabel(baseline, hybrid15)}]: ${display(hybrid15)}")
-                    appendLine("hybrid_2_5x [${comparisonLabel(baseline, hybrid25)}]: ${display(hybrid25)}")
+                    appendLine("columns_1_5x_with_fallback [${comparisonLabel(baseline, columnText)}]: ${display(columnText)}")
                 }
             }
         })
