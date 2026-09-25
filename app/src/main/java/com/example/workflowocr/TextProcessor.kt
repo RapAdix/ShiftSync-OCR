@@ -40,6 +40,159 @@ object TextProcessor {
         return@withContext results
     }
 
+    /**
+     * Recognizes the table once, then assigns each detected ML Kit text element to
+     * the selected cell whose four-corner area contains the element's center.
+     * Elements are deliberately used instead of lines: a single recognized line
+     * can span adjacent time cells, while its elements retain separate bounds.
+     * This avoids one recognizer invocation and one temporary bitmap per cell.
+     */
+    suspend fun extractTextFromWholeImage(
+        cells: Array<Array<TableDetector.TableCell>>,
+        bitmap: Bitmap,
+        specificCols: List<Int>? = null
+    ): Array<Array<String>> = withContext(Dispatchers.IO) {
+        if (cells.isEmpty()) return@withContext emptyArray()
+        val results = Array(cells.size) { Array(cells[0].size) { "" } }
+        val cols = (specificCols ?: cells[0].indices).toSet()
+        val detectionsByCell = mutableMapOf<Pair<Int, Int>, MutableList<PositionedText>>()
+
+        val visionText = recognize(InputImage.fromBitmap(bitmap, 0)) ?: return@withContext results
+        addRecognizedElements(visionText, cells, cols, detectionsByCell)
+        detectionsByCell.forEach { (position, detections) ->
+            val (row, col) = position
+            results[row][col] = joinDetectedText(detections)
+        }
+        return@withContext results
+    }
+
+    /**
+     * Recognizes each requested table column once. Column crops retain the 2x scale
+     * used by per-cell OCR while requiring only one ML Kit invocation per column.
+     */
+    suspend fun extractTextFromColumns(
+        cells: Array<Array<TableDetector.TableCell>>,
+        bitmap: Bitmap,
+        specificCols: List<Int>? = null
+    ): Array<Array<String>> = extractTextFromColumnsAtScale(cells, bitmap, specificCols, 2f)
+
+    /** A slightly higher-resolution column OCR experiment. */
+    suspend fun extractTextFromColumnsV2(
+        cells: Array<Array<TableDetector.TableCell>>,
+        bitmap: Bitmap,
+        specificCols: List<Int>? = null
+    ): Array<Array<String>> = extractTextFromColumnsAtScale(cells, bitmap, specificCols, 2.5f)
+
+    /** A lower-resolution column OCR experiment. */
+    suspend fun extractTextFromColumnsV15(
+        cells: Array<Array<TableDetector.TableCell>>,
+        bitmap: Bitmap,
+        specificCols: List<Int>? = null
+    ): Array<Array<String>> = extractTextFromColumnsAtScale(cells, bitmap, specificCols, 1.5f)
+
+    private suspend fun extractTextFromColumnsAtScale(
+        cells: Array<Array<TableDetector.TableCell>>,
+        bitmap: Bitmap,
+        specificCols: List<Int>?,
+        scale: Float
+    ): Array<Array<String>> = withContext(Dispatchers.IO) {
+        if (cells.isEmpty()) return@withContext emptyArray()
+        val results = Array(cells.size) { Array(cells[0].size) { "" } }
+        val cols = (specificCols ?: cells[0].indices).toSet()
+        val detectionsByCell = mutableMapOf<Pair<Int, Int>, MutableList<PositionedText>>()
+        val upscaleMatrix = Matrix().apply { postScale(scale, scale) }
+
+        cols.forEach { col ->
+            val bounds = cells.map { getRectForCell(it[col]) }
+            val padding = 3
+            val left = (bounds.minOf { it.x } + padding).coerceIn(0, bitmap.width - 1)
+            val top = (bounds.minOf { it.y } + padding).coerceIn(0, bitmap.height - 1)
+            val right = (bounds.maxOf { it.x + it.width } - padding).coerceIn(left + 1, bitmap.width)
+            val bottom = (bounds.maxOf { it.y + it.height } - padding).coerceIn(top + 1, bitmap.height)
+            val columnBitmap = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top, upscaleMatrix, true)
+            try {
+                recognize(InputImage.fromBitmap(columnBitmap, 0))?.let { visionText ->
+                    addRecognizedElements(
+                        visionText, cells, setOf(col), detectionsByCell,
+                        xOffset = left.toDouble(), yOffset = top.toDouble(), scale = scale.toDouble()
+                    )
+                }
+            } finally {
+                columnBitmap.recycle()
+            }
+        }
+
+        detectionsByCell.forEach { (position, detections) ->
+            val (row, col) = position
+            results[row][col] = joinDetectedText(detections)
+        }
+        return@withContext results
+    }
+
+    /**
+     * Uses column OCR first, then applies the established per-cell OCR only to
+     * selected cells that remained blank after the column pass.
+     */
+    suspend fun extractTextFromColumnsWithCellFallback(
+        cells: Array<Array<TableDetector.TableCell>>,
+        bitmap: Bitmap,
+        specificCols: List<Int>? = null
+    ): Array<Array<String>> = withContext(Dispatchers.IO) {
+        val results = extractTextFromColumns(cells, bitmap, specificCols)
+        if (cells.isEmpty()) return@withContext results
+
+        val cols = specificCols ?: cells[0].indices
+        val upscaleMatrix = Matrix().apply { postScale(2f, 2f) }
+        cells.indices.forEach { row ->
+            cols.forEach { col ->
+                if (results[row][col].isBlank()) {
+                    results[row][col] = extractTextFromCell(cells[row][col], bitmap, upscaleMatrix)
+                }
+            }
+        }
+        return@withContext results
+    }
+
+    suspend fun extractTextFromColumnsV2WithCellFallback(
+        cells: Array<Array<TableDetector.TableCell>>,
+        bitmap: Bitmap,
+        specificCols: List<Int>? = null
+    ): Array<Array<String>> = withContext(Dispatchers.IO) {
+        val results = extractTextFromColumnsV2(cells, bitmap, specificCols)
+        if (cells.isEmpty()) return@withContext results
+
+        val cols = specificCols ?: cells[0].indices
+        val upscaleMatrix = Matrix().apply { postScale(2f, 2f) }
+        cells.indices.forEach { row ->
+            cols.forEach { col ->
+                if (results[row][col].isBlank()) {
+                    results[row][col] = extractTextFromCell(cells[row][col], bitmap, upscaleMatrix)
+                }
+            }
+        }
+        return@withContext results
+    }
+
+    suspend fun extractTextFromColumnsV15WithCellFallback(
+        cells: Array<Array<TableDetector.TableCell>>,
+        bitmap: Bitmap,
+        specificCols: List<Int>? = null
+    ): Array<Array<String>> = withContext(Dispatchers.IO) {
+        val results = extractTextFromColumnsV15(cells, bitmap, specificCols)
+        if (cells.isEmpty()) return@withContext results
+
+        val cols = specificCols ?: cells[0].indices
+        val upscaleMatrix = Matrix().apply { postScale(2f, 2f) }
+        cells.indices.forEach { row ->
+            cols.forEach { col ->
+                if (results[row][col].isBlank()) {
+                    results[row][col] = extractTextFromCell(cells[row][col], bitmap, upscaleMatrix)
+                }
+            }
+        }
+        return@withContext results
+    }
+
     private suspend fun extractTextFromCell(
         cell: TableDetector.TableCell,
         bitmap: Bitmap,
@@ -59,11 +212,7 @@ object TextProcessor {
             val upscaled = Bitmap.createBitmap(bitmap, x, y, w, h, upscaleMatrix, true)
 
             val inputImage = InputImage.fromBitmap(upscaled, 0)
-            val ocrText = suspendCancellableCoroutine<String> { cont ->
-                recognizer.process(inputImage)
-                    .addOnSuccessListener { cont.resume(it.text) {} }
-                    .addOnFailureListener { e -> cont.resume("ERROR: ${e.message}") {} }
-            }
+            val ocrText = recognize(inputImage)?.text ?: ""
 
             // Clean up temporary bitmaps!
             upscaled.recycle()
@@ -71,6 +220,94 @@ object TextProcessor {
         } catch (e: Exception) {
             return@withContext ""
         }
+    }
+
+    private data class PositionedText(
+        val text: String,
+        val lineId: Int,
+        val lineTop: Int,
+        val lineLeft: Int,
+        val elementLeft: Int
+    )
+
+    private fun joinDetectedText(detections: List<PositionedText>): String = detections
+        .groupBy { it.lineId }
+        .values
+        .sortedWith(compareBy<List<PositionedText>> { it.first().lineTop }.thenBy { it.first().lineLeft })
+        .joinToString("\n") { line ->
+            line.sortedBy { it.elementLeft }.joinToString(" ") { it.text }
+        }
+
+    private fun addRecognizedElements(
+        visionText: Text,
+        cells: Array<Array<TableDetector.TableCell>>,
+        targetCols: Set<Int>,
+        detectionsByCell: MutableMap<Pair<Int, Int>, MutableList<PositionedText>>,
+        xOffset: Double = 0.0,
+        yOffset: Double = 0.0,
+        scale: Double = 1.0
+    ) {
+        fun assignText(text: String, box: android.graphics.Rect, lineId: Int, lineBox: android.graphics.Rect) {
+            val centerX = xOffset + (box.left + box.width() / 2.0) / scale
+            val centerY = yOffset + (box.top + box.height() / 2.0) / scale
+            val target = findContainingCell(cells, targetCols, centerX, centerY) ?: return
+            detectionsByCell.getOrPut(target) { mutableListOf() } += PositionedText(
+                text,
+                lineId,
+                (yOffset + lineBox.top / scale).roundToInt(),
+                (xOffset + lineBox.left / scale).roundToInt(),
+                (xOffset + box.left / scale).roundToInt()
+            )
+        }
+
+        visionText.textBlocks.flatMap { it.lines }.forEachIndexed { lineId, line ->
+            val lineBox = line.boundingBox ?: return@forEachIndexed
+            if (line.elements.isEmpty()) {
+                assignText(line.text, lineBox, lineId, lineBox)
+            } else {
+                line.elements.forEach { element ->
+                    element.boundingBox?.let { assignText(element.text, it, lineId, lineBox) }
+                }
+            }
+        }
+    }
+
+    private suspend fun recognize(inputImage: InputImage): Text? =
+        suspendCancellableCoroutine { cont ->
+            recognizer.process(inputImage)
+                .addOnSuccessListener { cont.resume(it) {} }
+                .addOnFailureListener { error ->
+                    Log.e("TextProcessor", "OCR processing failed", error)
+                    cont.resume(null) {}
+                }
+        }
+
+    private fun findContainingCell(
+        cells: Array<Array<TableDetector.TableCell>>,
+        targetCols: Set<Int>,
+        x: Double,
+        y: Double
+    ): Pair<Int, Int>? {
+        cells.forEachIndexed { row, rowCells ->
+            rowCells.forEachIndexed { col, cell ->
+                if (col in targetCols && isPointInsideCell(x, y, cell)) return row to col
+            }
+        }
+        return null
+    }
+
+    private fun isPointInsideCell(x: Double, y: Double, cell: TableDetector.TableCell): Boolean {
+        val corners = arrayOf(cell.topLeft, cell.topRight, cell.bottomRight, cell.bottomLeft)
+        var hasPositive = false
+        var hasNegative = false
+        corners.indices.forEach { index ->
+            val first = corners[index]
+            val second = corners[(index + 1) % corners.size]
+            val cross = (second.x - first.x) * (y - first.y) - (second.y - first.y) * (x - first.x)
+            if (cross > 0.0) hasPositive = true
+            if (cross < 0.0) hasNegative = true
+        }
+        return !(hasPositive && hasNegative)
     }
 
     // A lightweight helper class to pair data with physical image coordinates
