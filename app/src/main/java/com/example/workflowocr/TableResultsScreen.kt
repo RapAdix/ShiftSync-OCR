@@ -1,6 +1,7 @@
 package com.example.workflowocr
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -79,7 +80,12 @@ import com.example.workflowocr.ui.theme.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.opencv.core.Point
 import java.io.File
@@ -123,6 +129,7 @@ data class ProcessorRow(
 
 class TableViewModel(application: Application) : AndroidViewModel(application) {
     val storageManager = StorageManager(application)
+    private val dateStorageMutex = Mutex()
     val extractedRows = mutableStateMapOf<String, ProcessorRow>()
     private val _projectedGcs = mutableStateMapOf<Int, Int?>()
     val projectedGcs: Map<Int, Int?> = _projectedGcs
@@ -170,10 +177,18 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Only loads if dates differ. Stores old data.
-     */
-    fun loadDate(newDate: String) {
+    suspend fun loadDate(date: String) {
+        dateStorageMutex.withLock { loadDateLocked(date) }
+    }
+
+    suspend fun deleteDate(date: String): Boolean = dateStorageMutex.withLock {
+        val wasCurrentDate = currentWorkingDate == date
+        deleteDateLocked(date)
+        wasCurrentDate
+    }
+
+    /** Only loads if dates differ. Stores old data. Call while holding [dateStorageMutex]. */
+    private fun loadDateLocked(newDate: String) {
         if (newDate == currentWorkingDate) return
         // 1. Save current work before switching
         if (extractedRows.isNotEmpty()) {
@@ -208,12 +223,14 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         storageManager.saveProjectionToDisk(isWeekend, newProjection, currentWorkingDate)
     }
 
-    fun saveToStorage() {
+    /** Call while holding [dateStorageMutex]. */
+    private fun saveToStorageLocked() {
         storageManager.saveRowsToDisk(extractedRows, currentWorkingDate)
         storageManager.saveProjectionToDisk(isWeekend, projectedGcs.toMap(), currentWorkingDate)
     }
 
-    fun deleteDate(date: String) {
+    /** Call while holding [dateStorageMutex]. */
+    private fun deleteDateLocked(date: String) {
         storageManager.deleteDataForDate(date)
         refreshAvailableDates()
         if (currentWorkingDate == date) {
@@ -221,6 +238,68 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
             extractedRows.clear()
             _projectedGcs.clear()
             isWeekend = false
+        }
+    }
+
+    /** Once snippet writing starts, finish the whole save even if the scan is cancelled. */
+    suspend fun saveExtractedScan(
+        date: String,
+        pageName: String,
+        settings: TableLayout,
+        imageBitmap: Bitmap,
+        cells: Array<Array<TableDetector.TableCell>>,
+        rawTextGrid: Array<Array<String>>,
+        table: Array<Array<String>>,
+        analysis: Array<CellAnalyzer.RowAnalysis>
+    ): Boolean = withContext(NonCancellable + Dispatchers.IO) {
+        dateStorageMutex.withLock {
+            val rowPaths = storageManager.createSnippets(imageBitmap, cells, date, settings)
+            loadDateLocked(date)
+            val rowsToSave = mutableListOf<Pair<String, ProcessorRow>>()
+            // TODO sanity check - check if the number of rows match between this page and previously captured page. If no - display warning
+
+            for (row in 1 until table.size) {
+                val id = pageName + "_$row"
+                val paths = rowPaths[row] ?: emptyMap()
+
+                val existingRow = extractedRows[id]
+                Log.d("DEBUG", "ROW: $row, name: ${table[row][settings.nameCol]}, start: ${table[row][settings.timeStartCol]}, finish: ${table[row][settings.timeEndCol]}, existed:${existingRow != null}")
+
+                if (existingRow != null) {
+                    val namePath = StorageManager.rotateFile(existingRow.nameSnippetPath, paths["name"])
+                    val startPath = StorageManager.rotateFile(existingRow.startTimeSnippetPath, paths["start"])
+                    val finishPath = StorageManager.rotateFile(existingRow.finishTimeSnippetPath, paths["finish"])
+                    val modificationPath = StorageManager.rotateFile(existingRow.newModificationsSnippetPath, paths["mods"])
+                    rowsToSave += id to existingRow.copy(
+                        newAnalysis = analysis[row],
+                        nameSnippetPath = namePath,
+                        startTimeSnippetPath = startPath,
+                        finishTimeSnippetPath = finishPath,
+                        newModificationsSnippetPath = modificationPath
+                    )
+                } else {
+                    rowsToSave += id to ProcessorRow(
+                        id = id,
+                        name = table[row][settings.nameCol],
+                        startTime = table[row][settings.timeStartCol],
+                        finishTime = table[row][settings.timeEndCol],
+                        confirmedAnalysis = null,
+                        newAnalysis = analysis[row],
+                        // Linking the files we just created
+                        nameSnippetPath = paths["name"],
+                        startTimeSnippetPath = paths["start"],
+                        finishTimeSnippetPath = paths["finish"],
+                        oldModificationsSnippetPath = paths["mods"],
+                        newModificationsSnippetPath = null,
+                        isAbsent = settings.team?.let { teamCol ->
+                            CellAnalyzer.isKZ(rawTextGrid[row][teamCol])
+                        } ?: false
+                    )
+                }
+            }
+            rowsToSave.forEach { (id, row) -> extractedRows[id] = row }
+            saveToStorageLocked()
+            projectedGcs.isEmpty()
         }
     }
 

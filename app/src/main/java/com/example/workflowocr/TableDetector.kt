@@ -51,6 +51,9 @@ object TableDetector {
     class MissingTopRowException(message: String) : Exception(message)
 
     private const val MIN_REQUIRED_INTERSECTIONS_COEFF : Double = 0.4 // Require at least 40% of the most intersected belt's points
+    private const val MIN_VERTICAL_LINE_QUALITY_EARLY_CHECK_COEFF = 0.25 // A usable vertical should cross this fraction of row lines
+    private const val MIN_SUPPORTED_VERTICAL_FRACTION = 0.5 // This fraction of expected verticals must pass that check
+    private const val MIN_DETECTED_CELL_ROWS = 4
 
     /**
      * Input: a grayscale Mat
@@ -267,6 +270,24 @@ object TableDetector {
 
         validHorizontal = sortLinesByBestCrossSection(validHorizontal, true, 8)
         validVertical = sortLinesByBestCrossSection(validVertical, false, 8)
+        // The vertical filter can return fewer than the requested number of lines.
+        // Propagation would still create a grid and report success in that case.
+        if (validVertical.size != expectedVerticalLines) {
+            structuralException = structuralException ?: IllegalStateException(
+                "Incomplete table grid: found ${(validVertical.size - 1).coerceAtLeast(0)} " +
+                    "of ${expectedVerticalLines - 1} columns. Retake the sheet picture."
+            )
+        } else {
+            val supportedVerticals = validVertical.count { vertical ->
+                validHorizontal.count { horizontal -> vertical.intersects(horizontal) } >=
+                    validHorizontal.size * MIN_VERTICAL_LINE_QUALITY_EARLY_CHECK_COEFF
+            }
+            if (supportedVerticals < expectedVerticalLines * MIN_SUPPORTED_VERTICAL_FRACTION) {
+                structuralException = structuralException ?: IllegalStateException(
+                    "Table lines do not form a reliable grid. Retake the sheet picture."
+                )
+            }
+        }
         // Build spatial intersection grid directly from polylines
         val propagatedGrid = TablePropagator.propagateRobustPolyLineGrid(validHorizontal, validVertical, physicalJunctions)
 
@@ -284,6 +305,12 @@ object TableDetector {
                     )
                 }
             }
+        }
+
+        if (cells.size < MIN_DETECTED_CELL_ROWS) {
+            structuralException = structuralException ?: IllegalStateException(
+                "Only ${cells.size} table rows were found. Retake the sheet picture."
+            )
         }
 
         Log.d("DEBUG", "Found ${cells.size} cell rows and ${if (cells.isEmpty()) 0 else cells[0].size} cell cols")
@@ -530,7 +557,6 @@ object TableDetector {
         horizontalLines: List<PolyLineSegment>,
         headerRowHeightMultiplier: Double
     ) {
-        if (horizontalLines.size <= 1) return
         val sortedHorizontalLines = sortLinesByBestCrossSection(horizontalLines, isHorizontal = true, sampleCount = 8)
 
         val gaps = mutableListOf<Double>()
@@ -546,7 +572,8 @@ object TableDetector {
             gaps.add(abs(yB - yA))
         }
 
-        if (gaps.isEmpty()) return
+        // One gap cannot tell us how tall a normal body row should be.
+        if (gaps.size < 2) return
 
         val gapBucketMargin = 10.0
         val detectionErrorCoeff = 0.3

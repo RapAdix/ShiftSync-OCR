@@ -45,6 +45,12 @@ class TableCellDetectionFixtureInstrumentedTest {
             val gray = ImageProcessor.bitmapToGrayMat(bitmap)
             try {
                 val result = TableDetector.detectTableCellsByLines(gray, layout)
+                if (result is TableDetector.TableDetectionResult.Failure) {
+                    structuralFailures++
+                    structuralFailureDetails.appendLine(
+                        "TABLE_STRUCTURE path=$path detection failed: ${result.exception.message}"
+                    )
+                }
                 val expectedRowCount = fixture.cells.maxOf { it.row } + 1
                 val expectedColumnCount = fixture.cells.maxOf { it.column } + 1
                 val actualColumnCount = result.cells.firstOrNull()?.size ?: 0

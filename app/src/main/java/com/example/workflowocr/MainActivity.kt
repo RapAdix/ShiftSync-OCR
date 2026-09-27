@@ -106,9 +106,13 @@ import androidx.core.content.ContextCompat
 import com.example.workflowocr.ui.theme.ShiftSyncTheme
 import com.example.workflowocr.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.opencv.core.Mat
@@ -190,6 +194,13 @@ class MainActivity : ComponentActivity() {
                                     tableViewModel.onDateSupplied = null
                                     action?.invoke(inputDate)
                                 }) { Text("Process") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = {
+                                    val action = tableViewModel.onDateSupplied
+                                    tableViewModel.onDateSupplied = null
+                                    action?.invoke(null)
+                                }) { Text("Cancel") }
                             }
                         )
                     }
@@ -258,6 +269,18 @@ class OcrFlowCoordinator(
 
     var processingErrorMsg by mutableStateOf<String?>(null)
         private set
+
+    private var extractionJob: Job? = null
+
+    fun onCancelProcessing() {
+        extractionJob?.cancel()
+        extractionJob = null
+        tableViewModel.onDateSupplied = null
+        cellPreviewBitmap = null
+        diagnosticBitmap = null
+        processingErrorMsg = null
+        onNavigate(Screen.SCAN_HUB)
+    }
 
     fun prepareForScan(debugMode: Boolean) {
         this.isDebugCapture = debugMode
@@ -342,6 +365,9 @@ class OcrFlowCoordinator(
     }
 
     fun onRedoClicked() {
+        extractionJob?.cancel()
+        extractionJob = null
+        tableViewModel.onDateSupplied = null
         this.cellPreviewBitmap = null
         this.diagnosticBitmap = null
         this.processingErrorMsg = null
@@ -357,7 +383,9 @@ class OcrFlowCoordinator(
      * 4. Auto-Redirects on success
      */
     private fun executeFullExtractionFlow(bitmap: Bitmap, onSuccess: () -> Unit, setPreview: (Bitmap?, Bitmap?, String?) -> Unit) {
-        scope.launch {
+        extractionJob?.cancel()
+        tableViewModel.onDateSupplied = null
+        extractionJob = scope.launch {
             val detection = withContext(Dispatchers.Default) {
                 // We will collect Mats here to ensure we release them all
                 var grayMat: Mat? = null
@@ -369,9 +397,14 @@ class OcrFlowCoordinator(
                     // Note: deskewGrayMat should return a NEW Mat if it modifies it
                     deskewMat = TableDetector.deskewGrayMat(grayMat) ?: grayMat
 
-                    val detection = TableDetector.detectTableCellsByLines(deskewMat, tableViewModel.activeLayout)
-
-                    detection
+                    val result = TableDetector.detectTableCellsByLines(deskewMat, tableViewModel.activeLayout)
+                    try {
+                        currentCoroutineContext().ensureActive()
+                        result
+                    } catch (error: Throwable) {
+                        releaseDetection(result)
+                        throw error
+                    }
                 } finally {
                     grayMat?.release()
                     // Only release deskewMat if it's a different object than grayMat
@@ -381,151 +414,131 @@ class OcrFlowCoordinator(
                 }
             }
 
-            val boxedMat = TableDetector.drawCells(detection.gray, detection.cells)
-            val cellPreview = ImageProcessor.matToBitmap(boxedMat)
-            boxedMat.release()
-            when (detection) {
-                is TableDetector.TableDetectionResult.Success -> {
-                    // 1. Handle Successful Path
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            message = "Table detection success! Extracting text...",
-                            duration = SnackbarDuration.Short
-                        )
+            try {
+                currentCoroutineContext().ensureActive()
+                val cellPreview = withContext(Dispatchers.Default) {
+                    val boxedMat = TableDetector.drawCells(detection.gray, detection.cells)
+                    try {
+                        ImageProcessor.matToBitmap(boxedMat).scaleForPreview(1000)
+                    } finally {
+                        boxedMat.release()
                     }
-
-                    setPreview(cellPreview.scaleForPreview(1000), null, null)
-
-                    scope.launch {
+                }
+                currentCoroutineContext().ensureActive()
+                when (detection) {
+                    is TableDetector.TableDetectionResult.Success -> {
+                        setPreview(cellPreview, null, null)
                         val imageBitmap = ImageProcessor.matToBitmap(detection.gray)
-                        val date = try {
-                            TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeLayout)
-                        } catch (_: TextProcessor.CouldNotDetermineDateException) {
-                            tableViewModel.onDateSupplied = { manualDate ->
-                                proceedWithExtraction(manualDate, detection, imageBitmap, onSuccess)
+                        try {
+                            val settings = tableViewModel.activeLayout
+                            val rawTextGrid = TextProcessor.extractTextFromColumns(
+                                detection.cells,
+                                imageBitmap,
+                                buildList {
+                                    add(settings.nameCol)
+                                    add(settings.timeStartCol)
+                                    add(settings.timeEndCol)
+                                    if (activeScanningPage.isManagerPage() && settings.team != null) {
+                                        add(settings.team)
+                                    }
+                                }
+                            )
+                            currentCoroutineContext().ensureActive()
+                            val analysis = withContext(Dispatchers.Default) {
+                                CellAnalyzer.analyzeCells(
+                                    detection.gray, detection.thresh, detection.cells, settings
+                                )
                             }
-                            return@launch
+                            currentCoroutineContext().ensureActive()
+                            val textFailure = TableQualityVerifier.verifyTimeColumns(
+                                rawTextGrid, settings.timeStartCol, settings.timeEndCol
+                            ) { row, col ->
+                                if (col == settings.timeStartCol) analysis[row].startTimeCrossed
+                                else analysis[row].endTimeCrossed
+                            }
+                            if (textFailure != null) {
+                                val linesBitmap = ImageProcessor.matToBitmap(detection.lines)
+                                setPreview(cellPreview, linesBitmap.scaleForPreview(1000), textFailure)
+                                return@launch
+                            }
+                            val date = try {
+                                TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeLayout)
+                            } catch (_: TextProcessor.CouldNotDetermineDateException) {
+                                val suppliedDate = CompletableDeferred<String?>()
+                                val supplyDate: (String?) -> Unit = { suppliedDate.complete(it) }
+                                tableViewModel.onDateSupplied = supplyDate
+                                try {
+                                    val enteredDate = suppliedDate.await()
+                                    if (enteredDate == null) {
+                                        onCancelProcessing()
+                                        return@launch
+                                    }
+                                    enteredDate
+                                } finally {
+                                    if (tableViewModel.onDateSupplied === supplyDate) {
+                                        tableViewModel.onDateSupplied = null
+                                    }
+                                }
+                            }
+                            currentCoroutineContext().ensureActive()
+                            proceedWithExtraction(date, detection, imageBitmap, rawTextGrid, analysis)
+                            currentCoroutineContext().ensureActive()
+                            onSuccess()
+                        } finally {
+                            imageBitmap.recycle()
                         }
-                        // If no exception, just run immediately
-                        proceedWithExtraction(date, detection, imageBitmap, onSuccess)
-                    }
-                }
-
-                is TableDetector.TableDetectionResult.Failure -> {
-                    // 2. Handle Structural Error Path
-                    val failureMessage = detection.exception.message ?: "Cannot find table layout"
-
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            message = "Extraction aborted: " + failureMessage,
-                            duration = SnackbarDuration.Long
-                        )
                     }
 
-                    val linesBitmap = ImageProcessor.matToBitmap(detection.lines)
-                    setPreview(cellPreview.scaleForPreview(1000), linesBitmap.scaleForPreview(1000), failureMessage)
-
-                    detection.gray.release()
-                    detection.thresh.release()
-                    detection.mask.release()
-                    detection.lines.release()
+                    is TableDetector.TableDetectionResult.Failure -> {
+                        val failureMessage = detection.exception.message ?: "Cannot find table layout"
+                        val linesBitmap = ImageProcessor.matToBitmap(detection.lines)
+                        setPreview(cellPreview, linesBitmap.scaleForPreview(1000), failureMessage)
+                    }
                 }
+            } finally {
+                releaseDetection(detection)
             }
         }
     }
 
-    private fun proceedWithExtraction(
-        date: String?,
+    private fun releaseDetection(detection: TableDetector.TableDetectionResult) {
+        detection.gray.release()
+        detection.thresh.release()
+        detection.mask.release()
+        detection.lines.release()
+    }
+
+    private suspend fun proceedWithExtraction(
+        date: String,
         detection: TableDetector.TableDetectionResult,
         imageBitmap: Bitmap,
-        onFinished: () -> Unit
+        rawTextGrid: Array<Array<String>>,
+        analysis: Array<CellAnalyzer.RowAnalysis>
     ) {
         val settings = tableViewModel.activeLayout
-        scope.launch(Dispatchers.IO) {
-            if (date != null) {
-                val rawTextGrid = withContext(Dispatchers.IO) {
-                    TextProcessor.extractTextFromColumns(
-                        detection.cells,
-                        imageBitmap,
-                        buildList {
-                            add(settings.nameCol)
-                            add(settings.timeStartCol)
-                            add(settings.timeEndCol)
-                            if (activeScanningPage.isManagerPage() && settings.team != null) {
-                                add(settings.team)
-                            }
-                        }
-                    )
-                }
-                val (table, analysis, rowPaths) = withContext(Dispatchers.IO) {
-                    val table = TextProcessor.refineTableData(rawTextGrid, settings)
-                    val analysis = CellAnalyzer.analyzeCells(detection.gray, detection.thresh, detection.cells, settings)
-
-                    // Fallback snippets cut out from the table image
-                    val rowPaths = tableViewModel.storageManager.createSnippets(imageBitmap, detection.cells, date, settings)
-
-                    Triple(table, analysis, rowPaths)
-                }
-                tableViewModel.loadDate(date)
-                val pageName = activeScanningPage.name.lowercase()
-                // TODO sanity check - check if the number of rows match between this page and previously captured page. If no - display warning
-
-                for (row in 1 until table.size) {
-                    val id = pageName + "_$row"
-                    val paths = rowPaths[row] ?: emptyMap()
-
-                    val existingRow = tableViewModel.extractedRows[id]
-                    Log.d("DEBUG", "ROW: $row, name: ${table[row][settings.nameCol]}, start: ${table[row][settings.timeStartCol]}, finish: ${table[row][settings.timeEndCol]}, existed:${existingRow != null}")
-
-                    if (existingRow != null) {
-                        val namePath = StorageManager.rotateFile(existingRow.nameSnippetPath, paths["name"])
-                        val startPath = StorageManager.rotateFile(existingRow.startTimeSnippetPath, paths["start"])
-                        val finishPath = StorageManager.rotateFile(existingRow.finishTimeSnippetPath, paths["finish"])
-                        val modificationPath = StorageManager.rotateFile(existingRow.newModificationsSnippetPath, paths["mods"])
-                        tableViewModel.extractedRows[id] = existingRow.copy(
-                            newAnalysis = analysis[row],
-                            nameSnippetPath = namePath,
-                            startTimeSnippetPath = startPath,
-                            finishTimeSnippetPath = finishPath,
-                            newModificationsSnippetPath = modificationPath
-                        )
-                    } else {
-                        tableViewModel.extractedRows[id] = ProcessorRow(
-                            id = id,
-                            name = table[row][settings.nameCol],
-                            startTime = table[row][settings.timeStartCol],
-                            finishTime = table[row][settings.timeEndCol],
-                            confirmedAnalysis = null,
-                            newAnalysis = analysis[row],
-                            // Linking the files we just created
-                            nameSnippetPath = paths["name"],
-                            startTimeSnippetPath = paths["start"],
-                            finishTimeSnippetPath = paths["finish"],
-                            oldModificationsSnippetPath = paths["mods"],
-                            newModificationsSnippetPath = null,
-                            isAbsent = settings.team?.let { teamCol ->
-                                CellAnalyzer.isKZ(rawTextGrid[row][teamCol])
-                            } ?: false
-                        )
-                    }
-                }
-                tableViewModel.saveToStorage()
-                if (tableViewModel.projectedGcs.isEmpty()) {
-                    launch {
-                        SpreadSheetDownloader.fetchAndSaveProjection(
-                            settings = tableViewModel.universalSettings,
-                            viewModel = tableViewModel
-                        )
-                    }
-                }
+        val pageName = activeScanningPage.name.lowercase()
+        val table = withContext(Dispatchers.IO) {
+            TextProcessor.refineTableData(rawTextGrid, settings)
+        }
+        currentCoroutineContext().ensureActive()
+        val needsProjection = tableViewModel.saveExtractedScan(
+            date = date,
+            pageName = pageName,
+            settings = settings,
+            imageBitmap = imageBitmap,
+            cells = detection.cells,
+            rawTextGrid = rawTextGrid,
+            table = table,
+            analysis = analysis
+        )
+        // Returning to the caller's dispatcher checks cancellation before optional work.
+        if (needsProjection) {
+            scope.launch(Dispatchers.IO) {
+                SpreadSheetDownloader.fetchAndSaveProjection(
+                    settings = tableViewModel.universalSettings,
+                    viewModel = tableViewModel
+                )
             }
-
-            detection.gray.release()
-            detection.thresh.release()
-            detection.mask.release()
-            detection.lines.release()
-            // Switch View Automatically
-            onFinished()
         }
     }
 }
@@ -714,9 +727,11 @@ private fun AppNavigationDrawer(
                                 label = { Text(date, style = MaterialTheme.typography.bodyMedium) },
                                 selected = isCurrent,
                                 onClick = {
-                                    tableViewModel.loadDate(date)
-                                    onScreenSelect(Screen.TABLE_RESULTS)
-                                    composeScope.launch { drawerState.close() }
+                                    composeScope.launch {
+                                        tableViewModel.loadDate(date)
+                                        onScreenSelect(Screen.TABLE_RESULTS)
+                                        drawerState.close()
+                                    }
                                 },
                                 icon = {
                                     Icon(
@@ -749,12 +764,12 @@ private fun AppNavigationDrawer(
                                     confirmButton = {
                                         TextButton(
                                             onClick = {
-                                                // If we just deleted what we are looking at, go home
-                                                if (tableViewModel.currentWorkingDate == date) {
-                                                    onScreenSelect(Screen.SCAN_HUB)
-                                                }
                                                 showConfirmForThisItem = false
-                                                tableViewModel.deleteDate(date)
+                                                composeScope.launch {
+                                                    if (tableViewModel.deleteDate(date)) {
+                                                        onScreenSelect(Screen.SCAN_HUB)
+                                                    }
+                                                }
                                             },
                                             colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
                                         ) {
@@ -880,7 +895,8 @@ private fun AppNavigationDrawer(
                         rawBitmap = coordinator.cellPreviewBitmap ?: coordinator.capturedBitmap ?: originalBitmap,
                         diagnosticBitmap = coordinator.diagnosticBitmap,
                         errorMessage = coordinator.processingErrorMsg,
-                        onRedoClicked = coordinator::onRedoClicked
+                        onRedoClicked = coordinator::onRedoClicked,
+                        onCancelClicked = coordinator::onCancelProcessing
                     )
                     Screen.VLH_MANAGEMENT -> {
                         VlhManagementScreen(
