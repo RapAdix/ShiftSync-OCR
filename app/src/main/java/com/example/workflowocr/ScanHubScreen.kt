@@ -79,7 +79,7 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit, onDebugS
                 .fillMaxWidth()
                 .height(70.dp)
         ) {
-            Text("Use Stub")
+            Text("Use last image")
         }
 
         Spacer(Modifier.height(24.dp))
@@ -90,7 +90,7 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit, onDebugS
                 .fillMaxWidth()
                 .height(70.dp)
         ) {
-            Text("Put it into debug")
+            Text("Scan image and go into debug")
         }
     }
 }

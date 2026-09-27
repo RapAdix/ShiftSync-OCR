@@ -632,6 +632,14 @@ private fun AppNavigationDrawer(
     originalBitmap: Bitmap,
     scope: CoroutineScope
 ) {
+    var pendingDate by remember { mutableStateOf<String?>(null) }
+    // Ignore drawer navigation while a saved date is being loaded or deleted.
+    fun selectDrawerScreen(screen: Screen) {
+        if (pendingDate == null) {
+            onScreenSelect(screen)
+            composeScope.launch { drawerState.close() }
+        }
+    }
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -666,13 +674,13 @@ private fun AppNavigationDrawer(
                 NavigationDrawerItem(
                     label = { Text("Scan Hub") },
                     selected = state.currentScreen == Screen.SCAN_HUB,
-                    onClick = { onScreenSelect(Screen.SCAN_HUB); composeScope.launch { drawerState.close() } },
+                    onClick = { selectDrawerScreen(Screen.SCAN_HUB) },
                     icon = { Icon(Icons.Default.Home, null) }
                 )
                 NavigationDrawerItem(
                     label = { Text("Last Results") },
                     selected = state.currentScreen == Screen.TABLE_RESULTS,
-                    onClick = { onScreenSelect(Screen.TABLE_RESULTS); composeScope.launch { drawerState.close() } },
+                    onClick = { selectDrawerScreen(Screen.TABLE_RESULTS) },
                     icon = {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.List,
@@ -683,7 +691,7 @@ private fun AppNavigationDrawer(
                 NavigationDrawerItem(
                     label = { Text("Attendance Summary") },
                     selected = state.currentScreen == Screen.ATTENDANCE_COUNT,
-                    onClick = { onScreenSelect(Screen.ATTENDANCE_COUNT); composeScope.launch { drawerState.close() } },
+                    onClick = { selectDrawerScreen(Screen.ATTENDANCE_COUNT) },
                     icon = { Icon(Icons.Filled.Calculate, null) }
                 )
 
@@ -724,13 +732,24 @@ private fun AppNavigationDrawer(
                             var showConfirmForThisItem by remember { mutableStateOf(false) }
 
                             NavigationDrawerItem(
-                                label = { Text(date, style = MaterialTheme.typography.bodyMedium) },
+                                label = {
+                                    Text(
+                                        if (pendingDate == date) "Loading $date…" else date,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                },
                                 selected = isCurrent,
                                 onClick = {
+                                    if (pendingDate != null) return@NavigationDrawerItem
+                                    pendingDate = date
                                     composeScope.launch {
-                                        tableViewModel.loadDate(date)
-                                        onScreenSelect(Screen.TABLE_RESULTS)
-                                        drawerState.close()
+                                        try {
+                                            tableViewModel.loadDate(date)
+                                            onScreenSelect(Screen.TABLE_RESULTS)
+                                            drawerState.close()
+                                        } finally {
+                                            pendingDate = null
+                                        }
                                     }
                                 },
                                 icon = {
@@ -743,7 +762,12 @@ private fun AppNavigationDrawer(
                                 },
                                 // The badge is automatically pushed to the far right
                                 badge = {
-                                    IconButton(onClick = { showConfirmForThisItem = true }) {
+                                    IconButton(
+                                        onClick = {
+                                            if (pendingDate == null) showConfirmForThisItem = true
+                                        },
+                                        enabled = pendingDate == null
+                                    ) {
                                         Icon(
                                             imageVector = Icons.Default.Delete,
                                             contentDescription = "Delete",
@@ -764,10 +788,16 @@ private fun AppNavigationDrawer(
                                     confirmButton = {
                                         TextButton(
                                             onClick = {
+                                                if (pendingDate != null) return@TextButton
                                                 showConfirmForThisItem = false
+                                                pendingDate = date
                                                 composeScope.launch {
-                                                    if (tableViewModel.deleteDate(date)) {
-                                                        onScreenSelect(Screen.SCAN_HUB)
+                                                    try {
+                                                        if (tableViewModel.deleteDate(date)) {
+                                                            onScreenSelect(Screen.SCAN_HUB)
+                                                        }
+                                                    } finally {
+                                                        pendingDate = null
                                                     }
                                                 }
                                             },
@@ -789,28 +819,25 @@ private fun AppNavigationDrawer(
                 NavigationDrawerItem(
                     label = { Text("VLH Dashboard") },
                     selected = state.currentScreen == Screen.VLH_MANAGEMENT,
-                    onClick = {
-                        onScreenSelect(Screen.VLH_MANAGEMENT)
-                        composeScope.launch { drawerState.close() }
-                    },
+                    onClick = { selectDrawerScreen(Screen.VLH_MANAGEMENT) },
                     icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "VLH Guidelines Matrix") }
                 )
                 NavigationDrawerItem(
                     label = { Text("Settings (Hub)") },
                     selected = state.currentScreen == Screen.SETTINGS,
-                    onClick = { onScreenSelect(Screen.SETTINGS); composeScope.launch { drawerState.close() } },
+                    onClick = { selectDrawerScreen(Screen.SETTINGS) },
                     icon = { Icon(Icons.Default.Settings, null) }
                 )
                 NavigationDrawerItem(
                     label = { Text("About & License") },
                     selected = state.currentScreen == Screen.ABOUT,
-                    onClick = { onScreenSelect(Screen.ABOUT); composeScope.launch { drawerState.close() } },
+                    onClick = { selectDrawerScreen(Screen.ABOUT) },
                     icon = { Icon(Icons.Default.Info, contentDescription = "About App") }
                 )
                 NavigationDrawerItem(
                     label = { Text("Sample Detection") },
                     selected = state.currentScreen == Screen.SAMPLE_DETECTION,
-                    onClick = { onScreenSelect(Screen.SAMPLE_DETECTION); composeScope.launch { drawerState.close() } },
+                    onClick = { selectDrawerScreen(Screen.SAMPLE_DETECTION) },
                     icon = { Icon(Icons.Default.Build, null) }
                 )
             }
