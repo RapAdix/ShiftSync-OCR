@@ -135,7 +135,6 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
     val projectedGcs: Map<Int, Int?> = _projectedGcs
     var isWeekend by mutableStateOf(false)
         private set
-    var onDateSupplied by mutableStateOf<((String?) -> Unit)?>(null)
 
     // Track which date we are currently looking at
     var currentWorkingDate by mutableStateOf<String?>(null)

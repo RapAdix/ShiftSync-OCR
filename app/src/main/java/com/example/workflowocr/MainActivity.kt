@@ -72,7 +72,6 @@ import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -172,39 +171,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    if (tableViewModel.onDateSupplied != null) {
-                        var inputDate by remember { mutableStateOf("") }
-                        AlertDialog(
-                            title = { Text("Manual Date Entry") },
-                            text = {
-                                OutlinedTextField(
-                                    value = inputDate,
-                                    onValueChange = { inputDate = it },
-                                    label = { Text("Enter Date (MM-DD)") }
-                                )
-                            },
-                            onDismissRequest = {
-                                val action = tableViewModel.onDateSupplied
-                                tableViewModel.onDateSupplied = null
-                                action?.invoke(null)
-                            },
-                            confirmButton = {
-                                Button(onClick = {
-                                    val action = tableViewModel.onDateSupplied
-                                    tableViewModel.onDateSupplied = null
-                                    action?.invoke(inputDate)
-                                }) { Text("Process") }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = {
-                                    val action = tableViewModel.onDateSupplied
-                                    tableViewModel.onDateSupplied = null
-                                    action?.invoke(null)
-                                }) { Text("Cancel") }
-                            }
-                        )
-                    }
-
                     OcrLauncherBridge(
                         onNavigate = { newScreen ->
                             flowState = flowState.copy(currentScreen = newScreen)
@@ -270,12 +236,21 @@ class OcrFlowCoordinator(
     var processingErrorMsg by mutableStateOf<String?>(null)
         private set
 
+    var onDateSupplied by mutableStateOf<((String?) -> Unit)?>(null)
+        private set
+
     private var extractionJob: Job? = null
+
+    fun supplyDate(date: String?) {
+        val action = onDateSupplied
+        onDateSupplied = null
+        action?.invoke(date)
+    }
 
     fun onCancelProcessing() {
         extractionJob?.cancel()
         extractionJob = null
-        tableViewModel.onDateSupplied = null
+        onDateSupplied = null
         cellPreviewBitmap = null
         diagnosticBitmap = null
         processingErrorMsg = null
@@ -367,7 +342,7 @@ class OcrFlowCoordinator(
     fun onRedoClicked() {
         extractionJob?.cancel()
         extractionJob = null
-        tableViewModel.onDateSupplied = null
+        onDateSupplied = null
         this.cellPreviewBitmap = null
         this.diagnosticBitmap = null
         this.processingErrorMsg = null
@@ -384,7 +359,7 @@ class OcrFlowCoordinator(
      */
     private fun executeFullExtractionFlow(bitmap: Bitmap, onSuccess: () -> Unit, setPreview: (Bitmap?, Bitmap?, String?) -> Unit) {
         extractionJob?.cancel()
-        tableViewModel.onDateSupplied = null
+        onDateSupplied = null
         extractionJob = scope.launch {
             val detection = withContext(Dispatchers.Default) {
                 // We will collect Mats here to ensure we release them all
@@ -466,7 +441,7 @@ class OcrFlowCoordinator(
                             } catch (_: TextProcessor.CouldNotDetermineDateException) {
                                 val suppliedDate = CompletableDeferred<String?>()
                                 val supplyDate: (String?) -> Unit = { suppliedDate.complete(it) }
-                                tableViewModel.onDateSupplied = supplyDate
+                                onDateSupplied = supplyDate
                                 try {
                                     val enteredDate = suppliedDate.await()
                                     if (enteredDate == null) {
@@ -475,8 +450,8 @@ class OcrFlowCoordinator(
                                     }
                                     enteredDate
                                 } finally {
-                                    if (tableViewModel.onDateSupplied === supplyDate) {
-                                        tableViewModel.onDateSupplied = null
+                                    if (onDateSupplied === supplyDate) {
+                                        onDateSupplied = null
                                     }
                                 }
                             }
@@ -567,6 +542,27 @@ fun OcrLauncherBridge(
             scope = scope,
             tableViewModel = tableViewModel,
             snackbarHostState = snackbarHostState
+        )
+    }
+
+    if (coordinator.onDateSupplied != null) {
+        var inputDate by remember { mutableStateOf("") }
+        AlertDialog(
+            title = { Text("Manual Date Entry") },
+            text = {
+                OutlinedTextField(
+                    value = inputDate,
+                    onValueChange = { inputDate = it },
+                    label = { Text("Enter Date (MM-DD)") }
+                )
+            },
+            onDismissRequest = { coordinator.supplyDate(null) },
+            confirmButton = {
+                Button(onClick = { coordinator.supplyDate(inputDate) }) { Text("Process") }
+            },
+            dismissButton = {
+                TextButton(onClick = { coordinator.supplyDate(null) }) { Text("Cancel") }
+            }
         )
     }
 
