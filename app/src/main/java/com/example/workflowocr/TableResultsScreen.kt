@@ -251,6 +251,7 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         table: Array<Array<String>>,
         analysis: Array<CellAnalyzer.RowAnalysis>
     ): Boolean = withContext(NonCancellable + Dispatchers.IO) {
+        require(date.isNotBlank()) { "A date is required before saving an extracted scan." }
         dateStorageMutex.withLock {
             val rowPaths = storageManager.createSnippets(imageBitmap, cells, date, settings)
             loadDateLocked(date)

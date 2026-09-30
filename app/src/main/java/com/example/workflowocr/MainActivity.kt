@@ -239,22 +239,42 @@ class OcrFlowCoordinator(
     var processingErrorMsg by mutableStateOf<String?>(null)
         private set
 
-    var onDateSupplied by mutableStateOf<((String?) -> Unit)?>(null)
+    var onDateSupplied by mutableStateOf<((String) -> Unit)?>(null)
+        private set
+
+    var isManualDateDialogVisible by mutableStateOf(false)
+        private set
+
+    var isDateDetectionFinished by mutableStateOf(false)
         private set
 
     private var extractionJob: Job? = null
 
-    fun submitManualDate(date: String?) {
+    fun openManualDateDialog() {
+        if (onDateSupplied != null) isManualDateDialogVisible = true
+    }
+
+    fun dismissManualDateDialog() {
+        isManualDateDialogVisible = false
+    }
+
+    fun submitManualDate(date: String) {
+        val enteredDate = date.trim()
+        if (enteredDate.isEmpty()) return
         val action = onDateSupplied
+        clearManualDateRequest()
+        action?.invoke(enteredDate)
+    }
+
+    private fun clearManualDateRequest() {
         onDateSupplied = null
-        action?.invoke(date)
-        if (action != null && date == null) onCancelProcessing()
+        isManualDateDialogVisible = false
     }
 
     fun onCancelProcessing() {
         extractionJob?.cancel()
         extractionJob = null
-        onDateSupplied = null
+        clearManualDateRequest()
         cellPreviewBitmap = null
         diagnosticBitmap = null
         processingErrorMsg = null
@@ -346,7 +366,7 @@ class OcrFlowCoordinator(
     fun onRedoClicked() {
         extractionJob?.cancel()
         extractionJob = null
-        onDateSupplied = null
+        clearManualDateRequest()
         this.cellPreviewBitmap = null
         this.diagnosticBitmap = null
         this.processingErrorMsg = null
@@ -356,14 +376,14 @@ class OcrFlowCoordinator(
 
     /**
      * This is the "Full Flow" function:
-     * 1. Runs Fast Detection (Pre-OCR)
-     * 2. Shows UI Confirmation Dialog
-     * 3. Runs Heavy OCR in Background
-     * 4. Auto-Redirects on success
+     * 1. Detects the table and shows its preview.
+     * 2. Detects the date or offers manual entry while column OCR runs.
+     * 3. Checks the extracted table, then saves and opens the results.
      */
     private fun executeFullExtractionFlow(bitmap: Bitmap, onSuccess: () -> Unit, setPreview: (Bitmap?, Bitmap?, String?) -> Unit) {
         extractionJob?.cancel()
-        onDateSupplied = null
+        clearManualDateRequest()
+        isDateDetectionFinished = false
         extractionJob = scope.launch {
             val detection = withContext(Dispatchers.Default) {
                 // We will collect Mats here to ensure we release them all
@@ -408,19 +428,20 @@ class OcrFlowCoordinator(
                     is TableDetector.TableDetectionResult.Success -> {
                         setPreview(cellPreview, null, null)
                         val imageBitmap = ImageProcessor.matToBitmap(detection.gray)
-                        var suppliedDate: CompletableDeferred<String?>? = null
-                        var completePendingDate: ((String?) -> Unit)? = null
+                        var suppliedDate: CompletableDeferred<String>? = null
+                        var completePendingDate: ((String) -> Unit)? = null
                         try {
                             val settings = tableViewModel.activeLayout
                             val detectedDate = try {
                                 TextProcessor.determineDate(detection.cells, imageBitmap, settings)
                             } catch (_: TextProcessor.CouldNotDetermineDateException) {
-                                val pendingDate = CompletableDeferred<String?>()
+                                val pendingDate = CompletableDeferred<String>()
                                 suppliedDate = pendingDate
                                 completePendingDate = { pendingDate.complete(it) }
                                 onDateSupplied = completePendingDate
                                 null
                             }
+                            isDateDetectionFinished = true
                             val rawTextGrid = TextProcessor.extractTextFromColumns(
                                 detection.cells,
                                 imageBitmap,
@@ -452,17 +473,13 @@ class OcrFlowCoordinator(
                                 return@launch
                             }
                             val date = detectedDate ?: checkNotNull(suppliedDate).await()
-                            if (date == null) {
-                                onCancelProcessing()
-                                return@launch
-                            }
                             currentCoroutineContext().ensureActive()
                             proceedWithExtraction(date, detection, imageBitmap, rawTextGrid, analysis)
                             currentCoroutineContext().ensureActive()
                             onSuccess()
                         } finally {
                             if (onDateSupplied === completePendingDate) {
-                                onDateSupplied = null
+                                clearManualDateRequest()
                             }
                             imageBitmap.recycle()
                         }
@@ -549,7 +566,7 @@ fun OcrLauncherBridge(
         )
     }
 
-    if (coordinator.onDateSupplied != null) {
+    if (coordinator.isManualDateDialogVisible) {
         var inputDate by remember { mutableStateOf("") }
         AlertDialog(
             title = { Text("Manual Date Entry") },
@@ -560,12 +577,15 @@ fun OcrLauncherBridge(
                     label = { Text("Enter Date (MM-DD)") }
                 )
             },
-            onDismissRequest = { coordinator.submitManualDate(null) },
+            onDismissRequest = coordinator::dismissManualDateDialog,
             confirmButton = {
-                Button(onClick = { coordinator.submitManualDate(inputDate) }) { Text("Process") }
+                Button(
+                    onClick = { coordinator.submitManualDate(inputDate) },
+                    enabled = inputDate.isNotBlank()
+                ) { Text("Process") }
             },
             dismissButton = {
-                TextButton(onClick = { coordinator.submitManualDate(null) }) { Text("Cancel") }
+                TextButton(onClick = coordinator::dismissManualDateDialog) { Text("Cancel") }
             }
         )
     }
@@ -936,6 +956,9 @@ private fun AppNavigationDrawer(
                         rawBitmap = coordinator.cellPreviewBitmap ?: coordinator.capturedBitmap ?: originalBitmap,
                         diagnosticBitmap = coordinator.diagnosticBitmap,
                         errorMessage = coordinator.processingErrorMsg,
+                        isDateDetectionFinished = coordinator.isDateDetectionFinished,
+                        manualDateRequired = coordinator.onDateSupplied != null,
+                        onSpecifyDateClicked = coordinator::openManualDateDialog,
                         onRedoClicked = coordinator::onRedoClicked
                     )
                     Screen.VLH_MANAGEMENT -> {

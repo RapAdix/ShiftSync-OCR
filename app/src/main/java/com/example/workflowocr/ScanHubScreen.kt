@@ -100,6 +100,9 @@ fun ProcessingPreviewScreen(
     rawBitmap: Bitmap,
     diagnosticBitmap: Bitmap?,
     errorMessage: String?,
+    isDateDetectionFinished: Boolean,
+    manualDateRequired: Boolean,
+    onSpecifyDateClicked: () -> Unit,
     onRedoClicked: () -> Unit
 ) {
     val isFailed = diagnosticBitmap != null
@@ -114,9 +117,38 @@ fun ProcessingPreviewScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (manualDateRequired && !isFailed) {
+            Text(
+                text = "Check the marked cells in the preview below. If they look correct, specify the date; otherwise, retake the photo.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onSpecifyDateClicked,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Specify date")
+                }
+                OutlinedButton(
+                    onClick = onRedoClicked,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Retake photo")
+                }
+            }
+        }
+
         // Dynamic Status Title block
         Text(
-            text = if (isFailed) "Table Detection Failed" else "Analyzing Document...",
+            text = when {
+                isFailed -> "Table Detection Failed"
+                isDateDetectionFinished -> "Text recognition..."
+                else -> "Table detection..."
+            },
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = if (isFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
@@ -138,11 +170,6 @@ fun ProcessingPreviewScreen(
         }
 
         // 1. PRIMARY CANVAS: Displays the main photo (or photo with processed cells)
-        Text(
-            text = "Captured Sheet / Cell Preview",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.align(Alignment.Start)
-        )
         Card(
             modifier = Modifier
                 .fillMaxWidth()
