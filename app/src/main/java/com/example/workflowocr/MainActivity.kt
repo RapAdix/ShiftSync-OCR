@@ -174,9 +174,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     OcrLauncherBridge(
-                        onNavigate = { newScreen ->
-                            flowState = flowState.copy(currentScreen = newScreen)
-                        },
+                        onNavigate = { flowState = flowState.copy(currentScreen = it) },
                         originalBitmap = originalBitmap,
                         snackbarHostState = snackbarHostState
                     ) { coordinator ->
@@ -187,7 +185,6 @@ class MainActivity : ComponentActivity() {
                             availableDates = availableDates,
                             tableViewModel = tableViewModel,
                             composeScope = composeScope,
-                            onScreenSelect = { flowState = flowState.copy(currentScreen = it) },
                             onToggleSchedules = { flowState = flowState.copy(schedulesExpanded = !flowState.schedulesExpanded) },
                             snackbarHostState = snackbarHostState,
                             originalBitmap = originalBitmap,
@@ -270,14 +267,23 @@ class OcrFlowCoordinator(
         isManualDateDialogVisible = false
     }
 
-    fun onCancelProcessing() {
+    fun abandonProcessing() {
         extractionJob?.cancel()
         extractionJob = null
         clearManualDateRequest()
         cellPreviewBitmap = null
         diagnosticBitmap = null
         processingErrorMsg = null
-        onNavigate(Screen.SCAN_HUB)
+        isDateDetectionFinished = false
+    }
+
+    fun navigateTo(screen: Screen) {
+        if (screen != Screen.PROCESSING_PREVIEW) abandonProcessing()
+        onNavigate(screen)
+    }
+
+    fun onCancelProcessing() {
+        navigateTo(Screen.SCAN_HUB)
     }
 
     fun prepareForScan(debugMode: Boolean) {
@@ -314,19 +320,19 @@ class OcrFlowCoordinator(
     fun handleCameraResult(bitmap: Bitmap) {
         if (isDebugCapture) {
             this.capturedBitmap = bitmap
-            onNavigate(Screen.SAMPLE_DETECTION)
+            navigateTo(Screen.SAMPLE_DETECTION)
         } else {
             // 1. Immediately cache the raw photo and show it on screen
             this.capturedBitmap = bitmap
             this.cellPreviewBitmap = null
             this.diagnosticBitmap = null
             this.processingErrorMsg = null
-            onNavigate(Screen.PROCESSING_PREVIEW)
+            navigateTo(Screen.PROCESSING_PREVIEW)
 
             // 2. Fire off background operations while user views the preview
             executeFullExtractionFlow(
                 bitmap,
-                { onNavigate(Screen.TABLE_RESULTS) },
+                { navigateTo(Screen.TABLE_RESULTS) },
                 { cellPreview, debugImage, errorMsg ->
                     // Instead of navigating away, we simply supply the error artifacts
                     // to update the preview screen dynamically
@@ -349,11 +355,11 @@ class OcrFlowCoordinator(
         this.cellPreviewBitmap = null
         this.diagnosticBitmap = null
         this.processingErrorMsg = null
-        onNavigate(Screen.PROCESSING_PREVIEW)
+        navigateTo(Screen.PROCESSING_PREVIEW)
 
         executeFullExtractionFlow(
             bitmapToProcess,
-            { onNavigate(Screen.TABLE_RESULTS) },
+            { navigateTo(Screen.TABLE_RESULTS) },
             { cellPreview, debugImage, errorMsg ->
                 this.cellPreviewBitmap = cellPreview
                 this.diagnosticBitmap = debugImage
@@ -363,13 +369,7 @@ class OcrFlowCoordinator(
     }
 
     fun onRedoClicked() {
-        extractionJob?.cancel()
-        extractionJob = null
-        clearManualDateRequest()
-        this.cellPreviewBitmap = null
-        this.diagnosticBitmap = null
-        this.processingErrorMsg = null
-        onNavigate(Screen.SCAN_HUB)
+        navigateTo(Screen.SCAN_HUB)
         onTriggerCameraLaunch()
     }
 
@@ -630,7 +630,6 @@ private fun AppNavigationDrawer(
     availableDates: List<String>,
     tableViewModel: TableViewModel,
     composeScope: CoroutineScope,
-    onScreenSelect: (Screen) -> Unit,
     onToggleSchedules: () -> Unit,
     snackbarHostState: SnackbarHostState,
     originalBitmap: Bitmap,
@@ -640,7 +639,7 @@ private fun AppNavigationDrawer(
     // Ignore drawer navigation while a saved date is being loaded or deleted.
     fun selectDrawerScreen(screen: Screen) {
         if (pendingDate == null) {
-            onScreenSelect(screen)
+            coordinator.navigateTo(screen)
             composeScope.launch { drawerState.close() }
         }
     }
@@ -745,11 +744,14 @@ private fun AppNavigationDrawer(
                                 selected = isCurrent,
                                 onClick = {
                                     if (pendingDate != null) return@NavigationDrawerItem
+                                    if (state.currentScreen == Screen.PROCESSING_PREVIEW) {
+                                        coordinator.abandonProcessing()
+                                    }
                                     pendingDate = date
                                     composeScope.launch {
                                         try {
                                             tableViewModel.loadDate(date)
-                                            onScreenSelect(Screen.TABLE_RESULTS)
+                                            coordinator.navigateTo(Screen.TABLE_RESULTS)
                                             drawerState.close()
                                         } finally {
                                             pendingDate = null
@@ -798,7 +800,7 @@ private fun AppNavigationDrawer(
                                                 composeScope.launch {
                                                     try {
                                                         if (tableViewModel.deleteDate(date)) {
-                                                            onScreenSelect(Screen.SCAN_HUB)
+                                                            coordinator.navigateTo(Screen.SCAN_HUB)
                                                         }
                                                     } finally {
                                                         pendingDate = null
@@ -885,7 +887,7 @@ private fun AppNavigationDrawer(
                         }
                         if (state.currentScreen == Screen.TABLE_RESULTS) {
                             IconButton(
-                                onClick = { onScreenSelect(Screen.ATTENDANCE_COUNT) }
+                                onClick = { coordinator.navigateTo(Screen.ATTENDANCE_COUNT) }
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Calculate,
@@ -896,7 +898,7 @@ private fun AppNavigationDrawer(
                         }
                         if (state.currentScreen == Screen.ATTENDANCE_COUNT) {
                             IconButton(
-                                onClick = { onScreenSelect(Screen.TABLE_RESULTS) }
+                                onClick = { coordinator.navigateTo(Screen.TABLE_RESULTS) }
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.List,
@@ -948,7 +950,7 @@ private fun AppNavigationDrawer(
                     Screen.VLH_MANAGEMENT -> {
                         VlhManagementScreen(
                             backgroundScope = scope,
-                            onBackToMainHub = { onScreenSelect(Screen.SCAN_HUB) }
+                            onBackToMainHub = { coordinator.navigateTo(Screen.SCAN_HUB) }
                         )
                     }
                     Screen.TABLE_RESULTS -> TableResultsScreen(
