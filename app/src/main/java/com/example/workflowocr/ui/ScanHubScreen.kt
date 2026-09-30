@@ -2,7 +2,6 @@ package com.example.workflowocr
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -180,7 +179,7 @@ fun ProcessingPreviewScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Image(
+                ZoomableImage(
                     bitmap = rawBitmap.asImageBitmap(),
                     contentDescription = "Main Raw/Cell Preview Image Canvas",
                     modifier = Modifier.fillMaxSize()
@@ -230,7 +229,7 @@ fun ProcessingPreviewScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    Image(
+                    ZoomableImage(
                         bitmap = diagnosticBitmap.asImageBitmap(),
                         contentDescription = "Diagnostic Line Grid Matrix Layer",
                         modifier = Modifier.fillMaxSize()
