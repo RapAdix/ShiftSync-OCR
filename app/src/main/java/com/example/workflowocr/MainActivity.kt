@@ -72,7 +72,6 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -567,26 +566,11 @@ fun OcrLauncherBridge(
     }
 
     if (coordinator.isManualDateDialogVisible) {
-        var inputDate by remember { mutableStateOf("") }
-        AlertDialog(
-            title = { Text("Manual Date Entry") },
-            text = {
-                OutlinedTextField(
-                    value = inputDate,
-                    onValueChange = { inputDate = it },
-                    label = { Text("Enter Date (MM-DD)") }
-                )
+        ManualDatePickerDialog(
+            onDateSelected = { date ->
+                coordinator.submitManualDate(date.format(StorageManager.storageDateFormatter()))
             },
-            onDismissRequest = coordinator::dismissManualDateDialog,
-            confirmButton = {
-                Button(
-                    onClick = { coordinator.submitManualDate(inputDate) },
-                    enabled = inputDate.isNotBlank()
-                ) { Text("Process") }
-            },
-            dismissButton = {
-                TextButton(onClick = coordinator::dismissManualDateDialog) { Text("Cancel") }
-            }
+            onDismissRequest = coordinator::dismissManualDateDialog
         )
     }
 
