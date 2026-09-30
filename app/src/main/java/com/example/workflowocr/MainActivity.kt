@@ -241,10 +241,11 @@ class OcrFlowCoordinator(
 
     private var extractionJob: Job? = null
 
-    fun supplyDate(date: String?) {
+    fun submitManualDate(date: String?) {
         val action = onDateSupplied
         onDateSupplied = null
         action?.invoke(date)
+        if (action != null && date == null) onCancelProcessing()
     }
 
     fun onCancelProcessing() {
@@ -404,8 +405,19 @@ class OcrFlowCoordinator(
                     is TableDetector.TableDetectionResult.Success -> {
                         setPreview(cellPreview, null, null)
                         val imageBitmap = ImageProcessor.matToBitmap(detection.gray)
+                        var suppliedDate: CompletableDeferred<String?>? = null
+                        var completePendingDate: ((String?) -> Unit)? = null
                         try {
                             val settings = tableViewModel.activeLayout
+                            val detectedDate = try {
+                                TextProcessor.determineDate(detection.cells, imageBitmap, settings)
+                            } catch (_: TextProcessor.CouldNotDetermineDateException) {
+                                val pendingDate = CompletableDeferred<String?>()
+                                suppliedDate = pendingDate
+                                completePendingDate = { pendingDate.complete(it) }
+                                onDateSupplied = completePendingDate
+                                null
+                            }
                             val rawTextGrid = TextProcessor.extractTextFromColumns(
                                 detection.cells,
                                 imageBitmap,
@@ -436,30 +448,19 @@ class OcrFlowCoordinator(
                                 setPreview(cellPreview, linesBitmap.scaleForPreview(1000), textFailure)
                                 return@launch
                             }
-                            val date = try {
-                                TextProcessor.determineDate(detection.cells, imageBitmap, tableViewModel.activeLayout)
-                            } catch (_: TextProcessor.CouldNotDetermineDateException) {
-                                val suppliedDate = CompletableDeferred<String?>()
-                                val supplyDate: (String?) -> Unit = { suppliedDate.complete(it) }
-                                onDateSupplied = supplyDate
-                                try {
-                                    val enteredDate = suppliedDate.await()
-                                    if (enteredDate == null) {
-                                        onCancelProcessing()
-                                        return@launch
-                                    }
-                                    enteredDate
-                                } finally {
-                                    if (onDateSupplied === supplyDate) {
-                                        onDateSupplied = null
-                                    }
-                                }
+                            val date = detectedDate ?: checkNotNull(suppliedDate).await()
+                            if (date == null) {
+                                onCancelProcessing()
+                                return@launch
                             }
                             currentCoroutineContext().ensureActive()
                             proceedWithExtraction(date, detection, imageBitmap, rawTextGrid, analysis)
                             currentCoroutineContext().ensureActive()
                             onSuccess()
                         } finally {
+                            if (onDateSupplied === completePendingDate) {
+                                onDateSupplied = null
+                            }
                             imageBitmap.recycle()
                         }
                     }
@@ -556,12 +557,12 @@ fun OcrLauncherBridge(
                     label = { Text("Enter Date (MM-DD)") }
                 )
             },
-            onDismissRequest = { coordinator.supplyDate(null) },
+            onDismissRequest = { coordinator.submitManualDate(null) },
             confirmButton = {
-                Button(onClick = { coordinator.supplyDate(inputDate) }) { Text("Process") }
+                Button(onClick = { coordinator.submitManualDate(inputDate) }) { Text("Process") }
             },
             dismissButton = {
-                TextButton(onClick = { coordinator.supplyDate(null) }) { Text("Cancel") }
+                TextButton(onClick = { coordinator.submitManualDate(null) }) { Text("Cancel") }
             }
         )
     }
