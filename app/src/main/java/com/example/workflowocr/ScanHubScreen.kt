@@ -100,8 +100,7 @@ fun ProcessingPreviewScreen(
     rawBitmap: Bitmap,
     diagnosticBitmap: Bitmap?,
     errorMessage: String?,
-    onRedoClicked: () -> Unit,
-    onCancelClicked: () -> Unit
+    onRedoClicked: () -> Unit
 ) {
     val isFailed = diagnosticBitmap != null
 
@@ -136,14 +135,6 @@ fun ProcessingPreviewScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("REDO / RETAKE SHEET PICTURE", style = MaterialTheme.typography.titleMedium)
             }
-        }
-
-        Button(
-            onClick = onCancelClicked,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-            modifier = Modifier.fillMaxWidth().height(56.dp)
-        ) {
-            Text("Cancel processing")
         }
 
         // 1. PRIMARY CANVAS: Displays the main photo (or photo with processed cells)

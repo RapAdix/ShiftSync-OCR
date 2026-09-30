@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
@@ -61,9 +62,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -862,6 +865,20 @@ private fun AppNavigationDrawer(
                     },
                     actions = {
                         // This block adds buttons to the RIGHT side of the bar
+                        if (state.currentScreen == Screen.PROCESSING_PREVIEW) {
+                            FilledIconButton(
+                                onClick = coordinator::onCancelProcessing,
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cancel processing"
+                                )
+                            }
+                        }
                         if (state.currentScreen == Screen.TABLE_RESULTS) {
                             IconButton(
                                 onClick = { onScreenSelect(Screen.ATTENDANCE_COUNT) }
@@ -919,8 +936,7 @@ private fun AppNavigationDrawer(
                         rawBitmap = coordinator.cellPreviewBitmap ?: coordinator.capturedBitmap ?: originalBitmap,
                         diagnosticBitmap = coordinator.diagnosticBitmap,
                         errorMessage = coordinator.processingErrorMsg,
-                        onRedoClicked = coordinator::onRedoClicked,
-                        onCancelClicked = coordinator::onCancelProcessing
+                        onRedoClicked = coordinator::onRedoClicked
                     )
                     Screen.VLH_MANAGEMENT -> {
                         VlhManagementScreen(
