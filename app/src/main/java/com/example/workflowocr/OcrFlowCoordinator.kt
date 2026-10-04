@@ -282,9 +282,21 @@ class OcrFlowCoordinator(
                                 else analysis[row].endTimeCrossed
                             }
                             if (failureStringID != null) {
+                                val timeCellsPreview = withContext(Dispatchers.Default) {
+                                    val highlighted = TableDetector.drawCells(
+                                        detection.gray, detection.cells,
+                                        highlightedColumns = setOf(settings.timeStartCol, settings.timeEndCol)
+                                    )
+                                    try {
+                                        ImageProcessor.matToBitmap(highlighted).scaleForPreview(1000)
+                                    } finally {
+                                        highlighted.release()
+                                    }
+                                }
+                                currentCoroutineContext().ensureActive()
                                 val linesBitmap = ImageProcessor.matToBitmap(detection.lines)
                                 val failureMessage = context.getString(failureStringID)
-                                setPreview(cellPreview, linesBitmap.scaleForPreview(1000), failureMessage)
+                                setPreview(timeCellsPreview, linesBitmap.scaleForPreview(1000), failureMessage)
                                 launch { showExtractionFailure(failureMessage) }
                                 return@launch
                             }

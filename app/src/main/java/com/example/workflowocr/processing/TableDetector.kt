@@ -694,8 +694,12 @@ object TableDetector {
         return null
     }
 
-    // Create Debug image with marked rectangles.
-    fun drawCells(gray: Mat, cells: Array<Array<TableCell>>): Mat {
+    /** Draws green cell outlines, then overlays selected body columns in red; the header stays green. */
+    fun drawCells(
+        gray: Mat,
+        cells: Array<Array<TableCell>>,
+        highlightedColumns: Set<Int> = emptySet()
+    ): Mat {
         val debugImage = gray.clone() // Clone to draw on it
         if (debugImage.channels() == 1) {
             Imgproc.cvtColor(debugImage, debugImage, Imgproc.COLOR_GRAY2RGB)
@@ -703,19 +707,23 @@ object TableDetector {
         if (cells.isEmpty()) return debugImage
         val green = Scalar(0.0, 255.0, 0.0)
 
-        // Iterate through the grid to create cells (N rows/cols give N-1 cells)
-        for (r in 0 until cells.size) {
-            for (c in 0 until cells[0].size) {
-                // Get the 4 corners for the current cell
-                val p1 = cells[r][c].topLeft
-                val p2 = cells[r][c].topRight
-                val p3 = cells[r][c].bottomLeft
-                val p4 = cells[r][c].bottomRight
+        fun drawOutline(cell: TableCell, color: Scalar, thickness: Int = 2) {
+            // TL -> TR -> BR -> BL follows the actual quadrilateral, including perspective.
+            val corners = MatOfPoint(cell.topLeft, cell.topRight, cell.bottomRight, cell.bottomLeft)
+            try {
+                Imgproc.polylines(debugImage, listOf(corners), true, color, thickness)
+            } finally {
+                corners.release()
+            }
+        }
 
-                // Draw the cell boundaries for visual verification
-                // Using polylines handles non-perfect rectangles (perspective)
-                val corners = MatOfPoint(p1, p2, p4, p3) // Order: TL -> TR -> BR -> BL
-                Imgproc.polylines(debugImage, listOf(corners), true, green, 2)
+        for (row in cells) for (cell in row) drawOutline(cell, green)
+
+        // Draw last so neighboring green outlines cannot overwrite shared red edges.
+        val red = Scalar(255.0, 0.0, 0.0) // debugImage is RGB, matching matToBitmap.
+        for (row in 1 until cells.size) {
+            for (column in highlightedColumns) {
+                cells[row].getOrNull(column)?.let { drawOutline(it, red, thickness = 8) }
             }
         }
         return debugImage

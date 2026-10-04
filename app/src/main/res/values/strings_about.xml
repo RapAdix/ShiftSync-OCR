@@ -2,7 +2,7 @@
     <!-- About, authorship, and license -->
     <string name="about_version">v2.0.0 (Accurate Table Detection)</string>
     <string name="about_ownership_copyright">Ownership &amp; Copyright</string>
-    <string name="about_copyright_notice">© 2026 Adrian. All Rights Reserved.</string>
+    <string name="about_copyright_notice">© 2026 Adrian Kucharczuk. All Rights Reserved.</string>
     <string name="about_authorship">This application is independent software researched, written, and maintained exclusively by the author. Source code and final distributions are hosted securely via private version control architectures.</string>
     <string name="about_usage_restrictions">Strict Usage Restrictions</string>
     <string name="about_license_personal_use">Licensed strictly for Non-Commercial personal use under CC BY-NC 4.0.</string>
