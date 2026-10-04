@@ -3,12 +3,14 @@ package com.example.workflowocr
 import android.graphics.Bitmap
 import android.util.Log
 import android.util.Rational
+import androidx.activity.compose.BackHandler
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
+import androidx.camera.core.UseCase
 import androidx.camera.core.ViewPort
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -33,6 +35,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,7 +49,6 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -56,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -80,7 +83,25 @@ fun CameraScreen(
     val scope = rememberCoroutineScope()
 
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+    val boundUseCases = remember { mutableListOf<UseCase>() }
+    var isCameraActive by remember { mutableStateOf(true) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+
+    BackHandler {
+        isCameraActive = false
+        onBackClicked()
+    }
+
+    DisposableEffect(cameraProviderFuture) {
+        onDispose {
+            isCameraActive = false
+            // Release only this screen's camera use cases, not another camera's bindings.
+            if (boundUseCases.isNotEmpty()) {
+                cameraProviderFuture.get().unbind(*boundUseCases.toTypedArray())
+                boundUseCases.clear()
+            }
+        }
+    }
 
     // 🟢 Feedback States
     var isProcessing by remember { mutableStateOf(false) }
@@ -89,11 +110,14 @@ fun CameraScreen(
     Box(modifier = Modifier.fillMaxSize()) {
 
         // 1. Live Camera Viewfinder Layer
+        // Studio reports the same UI target under two names at this interop call.
+        @Suppress("COMPOSE_APPLIER_CALL_MISMATCH")
         AndroidView(
             factory = { ctx -> PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } },
             modifier = Modifier.fillMaxSize(),
             update = { previewView ->
                 cameraProviderFuture.addListener({
+                    if (!isCameraActive) return@addListener
                     val cameraProvider = cameraProviderFuture.get()
 
                     val preview = Preview.Builder().build().also {
@@ -130,6 +154,9 @@ fun CameraScreen(
                             cameraSelector,
                             useCaseGroup
                         )
+                        boundUseCases.clear()
+                        boundUseCases.add(preview)
+                        boundUseCases.add(imageCapture!!)
                     } catch (exc: Exception) {
                         Log.e("CameraZoneOverlay", "Use case binding failed", exc)
                     }
@@ -182,7 +209,6 @@ fun CameraScreen(
             }
             drawPath(path = arrowHeadPath, color = Color.Cyan)
 
-            val textString = firstRowLabel
             val textStyle = TextStyle(
                 color = Color.White,
                 fontSize = 12.sp,
@@ -190,7 +216,7 @@ fun CameraScreen(
             )
 
             // Measure string dimensions to offset the layout perfectly next to the arrow tail
-            val textLayoutResult = textMeasurer.measure(textString, textStyle)
+            val textLayoutResult = textMeasurer.measure(firstRowLabel, textStyle)
             val textPaddingPx = 6.dp.toPx()
 
             // Position text directly to the left of the arrow line track centered vertically
@@ -199,7 +225,7 @@ fun CameraScreen(
 
             drawText(
                 textMeasurer = textMeasurer,
-                text = textString,
+                text = firstRowLabel,
                 topLeft = Offset(textX, textY),
                 style = textStyle
             )
@@ -257,6 +283,8 @@ fun CameraScreen(
                                 object : ImageCapture.OnImageCapturedCallback() {
                                     override fun onCaptureSuccess(imageProxy: ImageProxy) {
                                         try {
+                                            // Back may have been pressed while the capture was pending.
+                                            if (!isCameraActive) return
                                             val finalUprightBitmap = imageProxy.toBitmapCroppedRotated()
 
                                             if (finalUprightBitmap != null) {
@@ -274,6 +302,7 @@ fun CameraScreen(
                                     }
 
                                     override fun onError(exception: ImageCaptureException) {
+                                        if (!isCameraActive) return
                                         Log.e("CameraZoneOverlay", "Photo capture failed", exception)
                                         isProcessing = false // Reset button on failure
                                     }

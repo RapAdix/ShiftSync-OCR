@@ -47,7 +47,7 @@ object LineDetector {
     private const val ENDPOINT_MATCH_TOLERANCE_PX = 5.0 // Epsilon tolerance for endpoint alignment (px)
     private const val OVERLAP_SPAN_SAMPLE_COUNT = 10.0 // How often we take height checks across the overlap zone
     private const val MIN_PROXIMITY_MATCH_RATIO = 0.80 // Minimum ratio of sampled points that must fall into ENDPOINT_MATCH_TOLERANCE_PX
-    const val MAX_MERGE_SET_SIZE = 6000 // Maximum size of the Hough segments to allow computing MergeLines in a reasonable time.
+    const val MAX_MERGE_SET_SIZE = 7000 // Maximum size of the Hough segments to allow computing MergeLines in a reasonable time.
 
     /**
      * Runs the existing probabilistic Hough extraction and returns both its raw

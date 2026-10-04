@@ -221,12 +221,9 @@ fun OcrLauncherBridge(
             val bitmap = StorageManager.ImageUtils.uriToBitmap(context, tempImageUri!!)
             coordinator.handleCameraResult(bitmap)
         } else {
-            // Cancel case fallback path
-            if (coordinator.isDebugCapture) {
-                // Instantly clean up flag state if debug execution was canceled
-                coordinator.prepareForScan(debugMode = false)
-            }
+            coordinator.onCameraCancelled()
         }
+        tempImageUri = null
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -237,6 +234,7 @@ fun OcrLauncherBridge(
             tempImageUri = uri
             cameraLauncher.launch(uri)
         } else {
+            coordinator.onCameraCancelled()
             Toast.makeText(context, context.getString(R.string.camera_permission_required), Toast.LENGTH_SHORT).show()
         }
     }

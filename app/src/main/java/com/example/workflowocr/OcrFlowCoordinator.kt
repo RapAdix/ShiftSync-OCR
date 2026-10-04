@@ -97,9 +97,8 @@ class OcrFlowCoordinator(
         navigateTo(Screen.SCAN_HUB)
     }
 
-    fun prepareForScan(debugMode: Boolean) {
-        this.isDebugCapture = debugMode
-        onTriggerCameraLaunch()
+    fun onCameraCancelled() {
+        isDebugCapture = false
     }
 
     fun onScanRequest() {
