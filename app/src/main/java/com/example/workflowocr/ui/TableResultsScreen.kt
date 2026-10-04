@@ -456,10 +456,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
             derivedStateOf {
                 viewModel.extractedRows.values
                     .filter {
-                        showAll ||
-                                !it.hasHoliday() || // people without holiday
-                                it.currentlyHasWrittenModifications(viewModel.activeLayout) || // people with modifications
-                                it.hasValidTimes() // people who have proper time inserted(maybe someone erased modifications with eraser)
+                        showAll || it.shouldShowInWorkingResults(viewModel.activeLayout)
                     }
                     .sortedWith(
                         // Primary Sort: Group Scanned (0) before Manual (1)
@@ -1137,6 +1134,13 @@ fun ProcessorRow.hasValidTimes(): Boolean {
 
 fun ProcessorRow.hasHoliday(): Boolean {
     return startTime.any { it in "UW" } || finishTime.any { it in "UW" }
+}
+
+internal fun ProcessorRow.shouldShowInWorkingResults(settings: TableLayout): Boolean {
+    return !hasHoliday() || // people without holiday
+            hasTimeCrossed() || // crossed time means a modification, even if OCR reads a holiday marker
+            currentlyHasWrittenModifications(settings) || // people with modifications
+            hasValidTimes() // people who have proper time inserted(maybe someone erased modifications with eraser)
 }
 
 fun ProcessorRow.currentlyHasWrittenModifications(settings: TableLayout): Boolean {
