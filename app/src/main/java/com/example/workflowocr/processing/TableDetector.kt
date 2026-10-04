@@ -50,6 +50,11 @@ object TableDetector {
 
     class MissingTopRowException(message: String) : Exception(message)
 
+    /** The UI resolves these reasons; local detector tests need no Android Context or resources. */
+    class TableGridException(val reason: Reason, val found: Int = 0, val expected: Int = 0) : IllegalStateException(reason.name) {
+        enum class Reason { INCOMPLETE_COLUMNS, UNRELIABLE_GRID, TOO_FEW_ROWS }
+    }
+
     private const val MIN_REQUIRED_INTERSECTIONS_COEFF : Double = 0.4 // Require at least 40% of the most intersected belt's points
     private const val MIN_VERTICAL_LINE_QUALITY_EARLY_CHECK_COEFF = 0.25 // A usable vertical should cross this fraction of row lines
     private const val MIN_SUPPORTED_VERTICAL_FRACTION = 0.5 // This fraction of expected verticals must pass that check
@@ -273,9 +278,9 @@ object TableDetector {
         // The vertical filter can return fewer than the requested number of lines.
         // Propagation would still create a grid and report success in that case.
         if (validVertical.size != expectedVerticalLines) {
-            structuralException = structuralException ?: IllegalStateException(
-                "Incomplete table grid: found ${(validVertical.size - 1).coerceAtLeast(0)} " +
-                    "of ${expectedVerticalLines - 1} columns. Retake the sheet picture."
+            structuralException = structuralException ?: TableGridException(
+                TableGridException.Reason.INCOMPLETE_COLUMNS,
+                (validVertical.size - 1).coerceAtLeast(0), expectedVerticalLines - 1
             )
         } else {
             val supportedVerticals = validVertical.count { vertical ->
@@ -283,8 +288,8 @@ object TableDetector {
                     validHorizontal.size * MIN_VERTICAL_LINE_QUALITY_EARLY_CHECK_COEFF
             }
             if (supportedVerticals < expectedVerticalLines * MIN_SUPPORTED_VERTICAL_FRACTION) {
-                structuralException = structuralException ?: IllegalStateException(
-                    "Table lines do not form a reliable grid. Retake the sheet picture."
+                structuralException = structuralException ?: TableGridException(
+                    TableGridException.Reason.UNRELIABLE_GRID
                 )
             }
         }
@@ -308,8 +313,8 @@ object TableDetector {
         }
 
         if (cells.size < MIN_DETECTED_CELL_ROWS) {
-            structuralException = structuralException ?: IllegalStateException(
-                "Only ${cells.size} table rows were found. Retake the sheet picture."
+            structuralException = structuralException ?: TableGridException(
+                TableGridException.Reason.TOO_FEW_ROWS, cells.size
             )
         }
 

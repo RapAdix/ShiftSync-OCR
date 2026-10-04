@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -137,6 +138,7 @@ fun CameraScreen(
         )
 
         val textMeasurer = rememberTextMeasurer()
+        val firstRowLabel = stringResource(R.string.camera_first_row)
         // 2. Custom Target Guide Box Overlay
         Canvas(modifier = Modifier.fillMaxSize()) {
             val canvasWidth = size.width
@@ -180,7 +182,7 @@ fun CameraScreen(
             }
             drawPath(path = arrowHeadPath, color = Color.Cyan)
 
-            val textString = "First row here"
+            val textString = firstRowLabel
             val textStyle = TextStyle(
                 color = Color.White,
                 fontSize = 12.sp,
@@ -220,7 +222,7 @@ fun CameraScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = if (isProcessing) "PROCESSING DIGITS..." else "ALIGN DIGIT COLUMN INSIDE BLUE ZONE",
+                text = if (isProcessing) stringResource(R.string.camera_processing_digits) else stringResource(R.string.camera_align_digits),
                 style = MaterialTheme.typography.labelLarge,
                 color = Color.White,
                 modifier = Modifier
@@ -282,7 +284,7 @@ fun CameraScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Trigger Shutter Capture Action",
+                            contentDescription = stringResource(R.string.camera_shutter_description),
                             tint = Color.Cyan,
                             modifier = Modifier.fillMaxSize()
                         )

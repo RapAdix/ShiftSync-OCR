@@ -1,0 +1,40 @@
+<resources>
+    <!-- VLH dashboard and configuration -->
+    <string name="vlh_review_projection_history">Review Historic Operational Document Projections</string>
+    <string name="vlh_review_last_scan">Review Last Captured Scan Image</string>
+    <string name="vlh_configure_layout">Configure Layout Definitions</string>
+    <string name="vlh_modify_template_configuration">Modify Template Configurations</string>
+    <string name="vlh_target_definition_group">1. Target Base Definition Group</string>
+    <string name="vlh_target_column_allocation">2. Target Matrix Column Allocation</string>
+    <string name="vlh_adjust_time_bounds">3. Adjust Structural Time Bounds (30-min precision)</string>
+    <string name="vlh_invalid_time_range">End time must be later than start time.</string>
+    <string name="vlh_launch_scanner">Launch Scanner</string>
+    <string name="vlh_older_date">Step to Older Date</string>
+    <string name="vlh_no_document_projections">No Document Projections</string>
+    <string name="vlh_sync_future_projections">Sync All Future Projections from Server</string>
+    <string name="vlh_newer_date">Step to Newer Date</string>
+    <string name="vlh_no_projection_stored">No projection stored yet. Download or input some projections first.</string>
+    <string name="vlh_shift_time_down">Shift Time Down</string>
+    <string name="vlh_shift_time_up">Shift Time Up</string>
+    <string name="vlh_time_frame">Time Frame</string>
+    <string name="vlh_scanned_gc">Scanned GC</string>
+    <string name="vlh_insert_at_front">Insert at Front</string>
+    <string name="vlh_crew_required">Crew required</string>
+    <string name="vlh_insert_below">Insert Below</string>
+    <string name="vlh_delete_row">Delete Row</string>
+    <string name="vlh_discard_changes">Discard changes</string>
+    <string name="vlh_insert_first_row">Insert at Row 1 (Front)</string>
+    <string name="vlh_insert_row_below">Insert Row Below</string>
+    <string name="vlh_confirm_and_save">Confirm &amp; Save</string>
+    <string name="vlh_verify_document_scan">Verify Source Document Scan</string>
+    <string name="vlh_return_to_dashboard">Return to Dashboard</string>
+    <string name="vlh_raw_scan_description">Raw captured OCR target matrix frame</string>
+    <string name="vlh_no_scan_snapshot">No captured document snapshot found in memory cache.</string>
+    <string name="vlh_scan_active_template">SCAN TABLE VIA ACTIVE %1$s TEMPLATE</string>
+    <string name="vlh_column_short">Col %1$d</string>
+    <string name="vlh_align_starting_time">Use the buttons below to align the starting time if the first row doesn\'t match %1$d:00.</string>
+    <string name="vlh_starting_hour">Starting Hour: %1$d:00</string>
+    <string name="vlh_edit_column_title">Edit Column %1$d (%2$s)</string>
+    <string name="vlh_daytype_weekday">WEEKDAY</string>
+    <string name="vlh_daytype_weekend">WEEKEND</string>
+</resources>

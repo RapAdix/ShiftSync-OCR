@@ -1,0 +1,33 @@
+<resources>
+    <!-- Table results, attendance, and spreadsheet synchronization -->
+    <string name="results_no_data_recorded">No data recorded.</string>
+    <string name="results_showing_all_employees">Showing all employees</string>
+    <string name="results_showing_working_employees">Showing only working employees</string>
+    <string name="results_show_all">Show All</string>
+    <string name="results_entity_column_heading">ENTITY</string>
+    <string name="results_start_column_heading">START</string>
+    <string name="results_finish_column_heading">FINISH</string>
+    <string name="results_modified_row_description">Modified row</string>
+    <string name="results_add_employee">Add Employee</string>
+    <string name="results_handwritten_snippet_description">Handwritten snippet</string>
+    <string name="results_absent">ABSENT</string>
+    <string name="results_working">WORKING</string>
+    <string name="results_modifications_after">After:</string>
+    <string name="results_delete_entry">Delete Entry</string>
+    <string name="results_modifications_before">Detected Modifications, Before:</string>
+    <string name="results_detected_modifications">Detected Modifications:</string>
+    <string name="attendance_required">Required</string>
+    <string name="attendance_actual">Actual</string>
+    <string name="attendance_download_projection_description">Download Pipeline</string>
+    <string name="attendance_weekday_short">Wkday</string>
+    <string name="attendance_weekend_short">Wkend</string>
+    <string name="projection_invalid_url">Error: Insecure or malformed URL configuration.</string>
+    <string name="projection_invalid_cell">Error: Target coordinate calculation mismatch.</string>
+    <string name="projection_file_too_large">Aborted: Workbook exceeds safety file sizing limits.</string>
+    <string name="projection_network_error">Sync Failed: Server disconnected or returned bad response.</string>
+    <string name="results_missing_projection_and_vlh">Missing: Projected GC Value &amp; Master VLH Configurations Table</string>
+    <string name="results_missing_vlh">Missing: Master VLH Configuration Table</string>
+    <string name="results_missing_projection">Missing: Synchronized Spreadsheet GC Values Data</string>
+    <string name="projection_date_tab_missing">Excel tab \'%1$s\' not found for that date.</string>
+    <string name="projection_sync_error">Sync Error: %1$s</string>
+</resources>

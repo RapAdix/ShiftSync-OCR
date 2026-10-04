@@ -87,6 +87,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -101,7 +102,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
-enum class DayType { WEEKDAY, WEEKEND }
+enum class DayType(@androidx.annotation.StringRes val displayNameRes: Int) {
+    WEEKDAY(R.string.vlh_daytype_weekday),
+    WEEKEND(R.string.vlh_daytype_weekend)
+}
 
 @Serializable
 data class VlhColumnConfig(
@@ -504,7 +508,7 @@ fun VlhDashboardScreen(
                 Tab(
                     selected = coordinator.activeDisplayTab == dayType,
                     onClick = { coordinator.activeDisplayTab = dayType },
-                    text = { Text(dayType.name, fontWeight = FontWeight.Bold) }
+                    text = { Text(stringResource(dayType.displayNameRes), fontWeight = FontWeight.Bold) }
                 )
             }
         }
@@ -516,7 +520,7 @@ fun VlhDashboardScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = coordinator.activeDisplayTab.name,
+                text = stringResource(coordinator.activeDisplayTab.displayNameRes),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold
             )
@@ -526,7 +530,7 @@ fun VlhDashboardScreen(
                 IconButton(onClick = onNavigateToProjectionHistory) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.TrendingUp,
-                        contentDescription = "Review Historic Operational Document Projections",
+                        contentDescription = stringResource(R.string.vlh_review_projection_history),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -535,7 +539,7 @@ fun VlhDashboardScreen(
                     IconButton(onClick = onNavigateToImageInspection) {
                         Icon(
                             imageVector = Icons.Default.Visibility,
-                            contentDescription = "Review Last Captured Scan Image",
+                            contentDescription = stringResource(R.string.vlh_review_last_scan),
                             tint = MaterialTheme.colorScheme.secondary
                         )
                     }
@@ -543,7 +547,7 @@ fun VlhDashboardScreen(
 
                 // The Setup "Gear" Button
                 IconButton(onClick = onNavigateToSetup) {
-                    Icon(Icons.Default.Settings, contentDescription = "Configure Layout Definitions", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.vlh_configure_layout), tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -726,7 +730,7 @@ fun VlhDashboardScreen(
         ) {
             Icon(Icons.Default.CameraAlt, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("SCAN TABLE VIA ACTIVE ${coordinator.activeDisplayTab.name} TEMPLATE")
+            Text(stringResource(R.string.vlh_scan_active_template, stringResource(coordinator.activeDisplayTab.displayNameRes)))
         }
     }
 }
@@ -776,23 +780,23 @@ fun VlhSetupConfigScreen(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(text = "Modify Template Configurations", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(text = stringResource(R.string.vlh_modify_template_configuration), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
         // Configuration Options Block
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(text = "1. Target Base Definition Group", fontWeight = FontWeight.Bold)
+                Text(text = stringResource(R.string.vlh_target_definition_group), fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DayType.entries.forEach { type ->
                         FilterChip(
                             selected = selectedDay == type,
                             onClick = { selectedDay = type },
-                            label = { Text(type.name) }
+                            label = { Text(stringResource(type.displayNameRes)) }
                         )
                     }
                 }
 
-                Text(text = "2. Target Matrix Column Allocation", fontWeight = FontWeight.Bold)
+                Text(text = stringResource(R.string.vlh_target_column_allocation), fontWeight = FontWeight.Bold)
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -801,12 +805,12 @@ fun VlhSetupConfigScreen(
                         ElevatedFilterChip(
                             selected = selectedColId == idx,
                             onClick = { selectedColId = idx },
-                            label = { Text("Col ${idx + 1}") }
+                            label = { Text(stringResource(R.string.vlh_column_short, idx + 1)) }
                         )
                     }
                 }
 
-                Text(text = "3. Adjust Structural Time Bounds (30-min precision)", fontWeight = FontWeight.Bold)
+                Text(text = stringResource(R.string.vlh_adjust_time_bounds), fontWeight = FontWeight.Bold)
 
                 // DROPDOWN FIELDS ROW
                 Row(
@@ -823,7 +827,7 @@ fun VlhSetupConfigScreen(
                             readOnly = true,
                             value = startTime,
                             onValueChange = {},
-                            label = { Text("Start") },
+                            label = { Text(stringResource(R.string.common_start)) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = startExpanded) },
                             modifier = Modifier.menuAnchor()
                         )
@@ -853,7 +857,7 @@ fun VlhSetupConfigScreen(
                             readOnly = true,
                             value = endTime,
                             onValueChange = {},
-                            label = { Text("End") },
+                            label = { Text(stringResource(R.string.common_end)) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = endExpanded) },
                             isError = !isValidRange, // Visual cue if range is inverted
                             modifier = Modifier.menuAnchor()
@@ -877,7 +881,7 @@ fun VlhSetupConfigScreen(
 
                 if (!isValidRange) {
                     Text(
-                        text = "End time must be later than start time.",
+                        text = stringResource(R.string.vlh_invalid_time_range),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -889,7 +893,7 @@ fun VlhSetupConfigScreen(
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
             Button(
                 onClick = {
@@ -901,7 +905,7 @@ fun VlhSetupConfigScreen(
                 enabled = isValidRange, // Button locks if validation parameters fail
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Launch Scanner")
+                Text(stringResource(R.string.vlh_launch_scanner))
             }
         }
     }
@@ -986,7 +990,7 @@ fun ProjectionHistoryReviewScreen(
                     onClick = { selectedDateIndex = (selectedDateIndex + 1).coerceAtMost(availableDates.lastIndex) },
                     enabled = selectedDateIndex < availableDates.lastIndex
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Step to Older Date")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.vlh_older_date))
                 }
 
                 // Middle Container grouping Selector Dropdown and the Day Toggle
@@ -1074,7 +1078,7 @@ fun ProjectionHistoryReviewScreen(
                             }
                         }
                     } else {
-                        Text(text = "No Document Projections", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                        Text(text = stringResource(R.string.vlh_no_document_projections), style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                     }
                 }
 
@@ -1100,7 +1104,7 @@ fun ProjectionHistoryReviewScreen(
                     } else {
                         Icon(
                             imageVector = Icons.Default.CloudDownload,
-                            contentDescription = "Sync All Future Projections from Server",
+                            contentDescription = stringResource(R.string.vlh_sync_future_projections),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(34.dp)
                         )
@@ -1112,7 +1116,7 @@ fun ProjectionHistoryReviewScreen(
                     onClick = { selectedDateIndex = (selectedDateIndex - 1).coerceAtLeast(0) },
                     enabled = selectedDateIndex > 0
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Step to Newer Date")
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = stringResource(R.string.vlh_newer_date))
                 }
             }
         }
@@ -1159,7 +1163,7 @@ fun ProjectionHistoryReviewScreen(
         } else {
             Box(modifier = Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "No projection stored yet. Download or input some projections first.",
+                    text = stringResource(R.string.vlh_no_projection_stored),
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.Gray
@@ -1210,7 +1214,7 @@ fun OperationalScanResultsView(
             // Hides Starting Time control mechanics completely if shifting capabilities are omitted
             if (onStartHourChange != null) {
                 Text(
-                    text = "Use the buttons below to align the starting time if the first row doesn't match $openingTime:00.",
+                    text = stringResource(R.string.vlh_align_starting_time, openingTime),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
@@ -1223,16 +1227,16 @@ fun OperationalScanResultsView(
                     IconButton(onClick = { onStartHourChange((selectedStartHour - 1).coerceAtLeast(0)) }) {
                         Icon(
                             Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Shift Time Down"
+                            contentDescription = stringResource(R.string.vlh_shift_time_down)
                         )
                     }
                     Text(
-                        text = "Starting Hour: ${selectedStartHour}:00",
+                        text = stringResource(R.string.vlh_starting_hour, selectedStartHour),
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.bodyLarge
                     )
                     IconButton(onClick = { onStartHourChange((selectedStartHour + 1).coerceAtMost(23)) }) {
-                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Shift Time Up")
+                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = stringResource(R.string.vlh_shift_time_up))
                     }
                 }
 
@@ -1248,7 +1252,7 @@ fun OperationalScanResultsView(
                         verticalAlignment = Alignment.Top
                     ) {
                         Text(
-                            text = "Time Frame",
+                            text = stringResource(R.string.vlh_time_frame),
                             modifier = Modifier.width(96.dp), // Fixed explicit width forces single-row layout
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
@@ -1260,14 +1264,14 @@ fun OperationalScanResultsView(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            Text("Scanned GC", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                            Text(stringResource(R.string.vlh_scanned_gc), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                             IconButton(
                                 onClick = { if (scannedGcsList.size < 24) scannedGcsList.add(0, 0) },
                                 modifier = Modifier.size(30.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Add,
-                                    contentDescription = "Insert at Front",
+                                    contentDescription = stringResource(R.string.vlh_insert_at_front),
                                     tint = Color(0xFF2E7D32),
                                     modifier = Modifier.size(26.dp)
                                 )
@@ -1275,7 +1279,7 @@ fun OperationalScanResultsView(
                         }
 
                         Text(
-                            text = "Crew required",
+                            text = stringResource(R.string.vlh_crew_required),
                             modifier = Modifier.weight(1.0f),
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.End
@@ -1378,7 +1382,7 @@ fun OperationalScanResultsView(
                                     )
                                     Icon(
                                         imageVector = Icons.Default.Add,
-                                        contentDescription = "Insert Below",
+                                        contentDescription = stringResource(R.string.vlh_insert_below),
                                         tint = Color(0xFF2E7D32),
                                         modifier = Modifier.size(22.dp).offset(x = 3.dp)
                                     )
@@ -1391,7 +1395,7 @@ fun OperationalScanResultsView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete Row",
+                                    contentDescription = stringResource(R.string.vlh_delete_row),
                                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -1405,7 +1409,7 @@ fun OperationalScanResultsView(
                             horizontalArrangement = Arrangement.End
                         ) {
                             Text(
-                                text = crewNeeded?.toString() ?: "N/A",
+                                text = crewNeeded?.toString() ?: stringResource(R.string.common_not_available),
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Bold,
@@ -1419,7 +1423,7 @@ fun OperationalScanResultsView(
 
             // Bottom Action Controls
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Discard") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_discard)) }
                 if (onSave != null) {
                     TextButton(
                         onClick = onSave,
@@ -1427,7 +1431,7 @@ fun OperationalScanResultsView(
                             contentColor = SoftEmeraldGreen
                         )
                     ) {
-                        Text("Save", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.common_save), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1450,10 +1454,10 @@ fun VlhColumnEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Edit Column ${column.id + 1} (${column.name})", style = MaterialTheme.typography.titleMedium) },
+                title = { Text(stringResource(R.string.vlh_edit_column_title, column.id + 1, column.name), style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Discard changes")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.vlh_discard_changes))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -1485,7 +1489,7 @@ fun VlhColumnEditorScreen(
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Insert at Row 1 (Front)", fontSize = 13.sp)
+                    Text(stringResource(R.string.vlh_insert_first_row), fontSize = 13.sp)
                 }
 
                 LazyColumn(
@@ -1606,7 +1610,7 @@ fun VlhColumnEditorScreen(
                                         // The plus icon
                                         Icon(
                                             imageVector = Icons.Default.Add,
-                                            contentDescription = "Insert Row Below",
+                                            contentDescription = stringResource(R.string.vlh_insert_row_below),
                                             tint = Color(0xFF2E7D32),
                                             modifier = Modifier
                                                 .size(26.dp) // Large prominent touch target
@@ -1622,7 +1626,7 @@ fun VlhColumnEditorScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete Row",
+                                        contentDescription = stringResource(R.string.vlh_delete_row),
                                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -1644,7 +1648,7 @@ fun VlhColumnEditorScreen(
                     .height(48.dp)
                     .padding(bottom = 8.dp)
             ) {
-                Text("Confirm & Save", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.vlh_confirm_and_save), fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1678,10 +1682,10 @@ fun VlhImageInspectionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Verify Source Document Scan", style = MaterialTheme.typography.titleMedium) },
+                title = { Text(stringResource(R.string.vlh_verify_document_scan), style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = onBackToDashboard) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Return to Dashboard")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.vlh_return_to_dashboard))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -1701,7 +1705,7 @@ fun VlhImageInspectionScreen(
             if (bitmapSnapshot != null) {
                 Image(
                     bitmap = bitmapSnapshot.asImageBitmap(),
-                    contentDescription = "Raw captured OCR target matrix frame",
+                    contentDescription = stringResource(R.string.vlh_raw_scan_description),
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 500.dp),
@@ -1709,7 +1713,7 @@ fun VlhImageInspectionScreen(
                 )
             } else {
                 Text(
-                    text = "No captured document snapshot found in memory cache.",
+                    text = stringResource(R.string.vlh_no_scan_snapshot),
                     color = Color.White,
                     style = MaterialTheme.typography.bodyLarge
                 )
@@ -1725,7 +1729,7 @@ fun VlhImageInspectionScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "--- DEBUG EXTRACTION PASSTHROUGH MATRIX ---",
+                    text = stringResource(R.string.debug_extraction_title),
                     color = Color.Green,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold
@@ -1742,7 +1746,7 @@ fun VlhImageInspectionScreen(
                     )
                 } else if (results.first.isEmpty() && results.second.isEmpty()) {
                     Text(
-                        text = "OCR analysis completed. Zero numerical patterns matched on both images.",
+                        text = stringResource(R.string.debug_no_numeric_patterns),
                         color = Color.LightGray,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -1756,9 +1760,9 @@ fun VlhImageInspectionScreen(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Row Index", color = Color.Gray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(0.8f))
-                        Text("Optimized (OpenCV)", color = Color.Cyan, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1.1f), textAlign = TextAlign.Center)
-                        Text("Original (Raw)", color = Color.Magenta, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1.1f), textAlign = TextAlign.End)
+                        Text(stringResource(R.string.debug_row_index), color = Color.Gray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(0.8f))
+                        Text(stringResource(R.string.debug_optimized_opencv), color = Color.Cyan, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1.1f), textAlign = TextAlign.Center)
+                        Text(stringResource(R.string.debug_original_raw), color = Color.Magenta, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1.1f), textAlign = TextAlign.End)
                     }
 
                     // Loop up to the maximum total length to catch missing entries safely
@@ -1777,7 +1781,7 @@ fun VlhImageInspectionScreen(
                         ) {
                             // Left Column: Row Index
                             Text(
-                                text = "Row [${String.format("%02d", index + 1)}]:",
+                                text = stringResource(R.string.debug_row_label, index + 1),
                                 color = Color.Green,
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontFamily = FontFamily.Monospace,

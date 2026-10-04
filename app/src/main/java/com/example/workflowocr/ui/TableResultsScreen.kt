@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -445,7 +446,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
     }
     if (viewModel.extractedRows.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No data recorded.", color = MutedGrey)
+            Text(stringResource(R.string.results_no_data_recorded), color = MutedGrey)
         }
     } else {
         val rowsList by remember(viewModel.extractedRows) {
@@ -484,7 +485,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (showAll) "Showing all employees" else "Showing only working employees",
+                        text = if (showAll) stringResource(R.string.results_showing_all_employees) else stringResource(R.string.results_showing_working_employees),
                         style = MaterialTheme.typography.bodySmall,
                         color = MutedGrey
                     )
@@ -492,7 +493,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                     // A simple M3 Switch or a TextButton toggle
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Show All",
+                            stringResource(R.string.results_show_all),
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.padding(end = 8.dp)
                         )
@@ -516,9 +517,9 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                         .fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("ENTITY", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MutedGrey)
-                    Text("START", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MutedGrey, textAlign = TextAlign.Center)
-                    Text("FINISH", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MutedGrey, textAlign = TextAlign.Center)
+                    Text(stringResource(R.string.results_entity_column_heading), modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MutedGrey)
+                    Text(stringResource(R.string.results_start_column_heading), modifier = Modifier.width(80.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MutedGrey, textAlign = TextAlign.Center)
+                    Text(stringResource(R.string.results_finish_column_heading), modifier = Modifier.width(80.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MutedGrey, textAlign = TextAlign.Center)
                 }
                 // The "Dark Line" separator
                 HorizontalDivider(thickness = 1.dp, color = InkBlack.copy(alpha = 0.1f))
@@ -554,7 +555,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                             if (isModified) {
                                 Icon(
                                     imageVector = Icons.Rounded.Edit,
-                                    contentDescription = "Modified row",
+                                    contentDescription = stringResource(R.string.results_modified_row_description),
                                     modifier = Modifier
                                         .padding(horizontal = 0.dp)
                                         .size(24.dp),
@@ -605,7 +606,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Add Employee",
+                                text = stringResource(R.string.results_add_employee),
                                 style = MaterialTheme.typography.labelLarge
                             )
                         }
@@ -627,7 +628,7 @@ fun displayTextTimeOrSnippet(row: ProcessorRow, path: String?, time: String) {
 fun SnippetImage(path: String, height: androidx.compose.ui.unit.Dp, width: androidx.compose.ui.unit.Dp? = null) {
     AsyncImage(
         model = path, // Coil finds the file automatically from this path string
-        contentDescription = "Handwritten snippet",
+        contentDescription = stringResource(R.string.results_handwritten_snippet_description),
         modifier = Modifier
             .height(height)
             .then(if (width != null) Modifier.width(width) else Modifier.wrapContentWidth())
@@ -740,7 +741,7 @@ fun EditTimeDialog(
                             ) {
                                 row.startTimeSnippetPath?.let { SnippetImage(it, height = 32.dp) }
                                 Spacer(modifier = Modifier.height(8.dp))
-                                TimePicker15("START", start) { start = it }
+                                TimePicker15(stringResource(R.string.results_start_column_heading), start) { start = it }
                             }
 
                             VerticalDivider(
@@ -756,7 +757,7 @@ fun EditTimeDialog(
                             ) {
                                 row.finishTimeSnippetPath?.let { SnippetImage(it, height = 32.dp) }
                                 Spacer(modifier = Modifier.height(8.dp))
-                                TimePicker15("FINISH", end) { end = it }
+                                TimePicker15(stringResource(R.string.results_finish_column_heading), end) { end = it }
                             }
                         }
                     }
@@ -770,7 +771,7 @@ fun EditTimeDialog(
                             onClick = { isAbsent = !isAbsent },
                             label = {
                                 Text(
-                                    text = if (isAbsent) "ABSENT" else "WORKING",
+                                    text = if (isAbsent) stringResource(R.string.results_absent) else stringResource(R.string.results_working),
                                     style = MaterialTheme.typography.labelLarge
                                 )
                             },
@@ -799,7 +800,7 @@ fun EditTimeDialog(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
-                            "Detected Modifications" + if (row.newModificationsSnippetPath != null && row.oldModificationsSnippetPath != null) ", Before:" else ":",
+                            stringResource(if (row.newModificationsSnippetPath != null && row.oldModificationsSnippetPath != null) R.string.results_modifications_before else R.string.results_detected_modifications),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -817,7 +818,7 @@ fun EditTimeDialog(
 
                         if (row.oldModificationsSnippetPath != null && row.newModificationsSnippetPath != null) {
                             Text(
-                                "After:",
+                                stringResource(R.string.results_modifications_after),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -853,7 +854,7 @@ fun EditTimeDialog(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete Entry",
+                                    contentDescription = stringResource(R.string.results_delete_entry),
                                     tint = Color(0xFFD32F2F) // Material Red
                                 )
                             }
@@ -862,7 +863,7 @@ fun EditTimeDialog(
                         // This spacer pushes the following buttons to the right
                         Spacer(modifier = Modifier.weight(1f))
 
-                        TextButton(onClick = onDismiss) { Text("Cancel") }
+                        TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(onClick = {
                             if (isAbsent)
@@ -870,7 +871,7 @@ fun EditTimeDialog(
                             else
                                 onSave(TimeUtils.minutesToTimeString(start), TimeUtils.minutesToTimeString(end), isAbsent)
                         }) {
-                            Text("Save")
+                            Text(stringResource(R.string.common_save))
                         }
                     }
                 }
@@ -918,7 +919,7 @@ fun AddEmployeeDialog(
                     verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     Text(
-                        text = "Add Employee",
+                        text = stringResource(R.string.results_add_employee),
                         style = MaterialTheme.typography.headlineSmall,
                         color = InkBlack
                     )
@@ -927,7 +928,7 @@ fun AddEmployeeDialog(
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Name") },
+                        label = { Text(stringResource(R.string.common_name)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -943,14 +944,14 @@ fun AddEmployeeDialog(
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
                             TimePicker15(
-                                label = "Start",
+                                label = stringResource(R.string.common_start),
                                 value = startMinutes,
                                 onChange = { startMinutes = it }
                             )
                         }
                         Box(modifier = Modifier.weight(1f)) {
                             TimePicker15(
-                                label = "Finish",
+                                label = stringResource(R.string.common_finish),
                                 value = endMinutes,
                                 onChange = { endMinutes = it }
                             )
@@ -962,7 +963,7 @@ fun AddEmployeeDialog(
                         horizontalArrangement = Arrangement.End
                     ) {
                         TextButton(onClick = onDismiss) {
-                            Text("Cancel", color = MutedGrey)
+                            Text(stringResource(R.string.common_cancel), color = MutedGrey)
                         }
                         Spacer(Modifier.width(8.dp))
                         Button(
@@ -978,7 +979,7 @@ fun AddEmployeeDialog(
                             colors = ButtonDefaults.buttonColors(containerColor = AccentOlive),
                             enabled = name.isNotBlank()
                         ) {
-                            Text("Add")
+                            Text(stringResource(R.string.common_add))
                         }
                     }
                 }

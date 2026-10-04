@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -65,8 +66,8 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit, onDebugS
             Icon(Icons.Default.CameraAlt, null, modifier = Modifier.size(32.dp))
             Spacer(Modifier.width(16.dp))
             Column {
-                Text("SCAN NEW SHEET", style = MaterialTheme.typography.titleMedium)
-                Text("Run OpenCV + ML Kit", style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.scan_new_sheet), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.scan_run_ocr_engines), style = MaterialTheme.typography.labelSmall)
             }
         }
 
@@ -78,7 +79,7 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit, onDebugS
                 .fillMaxWidth()
                 .height(70.dp)
         ) {
-            Text("Use last image")
+            Text(stringResource(R.string.scan_use_last_image))
         }
 
         Spacer(Modifier.height(24.dp))
@@ -89,7 +90,7 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit, onDebugS
                 .fillMaxWidth()
                 .height(70.dp)
         ) {
-            Text("Scan image and go into debug")
+            Text(stringResource(R.string.scan_for_debug))
         }
     }
 }
@@ -118,7 +119,7 @@ fun ProcessingPreviewScreen(
     ) {
         if (manualDateRequired && !isFailed) {
             Text(
-                text = "Check the marked cells in the preview below. If they look correct, specify the date; otherwise, retake the photo.",
+                text = stringResource(R.string.preview_confirm_cells_for_date),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center
             )
@@ -130,13 +131,13 @@ fun ProcessingPreviewScreen(
                     onClick = onSpecifyDateClicked,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Specify date")
+                    Text(stringResource(R.string.preview_specify_date))
                 }
                 OutlinedButton(
                     onClick = onRedoClicked,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Retake photo")
+                    Text(stringResource(R.string.preview_retake_photo))
                 }
             }
         }
@@ -144,9 +145,9 @@ fun ProcessingPreviewScreen(
         // Dynamic Status Title block
         Text(
             text = when {
-                isFailed -> "Table Detection Failed"
-                isDateDetectionFinished -> "Text recognition..."
-                else -> "Table detection..."
+                isFailed -> stringResource(R.string.preview_table_detection_failed)
+                isDateDetectionFinished -> stringResource(R.string.preview_text_recognition_progress)
+                else -> stringResource(R.string.preview_table_detection_progress)
             },
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
@@ -164,7 +165,7 @@ fun ProcessingPreviewScreen(
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("REDO / RETAKE SHEET PICTURE", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.preview_retake_sheet_picture), style = MaterialTheme.typography.titleMedium)
             }
         }
 
@@ -181,7 +182,7 @@ fun ProcessingPreviewScreen(
             ) {
                 ZoomableImage(
                     bitmap = rawBitmap.asImageBitmap(),
-                    contentDescription = "Main Raw/Cell Preview Image Canvas",
+                    contentDescription = stringResource(R.string.preview_main_preview_description),
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -200,7 +201,7 @@ fun ProcessingPreviewScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "Processing table...",
+                                stringResource(R.string.preview_processing_table),
                                 color = Color.White,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold
@@ -215,7 +216,7 @@ fun ProcessingPreviewScreen(
         if (isFailed) {
             // Separator Title for clarity
             Text(
-                text = "Computed Alignment Grid (Debug)",
+                text = stringResource(R.string.preview_alignment_grid_title),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.align(Alignment.Start)
@@ -231,7 +232,7 @@ fun ProcessingPreviewScreen(
                 Box(modifier = Modifier.fillMaxSize()) {
                     ZoomableImage(
                         bitmap = diagnosticBitmap.asImageBitmap(),
-                        contentDescription = "Diagnostic Line Grid Matrix Layer",
+                        contentDescription = stringResource(R.string.preview_diagnostic_grid_description),
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -243,7 +244,7 @@ fun ProcessingPreviewScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = errorMessage ?: "Unknown structural table parsing layout anomaly.",
+                    text = errorMessage ?: stringResource(R.string.preview_unknown_table_error),
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(12.dp)
@@ -261,7 +262,7 @@ fun ScanPagePickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = { coordinator.onPagePickerDismissed() },
-        title = { Text("Select Target Page Layout") },
+        title = { Text(stringResource(R.string.scan_select_page_layout)) },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -271,7 +272,7 @@ fun ScanPagePickerDialog(
             ) {
                 if (enabledPages.isEmpty()) {
                     Text(
-                        text = "No pages are enabled in settings.",
+                        text = stringResource(R.string.scan_no_pages_enabled),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error
                     )
@@ -307,7 +308,7 @@ fun ScanPagePickerDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = { coordinator.onPagePickerDismissed() }) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -337,7 +338,7 @@ fun ScanPageActionButton(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = pageType.displayName,
+                text = stringResource(pageType.displayNameRes),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,

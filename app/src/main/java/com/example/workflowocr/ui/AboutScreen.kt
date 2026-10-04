@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,13 +42,13 @@ fun AboutScreen() {
         // 1. App Header/Branding
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "ShiftSync",
+            text = stringResource(R.string.about_brand_name),
             style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
         )
         Text(
-            text = "v2.0.0 (Accurate Table Detection)",
+            text = stringResource(R.string.about_version),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -70,20 +71,20 @@ fun AboutScreen() {
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Ownership & Copyright",
+                        text = stringResource(R.string.about_ownership_copyright),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "© 2026 Adrian. All Rights Reserved.",
+                    text = stringResource(R.string.about_copyright_notice),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "This application is independent software researched, written, and maintained exclusively by the author. Source code and final distributions are hosted securely via private version control architectures.",
+                    text = stringResource(R.string.about_authorship),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -107,7 +108,7 @@ fun AboutScreen() {
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Strict Usage Restrictions",
+                        text = stringResource(R.string.about_usage_restrictions),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onErrorContainer
@@ -115,14 +116,14 @@ fun AboutScreen() {
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Licensed strictly for Non-Commercial personal use under CC BY-NC 4.0.",
+                    text = stringResource(R.string.about_license_personal_use),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Commercial enterprise distribution, field deployment, or institutional use to optimize corporate operations, reduce overhead, or automate labor frameworks across external corporate facilities is STRICTLY PROHIBITED without explicit, direct written authorization from the copyright holder.",
+                    text = stringResource(R.string.about_license_commercial_restriction),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
                     lineHeight = 18.sp

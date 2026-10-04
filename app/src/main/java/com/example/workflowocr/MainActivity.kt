@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -78,6 +79,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.workflowocr.ui.theme.ShiftSyncTheme
@@ -93,15 +95,15 @@ val LocalTableViewModel = staticCompositionLocalOf<TableViewModel> {
     error("No TableViewModel provided! Wrap your content in CompositionLocalProvider.")
 }
 // Define the different "Planes" of application
-enum class Screen(val displayName: String) {
-    SCAN_HUB("Scan Hub"),                   // The main entry point with "Scan" and "Results" buttons
-    PROCESSING_PREVIEW("Preview"),          // A waiting screen with debug info shown after user makes a picture
-    TABLE_RESULTS("Table Results"),         // The interactive list of extracted rows
-    ATTENDANCE_COUNT("Attendance"),         // How many people work at specific times
-    SAMPLE_DETECTION("SAMPLE_DETECTION"),   // OpenCV debug view
-    VLH_MANAGEMENT("VLH Management"),       // VLH table, GC's scanning, Crew required
-    SETTINGS("Settings"),
-    ABOUT("About")
+enum class Screen(@StringRes val titleRes: Int) {
+    SCAN_HUB(R.string.nav_screen_scan_hub),                   // The main entry point with "Scan" and "Results" buttons
+    PROCESSING_PREVIEW(R.string.nav_screen_preview),          // A waiting screen with debug info shown after user makes a picture
+    TABLE_RESULTS(R.string.nav_screen_table_results),         // The interactive list of extracted rows
+    ATTENDANCE_COUNT(R.string.nav_screen_attendance),          // How many people work at specific times
+    SAMPLE_DETECTION(R.string.nav_screen_debug),              // OpenCV debug view
+    VLH_MANAGEMENT(R.string.nav_screen_vlh),                  // VLH table, GC's scanning, Crew required
+    SETTINGS(R.string.nav_screen_settings),
+    ABOUT(R.string.nav_screen_about)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -190,8 +192,9 @@ fun OcrLauncherBridge(
     var triggerCameraLaunch: (() -> Unit)? by remember { mutableStateOf(null) }
 
     // 2. Create the stable, self-contained Coordinator instance
-    val coordinator = remember(originalBitmap, snackbarHostState, tableViewModel) {
+    val coordinator = remember(context, originalBitmap, snackbarHostState, tableViewModel) {
         OcrFlowCoordinator(
+            context = context,
             onNavigate = onNavigate,
             onTriggerCameraLaunch = { triggerCameraLaunch?.invoke() }, // Safely routes to the assigned hardware trigger
             originalBitmap = originalBitmap,
@@ -234,7 +237,7 @@ fun OcrLauncherBridge(
             tempImageUri = uri
             cameraLauncher.launch(uri)
         } else {
-            Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.camera_permission_required), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -294,13 +297,13 @@ private fun AppNavigationDrawer(
                     IconButton(onClick = { composeScope.launch { drawerState.close() } }) {
                         Icon(
                             imageVector = Icons.Default.Menu,
-                            contentDescription = "Close Menu",
+                            contentDescription = stringResource(R.string.nav_close_menu),
                             tint = InkBlack
                         )
                     }
 
                     Text(
-                        text = "Extractor Hub",
+                        text = stringResource(R.string.nav_extractor_hub),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(start = 12.dp)
                     )
@@ -311,13 +314,13 @@ private fun AppNavigationDrawer(
 
                 // Navigation items
                 NavigationDrawerItem(
-                    label = { Text("Scan Hub") },
+                    label = { Text(stringResource(R.string.nav_screen_scan_hub)) },
                     selected = state.currentScreen == Screen.SCAN_HUB,
                     onClick = { selectDrawerScreen(Screen.SCAN_HUB) },
                     icon = { Icon(Icons.Default.Home, null) }
                 )
                 NavigationDrawerItem(
-                    label = { Text("Last Results") },
+                    label = { Text(stringResource(R.string.nav_last_results)) },
                     selected = state.currentScreen == Screen.TABLE_RESULTS,
                     onClick = { selectDrawerScreen(Screen.TABLE_RESULTS) },
                     icon = {
@@ -328,7 +331,7 @@ private fun AppNavigationDrawer(
                     }
                 )
                 NavigationDrawerItem(
-                    label = { Text("Attendance Summary") },
+                    label = { Text(stringResource(R.string.nav_attendance_summary)) },
                     selected = state.currentScreen == Screen.ATTENDANCE_COUNT,
                     onClick = { selectDrawerScreen(Screen.ATTENDANCE_COUNT) },
                     icon = { Icon(Icons.Filled.Calculate, null) }
@@ -336,7 +339,7 @@ private fun AppNavigationDrawer(
 
                 // The Unfolding "Saved Schedules" Section
                 NavigationDrawerItem(
-                    label = { Text("Saved Schedules") },
+                    label = { Text(stringResource(R.string.nav_saved_schedules)) },
                     selected = false, // The parent itself isn't a "screen"
                     onClick = onToggleSchedules,
                     icon = { Icon(Icons.Default.History, null) },
@@ -357,7 +360,7 @@ private fun AppNavigationDrawer(
                     Column(modifier = Modifier.padding(start = 24.dp)) {
                         if (availableDates.isEmpty()) {
                             Text(
-                                "No saves found",
+                                stringResource(R.string.nav_no_saves_found),
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.padding(16.dp),
                                 color = MutedGrey
@@ -373,7 +376,7 @@ private fun AppNavigationDrawer(
                             NavigationDrawerItem(
                                 label = {
                                     Text(
-                                        if (pendingDate == date) "Loading $date…" else date,
+                                        if (pendingDate == date) stringResource(R.string.nav_loading_date, date) else date,
                                         style = MaterialTheme.typography.bodyMedium
                                     )
                                 },
@@ -412,7 +415,7 @@ private fun AppNavigationDrawer(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete",
+                                            contentDescription = stringResource(R.string.common_delete),
                                             modifier = Modifier.size(20.dp),
                                             tint = Color.Red.copy(alpha = 0.6f)
                                         )
@@ -425,8 +428,8 @@ private fun AppNavigationDrawer(
                             if (showConfirmForThisItem) {
                                 AlertDialog(
                                     onDismissRequest = { showConfirmForThisItem = false },
-                                    title = { Text("Delete $date?") },
-                                    text = { Text("All snippets and JSON for this day will be removed.") },
+                                    title = { Text(stringResource(R.string.nav_delete_date_title, date)) },
+                                    text = { Text(stringResource(R.string.nav_delete_saved_date_message)) },
                                     confirmButton = {
                                         TextButton(
                                             onClick = {
@@ -445,12 +448,12 @@ private fun AppNavigationDrawer(
                                             },
                                             colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
                                         ) {
-                                            Text("Delete")
+                                            Text(stringResource(R.string.common_delete))
                                         }
                                     },
                                     dismissButton = {
                                         TextButton(onClick = { showConfirmForThisItem = false }) {
-                                            Text("Cancel")
+                                            Text(stringResource(R.string.common_cancel))
                                         }
                                     }
                                 )
@@ -459,25 +462,25 @@ private fun AppNavigationDrawer(
                     }
                 }
                 NavigationDrawerItem(
-                    label = { Text("VLH Dashboard") },
+                    label = { Text(stringResource(R.string.nav_vlh_dashboard)) },
                     selected = state.currentScreen == Screen.VLH_MANAGEMENT,
                     onClick = { selectDrawerScreen(Screen.VLH_MANAGEMENT) },
-                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "VLH Guidelines Matrix") }
+                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = stringResource(R.string.nav_vlh_guidelines_description)) }
                 )
                 NavigationDrawerItem(
-                    label = { Text("Settings (Hub)") },
+                    label = { Text(stringResource(R.string.nav_settings_hub)) },
                     selected = state.currentScreen == Screen.SETTINGS,
                     onClick = { selectDrawerScreen(Screen.SETTINGS) },
                     icon = { Icon(Icons.Default.Settings, null) }
                 )
                 NavigationDrawerItem(
-                    label = { Text("About & License") },
+                    label = { Text(stringResource(R.string.nav_about_license)) },
                     selected = state.currentScreen == Screen.ABOUT,
                     onClick = { selectDrawerScreen(Screen.ABOUT) },
-                    icon = { Icon(Icons.Default.Info, contentDescription = "About App") }
+                    icon = { Icon(Icons.Default.Info, contentDescription = stringResource(R.string.nav_about_description)) }
                 )
                 NavigationDrawerItem(
-                    label = { Text("Sample Detection") },
+                    label = { Text(stringResource(R.string.nav_sample_detection)) },
                     selected = state.currentScreen == Screen.SAMPLE_DETECTION,
                     onClick = { selectDrawerScreen(Screen.SAMPLE_DETECTION) },
                     icon = { Icon(Icons.Default.Build, null) }
@@ -489,11 +492,11 @@ private fun AppNavigationDrawer(
             topBar = {
                 TopAppBar(
                     title = {
-                        val baseTitle = state.currentScreen.displayName
+                        val baseTitle = stringResource(state.currentScreen.titleRes)
 
                         // Conditionally append the current working date if on a table/summary screen
                         val fullTitle = if ((state.currentScreen == Screen.TABLE_RESULTS || state.currentScreen == Screen.ATTENDANCE_COUNT) && !tableViewModel.currentWorkingDate.isNullOrBlank()) {
-                            "$baseTitle (${tableViewModel.currentWorkingDate})"
+                            stringResource(R.string.nav_screen_title_with_date, baseTitle, tableViewModel.currentWorkingDate.orEmpty())
                         } else {
                             baseTitle
                         }
@@ -502,7 +505,7 @@ private fun AppNavigationDrawer(
                     },
                     navigationIcon = {
                         IconButton(onClick = { composeScope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                            Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.nav_menu))
                         }
                     },
                     actions = {
@@ -517,7 +520,7 @@ private fun AppNavigationDrawer(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
-                                    contentDescription = "Cancel processing"
+                                    contentDescription = stringResource(R.string.preview_cancel_processing)
                                 )
                             }
                         }
@@ -527,7 +530,7 @@ private fun AppNavigationDrawer(
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Calculate,
-                                    contentDescription = "View Attendance Summary",
+                                    contentDescription = stringResource(R.string.nav_view_attendance),
                                     tint = AccentOlive
                                 )
                             }
@@ -538,7 +541,7 @@ private fun AppNavigationDrawer(
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.List,
-                                    contentDescription = "View Table Results",
+                                    contentDescription = stringResource(R.string.nav_view_table_results),
                                     tint = AccentOlive
                                 )
                             }
@@ -548,7 +551,7 @@ private fun AppNavigationDrawer(
             },
             snackbarHost = {
                 SnackbarHost(hostState = snackbarHostState) { data ->
-                    val isError = data.visuals.message.startsWith("Extraction aborted")
+                    val isError = (data.visuals as? AppSnackbarVisuals)?.isError == true
 
                     Snackbar(
                         snackbarData = data,

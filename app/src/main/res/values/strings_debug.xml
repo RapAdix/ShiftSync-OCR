@@ -1,0 +1,18 @@
+<resources>
+    <!-- Diagnostic screens and OCR debug output -->
+    <string name="debug_extraction_title">--- DEBUG EXTRACTION PASSTHROUGH MATRIX ---</string>
+    <string name="debug_no_numeric_patterns">OCR analysis completed. Zero numerical patterns matched on both images.</string>
+    <string name="debug_row_index">Row Index</string>
+    <string name="debug_optimized_opencv">Optimized (OpenCV)</string>
+    <string name="debug_original_raw">Original (Raw)</string>
+    <string name="debug_row_label">Row [%1$02d]:</string>
+    <string name="debug_run_table_detection_ocr">Run Table Detection + OCR</string>
+    <string name="debug_result_description">Result</string>
+    <string name="debug_adaptive_threshold">Adaptive Threshold</string>
+    <string name="debug_threshold_description">thresh</string>
+    <string name="debug_table_mask">Table Mask</string>
+    <string name="debug_table_mask_description">mask</string>
+    <string name="debug_lines_description">linesDebug</string>
+    <string name="debug_ocr_log">OCR log:</string>
+    <string name="debug_ocr_row">"Row %1$d: "</string>
+</resources>

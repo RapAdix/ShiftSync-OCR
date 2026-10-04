@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -121,16 +122,16 @@ fun AttendanceSummaryScreen() {
                         Text(
                             text = when {
                                 projectionError != null -> when (val err = projectionError!!) {
-                                    is ProjectionResult.Failure.DateTabNotFound -> "Excel tab '${err.expectedTabName}' not found for that date."
-                                    ProjectionResult.Failure.InvalidUrl -> "Error: Insecure or malformed URL configuration."
-                                    ProjectionResult.Failure.InvalidCellCoordinate -> "Error: Target coordinate calculation mismatch."
-                                    ProjectionResult.Failure.FileTooLarge -> "Aborted: Workbook exceeds safety file sizing limits."
-                                    ProjectionResult.Failure.NetworkError -> "Sync Failed: Server disconnected or returned bad response."
-                                    is ProjectionResult.Failure.Unknown -> "Sync Error: ${err.message}"
+                                    is ProjectionResult.Failure.DateTabNotFound -> stringResource(R.string.projection_date_tab_missing, err.expectedTabName)
+                                    ProjectionResult.Failure.InvalidUrl -> stringResource(R.string.projection_invalid_url)
+                                    ProjectionResult.Failure.InvalidCellCoordinate -> stringResource(R.string.projection_invalid_cell)
+                                    ProjectionResult.Failure.FileTooLarge -> stringResource(R.string.projection_file_too_large)
+                                    ProjectionResult.Failure.NetworkError -> stringResource(R.string.projection_network_error)
+                                    is ProjectionResult.Failure.Unknown -> stringResource(R.string.projection_sync_error, err.message)
                                 }
-                                vlhNotFilled && projectedGcNotFilled -> "Missing: Projected GC Value & Master VLH Configurations Table"
-                                vlhNotFilled -> "Missing: Master VLH Configuration Table"
-                                else -> "Missing: Synchronized Spreadsheet GC Values Data"
+                                vlhNotFilled && projectedGcNotFilled -> stringResource(R.string.results_missing_projection_and_vlh)
+                                vlhNotFilled -> stringResource(R.string.results_missing_vlh)
+                                else -> stringResource(R.string.results_missing_projection)
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
@@ -187,7 +188,7 @@ fun AttendanceSummaryScreen() {
                             } else {
                                 Icon(
                                     imageVector = Icons.Default.Download,
-                                    contentDescription = "Download Pipeline",
+                                    contentDescription = stringResource(R.string.attendance_download_projection_description),
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -195,7 +196,7 @@ fun AttendanceSummaryScreen() {
                         }
 
                         Text(
-                            text = "Required",
+                            text = stringResource(R.string.attendance_required),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MutedSlateGrey,
@@ -204,7 +205,7 @@ fun AttendanceSummaryScreen() {
                     }
 
                     Text(
-                        text = "Actual",
+                        text = stringResource(R.string.attendance_actual),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MutedSlateGrey,
@@ -409,7 +410,7 @@ fun DayTypeSlidingToggle(
         ) {
             // Invisible placeholder text to perfectly size the sliding selector capsule background dynamically
             Text(
-                text = if (isWeekend) "Wkend" else "Wkday",
+                text = if (isWeekend) stringResource(R.string.attendance_weekend_short) else stringResource(R.string.attendance_weekday_short),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = Color.Transparent
@@ -429,7 +430,7 @@ fun DayTypeSlidingToggle(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Wkday",
+                    text = stringResource(R.string.attendance_weekday_short),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = if (!isWeekend) Color.White else Color.Gray // Fallback colors for MutedSlateGrey
@@ -447,7 +448,7 @@ fun DayTypeSlidingToggle(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Wkend",
+                    text = stringResource(R.string.attendance_weekend_short),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = if (isWeekend) Color.White else Color.Gray

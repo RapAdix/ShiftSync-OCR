@@ -20,7 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,6 +39,7 @@ import org.opencv.imgproc.Imgproc
  */
 @Composable
 fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
+    val context = LocalContext.current
     var displayedBitmap by remember { mutableStateOf(originalBitmap.scaleForPreview()) }
     var threshBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var maskBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -167,7 +170,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                         // Build Log Text
                         val logBuilder = StringBuilder()
                         rawTextGrid.forEachIndexed { r, row ->
-                            logBuilder.append("Row $r: ")
+                            logBuilder.append(context.getString(R.string.debug_ocr_row, r))
                             row.forEach { text ->
                                 logBuilder.append("[${text.replace("\n", " ")}] ")
                             }
@@ -178,7 +181,7 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
                     Log.d("DEBUG", logText)
                 }
             }) {
-            Text("Run Table Detection + OCR")
+            Text(stringResource(R.string.debug_run_table_detection_ocr))
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -186,33 +189,33 @@ fun TableDetectionDebugScreen(originalBitmap: Bitmap) {
         // UI Previews - zoomable!
         ZoomableImage(
             bitmap = displayedBitmap.asImageBitmap(),
-            contentDescription = "Result"
+            contentDescription = stringResource(R.string.debug_result_description)
         )
 
         threshBitmap?.let {
-            Text("Adaptive Threshold", style = MaterialTheme.typography.labelSmall)
+            Text(stringResource(R.string.debug_adaptive_threshold), style = MaterialTheme.typography.labelSmall)
             ZoomableImage(
                 bitmap = it.asImageBitmap(),
-                contentDescription = "thresh"
+                contentDescription = stringResource(R.string.debug_threshold_description)
             )
         }
 
         maskBitmap?.let {
-            Text("Table Mask", style = MaterialTheme.typography.labelSmall)
+            Text(stringResource(R.string.debug_table_mask), style = MaterialTheme.typography.labelSmall)
             ZoomableImage(
                 bitmap = it.asImageBitmap(),
-                contentDescription = "mask"
+                contentDescription = stringResource(R.string.debug_table_mask_description)
             )
         }
 
         linesBitmap?.let {
             ZoomableImage(
                 bitmap = it.asImageBitmap(),
-                contentDescription = "linesDebug"
+                contentDescription = stringResource(R.string.debug_lines_description)
             )
         }
 
-        Text("OCR log:", modifier = Modifier.padding(top = 16.dp))
+        Text(stringResource(R.string.debug_ocr_log), modifier = Modifier.padding(top = 16.dp))
         Text(logText, style = MaterialTheme.typography.bodySmall)
     }
 }

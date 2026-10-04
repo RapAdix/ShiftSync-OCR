@@ -1,6 +1,8 @@
 package com.example.workflowocr
 
+import android.content.Context
 import android.graphics.Bitmap
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +18,7 @@ import kotlinx.coroutines.withContext
 import org.opencv.core.Mat
 
 class OcrFlowCoordinator(
+    private val context: Context,
     private val onNavigate: (Screen) -> Unit,
     private val onTriggerCameraLaunch: () -> Unit,
     private val originalBitmap: Bitmap,
@@ -234,6 +237,11 @@ class OcrFlowCoordinator(
                 when (detection) {
                     is TableDetector.TableDetectionResult.Success -> {
                         setPreview(cellPreview, null, null)
+                        launch {
+                            snackbarHostState.showSnackbar(
+                                AppSnackbarVisuals(context.getString(R.string.preview_table_detection_success))
+                            )
+                        }
                         val imageBitmap = ImageProcessor.matToBitmap(detection.gray)
                         var suppliedDate: CompletableDeferred<String>? = null
                         var completePendingDate: ((String) -> Unit)? = null
@@ -268,15 +276,17 @@ class OcrFlowCoordinator(
                                 )
                             }
                             currentCoroutineContext().ensureActive()
-                            val textFailure = TableQualityVerifier.verifyTimeColumns(
+                            val failureStringID = TableQualityVerifier.verifyTimeColumns(
                                 rawTextGrid, settings.timeStartCol, settings.timeEndCol
                             ) { row, col ->
                                 if (col == settings.timeStartCol) analysis[row].startTimeCrossed
                                 else analysis[row].endTimeCrossed
                             }
-                            if (textFailure != null) {
+                            if (failureStringID != null) {
                                 val linesBitmap = ImageProcessor.matToBitmap(detection.lines)
-                                setPreview(cellPreview, linesBitmap.scaleForPreview(1000), textFailure)
+                                val failureMessage = context.getString(failureStringID)
+                                setPreview(cellPreview, linesBitmap.scaleForPreview(1000), failureMessage)
+                                launch { showExtractionFailure(failureMessage) }
                                 return@launch
                             }
                             val date = detectedDate ?: checkNotNull(suppliedDate).await()
@@ -293,9 +303,10 @@ class OcrFlowCoordinator(
                     }
 
                     is TableDetector.TableDetectionResult.Failure -> {
-                        val failureMessage = detection.exception.message ?: "Cannot find table layout"
+                        val failureMessage = tableFailureMessage(detection.exception)
                         val linesBitmap = ImageProcessor.matToBitmap(detection.lines)
                         setPreview(cellPreview, linesBitmap.scaleForPreview(1000), failureMessage)
+                        launch { showExtractionFailure(failureMessage) }
                     }
                 }
             } finally {
@@ -309,6 +320,36 @@ class OcrFlowCoordinator(
         detection.thresh.release()
         detection.mask.release()
         detection.lines.release()
+    }
+
+    private suspend fun showExtractionFailure(message: String) {
+        snackbarHostState.currentSnackbarData?.dismiss()
+        snackbarHostState.showSnackbar(
+            AppSnackbarVisuals(
+                message = context.getString(R.string.preview_extraction_aborted, message),
+                isError = true,
+                duration = SnackbarDuration.Long
+            )
+        )
+    }
+
+    private fun tableFailureMessage(error: Exception): String = when (error) {
+        is TooManyLinesException -> context.getString(
+            R.string.scan_table_background_noisy,
+            context.resources.getQuantityString(R.plurals.scan_horizontal_line_count, error.horizontal.size, error.horizontal.size),
+            context.resources.getQuantityString(R.plurals.scan_vertical_line_count, error.vertical.size, error.vertical.size)
+        )
+        is TableDetector.MissingTopRowException -> context.getString(R.string.scan_table_header_missing)
+        is TableDetector.TableGridException -> when (error.reason) {
+            TableDetector.TableGridException.Reason.INCOMPLETE_COLUMNS -> context.resources.getQuantityString(
+                R.plurals.scan_table_columns_incomplete, error.expected, error.found, error.expected
+            )
+            TableDetector.TableGridException.Reason.UNRELIABLE_GRID -> context.getString(R.string.scan_table_grid_unreliable)
+            TableDetector.TableGridException.Reason.TOO_FEW_ROWS -> context.resources.getQuantityString(
+                R.plurals.scan_table_rows_too_few, error.found, error.found
+            )
+        }
+        else -> context.getString(R.string.scan_table_layout_not_found)
     }
 
     private suspend fun proceedWithExtraction(

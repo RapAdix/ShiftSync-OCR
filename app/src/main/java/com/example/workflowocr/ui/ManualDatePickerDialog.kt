@@ -30,8 +30,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -54,7 +56,7 @@ fun ManualDatePickerDialog(
     val lastMonth = remember(lastAllowedDate) { YearMonth.from(lastAllowedDate) }
     var visibleMonth by remember { mutableStateOf(firstMonth) }
     var selectedDate by remember { mutableStateOf(today) }
-    val locale = Locale.getDefault()
+    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
     val firstWeekday = remember(locale) { WeekFields.of(locale).firstDayOfWeek }
     val firstDayOffset = (visibleMonth.atDay(1).dayOfWeek.value - firstWeekday.value + 7) % 7
     val weekCount = (firstDayOffset + visibleMonth.lengthOfMonth() + 6) / 7
@@ -69,14 +71,14 @@ fun ManualDatePickerDialog(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Select date", style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.date_picker_select_date), style = MaterialTheme.typography.titleLarge)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = { visibleMonth = visibleMonth.minusMonths(1) },
                         enabled = visibleMonth > firstMonth
                     ) {
-                        Icon(Icons.Default.ChevronLeft, contentDescription = "Previous month")
+                        Icon(Icons.Default.ChevronLeft, contentDescription = stringResource(R.string.date_picker_previous_month))
                     }
                     Text(
                         visibleMonth.month.getDisplayName(TextStyle.FULL_STANDALONE, locale),
@@ -88,7 +90,7 @@ fun ManualDatePickerDialog(
                         onClick = { visibleMonth = visibleMonth.plusMonths(1) },
                         enabled = visibleMonth < lastMonth
                     ) {
-                        Icon(Icons.Default.ChevronRight, contentDescription = "Next month")
+                        Icon(Icons.Default.ChevronRight, contentDescription = stringResource(R.string.date_picker_next_month))
                     }
                 }
 
@@ -140,13 +142,13 @@ fun ManualDatePickerDialog(
                 }
 
                 Text(
-                    "Selected: ${selectedDate.format(StorageManager.storageDateFormatter())}",
+                    stringResource(R.string.date_picker_selected_date, selectedDate.format(StorageManager.storageDateFormatter())),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismissRequest) { Text("Cancel") }
+                    TextButton(onClick = onDismissRequest) { Text(stringResource(R.string.common_cancel)) }
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = { onDateSelected(selectedDate) }) { Text("Use date") }
+                    Button(onClick = { onDateSelected(selectedDate) }) { Text(stringResource(R.string.date_picker_use_date)) }
                 }
             }
         }

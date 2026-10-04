@@ -1,4 +1,5 @@
 package com.example.workflowocr
+import androidx.annotation.StringRes
 import kotlinx.serialization.Serializable
 
 enum class PresetType {
@@ -35,11 +36,11 @@ object PresetDefaults {
 }
 
 @Serializable
-enum class ScanPageType(val displayName: String) {
-    EMPLOYEE_P1("Employee\n(Page 1)"),
-    EMPLOYEE_P2("Employee\n(Page 2)"),
-    EMPLOYEE_P3("Employee\n(Page 3)"),
-    MANAGER_P1("Manager\n(Page 1)");
+enum class ScanPageType(@StringRes val displayNameRes: Int) {
+    EMPLOYEE_P1(R.string.scan_employee_page_1),
+    EMPLOYEE_P2(R.string.scan_employee_page_2),
+    EMPLOYEE_P3(R.string.scan_employee_page_3),
+    MANAGER_P1(R.string.scan_manager_page_1);
     fun isManagerPage(): Boolean {
         return this == MANAGER_P1
     }

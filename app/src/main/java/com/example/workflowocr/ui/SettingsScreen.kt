@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -55,20 +56,20 @@ fun SettingsScreen(viewModel: TableViewModel) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Workplace Shifts Timings",
+                        text = stringResource(R.string.settings_workplace_shift_timings),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
 
                     NumericSettingInput(
-                        label = "Opening Hour (0-23)",
+                        label = stringResource(R.string.settings_opening_hour),
                         value = universalSettings.workplaceOpeningTime,
                         enabled = true,
                         onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceOpeningTime = it)) }
                     )
                     NumericSettingInput(
-                        label = "Closing Hour (0-23)",
+                        label = stringResource(R.string.settings_closing_hour),
                         value = universalSettings.workplaceClosingTime,
                         enabled = true,
                         onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceClosingTime = it)) }
@@ -80,7 +81,7 @@ fun SettingsScreen(viewModel: TableViewModel) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Cloud Sync Integration",
+                        text = stringResource(R.string.settings_cloud_sync_integration),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -99,8 +100,8 @@ fun SettingsScreen(viewModel: TableViewModel) {
                             // Safely trigger asynchronous background write task
                             viewModel.updateUniversalSettings(universalSettings.copy(spreadsheetUrl = input))
                         },
-                        label = { Text("OneDrive Spreadsheet Source URL") },
-                        placeholder = { Text("https://onedrive.live.com/...") },
+                        label = { Text(stringResource(R.string.settings_spreadsheet_source_url)) },
+                        placeholder = { Text(stringResource(R.string.settings_spreadsheet_url_example)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         modifier = Modifier.fillMaxWidth()
@@ -116,8 +117,8 @@ fun SettingsScreen(viewModel: TableViewModel) {
                             cellInputState = input
                             viewModel.updateUniversalSettings(universalSettings.copy(targetCellCoordinate = input))
                         },
-                        label = { Text("Target Projection Cell Coordinate") },
-                        placeholder = { Text("B5") },
+                        label = { Text(stringResource(R.string.settings_projection_cell_coordinate)) },
+                        placeholder = { Text(stringResource(R.string.settings_spreadsheet_cell_example)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                         modifier = Modifier.fillMaxWidth()
@@ -134,14 +135,14 @@ fun SettingsScreen(viewModel: TableViewModel) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "Active Scan Templates",
+                        text = stringResource(R.string.settings_active_scan_templates),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
 
                     Text(
-                        text = "Toggle the sheet presets used at this site. Disabled pages will be skipped during camera capture selection.",
+                        text = stringResource(R.string.settings_scan_template_explanation),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -183,7 +184,7 @@ fun SettingsScreen(viewModel: TableViewModel) {
 
             // --- SECTION 3: PRESET TYPE SELECTOR ---
             Text(
-                text = "Table Layout Configuration",
+                text = stringResource(R.string.settings_table_layout_configuration),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -192,17 +193,17 @@ fun SettingsScreen(viewModel: TableViewModel) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(8.dp)) {
                     PresetSelectionRow(
-                        label = "Default 13-Column Layout",
+                        label = stringResource(R.string.settings_layout_13_columns),
                         selected = activePreset == PresetType.DEFAULT_13_COL,
                         onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_13_COL) }
                     )
                     PresetSelectionRow(
-                        label = "Default 12-Column Layout",
+                        label = stringResource(R.string.settings_layout_12_columns),
                         selected = activePreset == PresetType.DEFAULT_12_COL,
                         onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_12_COL) }
                     )
                     PresetSelectionRow(
-                        label = "Custom Rules Template (Editable)",
+                        label = stringResource(R.string.settings_custom_layout_template),
                         selected = activePreset == PresetType.CUSTOM,
                         onClick = { viewModel.updateLayoutPreset(PresetType.CUSTOM) }
                     )
@@ -211,7 +212,7 @@ fun SettingsScreen(viewModel: TableViewModel) {
 
             // --- SECTION 4: EDITABLE PARAMETERS ---
             Text(
-                text = if (currentLayout.isCustom) "Modify Custom Layout" else "View Active Layout Rules (Locked)",
+                text = if (currentLayout.isCustom) stringResource(R.string.settings_modify_custom_layout) else stringResource(R.string.settings_view_locked_layout),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = if (currentLayout.isCustom) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -219,7 +220,7 @@ fun SettingsScreen(viewModel: TableViewModel) {
 
             if (!currentLayout.isCustom) {
                 Text(
-                    text = "Select 'Custom Rules Template' above to unlock structural table edits.",
+                    text = stringResource(R.string.settings_unlock_layout_explanation),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -228,52 +229,52 @@ fun SettingsScreen(viewModel: TableViewModel) {
             // Group 2: Table Columns Configuration Mapping
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Table Column Placements", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_table_column_placements), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                     NumericSettingInput(
-                        label = "Expected Column Size",
+                        label = stringResource(R.string.settings_expected_column_count),
                         value = currentLayout.expectedCols,
                         enabled = currentLayout.isCustom,
                         onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(expectedCols = it)) }
                     )
                     NumericSettingInput(
-                        label = "Employee Name Column",
+                        label = stringResource(R.string.settings_employee_name_column),
                         value = currentLayout.nameCol,
                         enabled = currentLayout.isCustom,
                         onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(nameCol = it)) }
                     )
                     NumericSettingInput(
-                        label = "Shift Start Time Column",
+                        label = stringResource(R.string.settings_shift_start_column),
                         value = currentLayout.timeStartCol,
                         enabled = currentLayout.isCustom,
                         onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(timeStartCol = it)) }
                     )
                     NumericSettingInput(
-                        label = "Shift End Time Column",
+                        label = stringResource(R.string.settings_shift_end_column),
                         value = currentLayout.timeEndCol,
                         enabled = currentLayout.isCustom,
                         onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(timeEndCol = it)) }
                     )
                     NumericSettingInput(
-                        label = "First Modification Track Column",
+                        label = stringResource(R.string.settings_first_modification_column),
                         value = currentLayout.firstModificationCol,
                         enabled = currentLayout.isCustom,
                         onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(firstModificationCol = it)) }
                     )
                     NumericSettingInput(
-                        label = "Change Log Column",
+                        label = stringResource(R.string.settings_change_log_column),
                         value = currentLayout.changeCol,
                         enabled = currentLayout.isCustom,
                         onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(changeCol = it)) }
                     )
                     NumericSettingInput(
-                        label = "Manager Signature Column",
+                        label = stringResource(R.string.settings_manager_signature_column),
                         value = currentLayout.managerCol,
                         enabled = currentLayout.isCustom,
                         onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(managerCol = it)) }
                     )
                     NumericSettingInput(
-                        label = "\"Team\" Information Column (Optional)",
+                        label = stringResource(R.string.settings_team_information_column),
                         value = currentLayout.team?.toString() ?: "",
                         enabled = currentLayout.isCustom,
                         onValueChange = { rawString ->
@@ -290,10 +291,10 @@ fun SettingsScreen(viewModel: TableViewModel) {
             // Group 3: Formatting Ratios
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Structural Ratios", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_structural_ratios), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                     DoubleSettingInput(
-                        label = "Header Row Height Multiplier",
+                        label = stringResource(R.string.settings_header_row_height_multiplier),
                         value = currentLayout.headerRowHeightMultiplier,
                         enabled = currentLayout.isCustom,
                         onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(headerRowHeightMultiplier = it)) }
@@ -370,7 +371,7 @@ fun ScanPageToggleCard(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = pageType.displayName,
+                text = stringResource(pageType.displayNameRes),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
                 textAlign = TextAlign.Center,

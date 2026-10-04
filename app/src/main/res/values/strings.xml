@@ -1,3 +1,41 @@
 <resources>
+    <!-- Shared actions and app navigation -->
     <string name="app_name">Work Flow OCR</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_add">Add</string>
+    <string name="common_discard">Discard</string>
+    <string name="common_start">Start</string>
+    <string name="common_end">End</string>
+    <string name="common_finish">Finish</string>
+    <string name="common_name">Name</string>
+    <string name="nav_close_menu">Close Menu</string>
+    <string name="nav_extractor_hub">Extractor Hub</string>
+    <string name="nav_screen_scan_hub">Scan Hub</string>
+    <string name="nav_last_results">Last Results</string>
+    <string name="nav_attendance_summary">Attendance Summary</string>
+    <string name="nav_saved_schedules">Saved Schedules</string>
+    <string name="nav_no_saves_found">No saves found</string>
+    <string name="nav_delete_saved_date_message">All snippets and JSON for this day will be removed.</string>
+    <string name="nav_vlh_dashboard">VLH Dashboard</string>
+    <string name="nav_vlh_guidelines_description">VLH Guidelines Matrix</string>
+    <string name="nav_settings_hub">Settings (Hub)</string>
+    <string name="nav_about_license">About &amp; License</string>
+    <string name="nav_about_description">About App</string>
+    <string name="nav_sample_detection">Sample Detection</string>
+    <string name="nav_menu">Menu</string>
+    <string name="nav_view_attendance">View Attendance Summary</string>
+    <string name="nav_view_table_results">View Table Results</string>
+    <string name="nav_loading_date">Loading %1$s…</string>
+    <string name="nav_delete_date_title">Delete %1$s?</string>
+    <string name="nav_screen_title_with_date">%1$s (%2$s)</string>
+    <string name="common_not_available">N/A</string>
+    <string name="nav_screen_preview">Preview</string>
+    <string name="nav_screen_table_results">Table Results</string>
+    <string name="nav_screen_attendance">Attendance</string>
+    <string name="nav_screen_debug">SAMPLE_DETECTION</string>
+    <string name="nav_screen_vlh">VLH Management</string>
+    <string name="nav_screen_settings">Settings</string>
+    <string name="nav_screen_about">About</string>
 </resources>

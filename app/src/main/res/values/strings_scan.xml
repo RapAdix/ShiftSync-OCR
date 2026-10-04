@@ -1,0 +1,61 @@
+<resources>
+    <!-- Scanning, processing preview, camera, and date picker -->
+    <string name="preview_cancel_processing">Cancel processing</string>
+    <string name="preview_table_detection_success">Table detection success! Extracting text…</string>
+    <string name="preview_extraction_aborted">Extraction aborted: %1$s</string>
+    <string name="camera_permission_required">Camera permission is required.</string>
+    <string name="scan_new_sheet">SCAN NEW SHEET</string>
+    <string name="scan_run_ocr_engines">Run OpenCV + ML Kit</string>
+    <string name="scan_use_last_image">Use last image</string>
+    <string name="scan_for_debug">Scan image and go into debug</string>
+    <string name="preview_confirm_cells_for_date">Check the marked cells in the preview below. If they look correct, specify the date; otherwise, retake the photo.</string>
+    <string name="preview_specify_date">Specify date</string>
+    <string name="preview_retake_photo">Retake photo</string>
+    <string name="preview_table_detection_failed">Table Detection Failed</string>
+    <string name="preview_text_recognition_progress">Text recognition…</string>
+    <string name="preview_table_detection_progress">Table detection…</string>
+    <string name="preview_retake_sheet_picture">REDO / RETAKE SHEET PICTURE</string>
+    <string name="preview_main_preview_description">Main Raw/Cell Preview Image Canvas</string>
+    <string name="preview_processing_table">Processing table…</string>
+    <string name="preview_alignment_grid_title">Computed Alignment Grid (Debug)</string>
+    <string name="preview_diagnostic_grid_description">Diagnostic Line Grid Matrix Layer</string>
+    <string name="preview_unknown_table_error">Unknown structural table parsing layout anomaly.</string>
+    <string name="scan_select_page_layout">Select Target Page Layout</string>
+    <string name="scan_no_pages_enabled">No pages are enabled in settings.</string>
+    <string name="date_picker_select_date">Select date</string>
+    <string name="date_picker_previous_month">Previous month</string>
+    <string name="date_picker_next_month">Next month</string>
+    <string name="date_picker_use_date">Use date</string>
+    <string name="date_picker_selected_date">Selected: %1$s</string>
+    <string name="camera_processing_digits">PROCESSING DIGITS…</string>
+    <string name="camera_align_digits">ALIGN DIGIT COLUMN INSIDE BLUE ZONE</string>
+    <string name="camera_shutter_description">Trigger Shutter Capture Action</string>
+    <string name="camera_first_row">First row here</string>
+    <string name="scan_employee_page_1">Employee\n(Page 1)</string>
+    <string name="scan_employee_page_2">Employee\n(Page 2)</string>
+    <string name="scan_employee_page_3">Employee\n(Page 3)</string>
+    <string name="scan_manager_page_1">Manager\n(Page 1)</string>
+    <string name="scan_table_layout_not_found">Cannot find table layout</string>
+    <string name="scan_schedule_rows_not_recognized">No schedule rows were recognized. Retake the sheet picture.</string>
+    <string name="scan_time_columns_missing">Time columns are missing. Retake the sheet picture.</string>
+    <string name="scan_time_cells_unreadable">Too many time cells were unreadable. Check the grid and retake the sheet picture.</string>
+    <string name="scan_table_background_noisy">Background is too noisy (%1$s, %2$s). Please take picture on a plain background closer to the paper sheet.</string>
+    <string name="scan_table_grid_unreliable">Table lines do not form a reliable grid. Retake the sheet picture.</string>
+    <string name="scan_table_header_missing">Header row missing at top of table structure.</string>
+    <plurals name="scan_horizontal_line_count">
+        <item quantity="one">%1$d horizontal line</item>
+        <item quantity="other">%1$d horizontal lines</item>
+    </plurals>
+    <plurals name="scan_vertical_line_count">
+        <item quantity="one">%1$d vertical line</item>
+        <item quantity="other">%1$d vertical lines</item>
+    </plurals>
+    <plurals name="scan_table_columns_incomplete">
+        <item quantity="one">Incomplete table grid: found %1$d of %2$d column. Retake the sheet picture.</item>
+        <item quantity="other">Incomplete table grid: found %1$d of %2$d columns. Retake the sheet picture.</item>
+    </plurals>
+    <plurals name="scan_table_rows_too_few">
+        <item quantity="one">Only %1$d table row was found. Retake the sheet picture.</item>
+        <item quantity="other">Only %1$d table rows were found. Retake the sheet picture.</item>
+    </plurals>
+</resources>

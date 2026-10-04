@@ -1,0 +1,31 @@
+<resources>
+    <!-- Settings and table layout configuration -->
+    <string name="settings_workplace_shift_timings">Workplace Shifts Timings</string>
+    <string name="settings_opening_hour">Opening Hour (0–23)</string>
+    <string name="settings_closing_hour">Closing Hour (0–23)</string>
+    <string name="settings_cloud_sync_integration">Cloud Sync Integration</string>
+    <string name="settings_spreadsheet_source_url">OneDrive Spreadsheet Source URL</string>
+    <string name="settings_projection_cell_coordinate">Target Projection Cell Coordinate</string>
+    <string name="settings_active_scan_templates">Active Scan Templates</string>
+    <string name="settings_scan_template_explanation">Toggle the sheet presets used at this site. Disabled pages will be skipped during camera capture selection.</string>
+    <string name="settings_table_layout_configuration">Table Layout Configuration</string>
+    <string name="settings_layout_13_columns">Default 13-Column Layout</string>
+    <string name="settings_layout_12_columns">Default 12-Column Layout</string>
+    <string name="settings_custom_layout_template">Custom Rules Template (Editable)</string>
+    <string name="settings_modify_custom_layout">Modify Custom Layout</string>
+    <string name="settings_view_locked_layout">View Active Layout Rules (Locked)</string>
+    <string name="settings_unlock_layout_explanation">Select \'Custom Rules Template\' above to unlock structural table edits.</string>
+    <string name="settings_table_column_placements">Table Column Placements</string>
+    <string name="settings_expected_column_count">Expected Column Size</string>
+    <string name="settings_employee_name_column">Employee Name Column</string>
+    <string name="settings_shift_start_column">Shift Start Time Column</string>
+    <string name="settings_shift_end_column">Shift End Time Column</string>
+    <string name="settings_first_modification_column">First Modification Track Column</string>
+    <string name="settings_change_log_column">Change Log Column</string>
+    <string name="settings_manager_signature_column">Manager Signature Column</string>
+    <string name="settings_team_information_column">\"Team\" Information Column (Optional)</string>
+    <string name="settings_structural_ratios">Structural Ratios</string>
+    <string name="settings_header_row_height_multiplier">Header Row Height Multiplier</string>
+    <string name="settings_spreadsheet_url_example" translatable="false">https://onedrive.live.com/...</string>
+    <string name="settings_spreadsheet_cell_example" translatable="false">B5</string>
+</resources>
