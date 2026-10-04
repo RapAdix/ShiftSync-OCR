@@ -18,7 +18,15 @@ import kotlinx.serialization.json.Json
 import org.opencv.core.Point
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.time.DateTimeException
 import java.time.LocalDate
+import java.time.MonthDay
 import java.time.format.DateTimeFormatter
 
 private val Context.dataStore by preferencesDataStore(name = "app_preferences")
@@ -38,6 +46,8 @@ class StorageManager(private val context: Context) {
     init {
         // Clean up outdated tracking data instantly upon manager initialization
         try {
+            val cleanup = cleanStoredSchedules(getDataDir(), PROCESSOR_ROW_FILE_NAME, PROJECTION_FILE_NAME)
+            Log.i("StorageCleanup", "Removed ${cleanup.filesRemoved} loose files and ${cleanup.foldersRemoved} broken folders; failures=${cleanup.failures}")
             purgeExpiredSensitiveData()
         } catch (e: Exception) {
             Log.e("Storage", "Initialization data purge failed", e)
@@ -164,10 +174,7 @@ class StorageManager(private val context: Context) {
     }
 
     fun deleteDataForDate(date: String) {
-        val folder = File(getDataDir(), date)
-        if (folder.exists()) {
-            folder.deleteRecursively() // Deletes folder, snippets, and json in one go
-        }
+        deleteDirectoryRecursively(getDataDir(), date)
     }
 
     /**
@@ -192,8 +199,8 @@ class StorageManager(private val context: Context) {
 
             // 4. Combined Evaluation Loop Core Execution
             if (isOlderThanYesterday || isMoreThanMonthInFuture) {
-                Log.d("StoragePurge", "Purging expired data directory footprint: $dateStr (Resolved as: $bestFitTrueDate)")
-                deleteDataForDate(dateStr)
+                Log.d("StorageCleanup", "Purging expired data directory footprint: $dateStr (Resolved as: $bestFitTrueDate)")
+                deleteDirectoryRecursively(getDataDir(), dateStr)
             }
         }
     }
@@ -411,6 +418,81 @@ class StorageManager(private val context: Context) {
     }
 
     companion object {
+        private val dateFolderName = Regex("[0-9]{2}-[0-9]{2}")
+
+        private data class CleanupResult(val filesRemoved: Int, val foldersRemoved: Int, val failures: Int)
+
+        /** Cleans root entries only; files inside a retained date folder are never filtered. */
+        private fun cleanStoredSchedules(dataDir: File, rowsFileName: String, projectionFileName: String): CleanupResult {
+            if (!dataDir.isDirectory || Files.isSymbolicLink(dataDir.toPath())) return CleanupResult(0, 0, 0)
+            val root = dataDir.canonicalFile
+            var filesRemoved = 0
+            var foldersRemoved = 0
+            var failures = 0
+
+            for (entry in root.listFiles().orEmpty()) {
+                try {
+                    // Only direct children of the private data directory are cleanup targets.
+                    // Do not follow links, even when their names look like broken saves.
+                    if (Files.isSymbolicLink(entry.toPath()) || entry.canonicalFile.parentFile != root) continue
+                    if (entry.isFile) {
+                        // This root contains date directories only, never loose files.
+                        Files.delete(entry.toPath())
+                        filesRemoved++
+                        continue
+                    }
+                    if (!entry.isDirectory) continue
+
+                    val hasRows = File(entry, rowsFileName).isFile
+                    val hasProjection = File(entry, projectionFileName).isFile
+                    // These markers identify saved schedules or legitimate projection caches.
+                    // All other contents are unrestricted, including future additional files.
+                    val isIncomplete = !hasRows && !hasProjection
+                    if (!isValidDateFolder(entry.name) || isIncomplete) {
+                        deleteDirectoryRecursively(root, entry.name)
+                        foldersRemoved++
+                    }
+                } catch (_: Exception) {
+                    // One inaccessible entry must not prevent startup or the remaining cleanup.
+                    failures++
+                }
+            }
+            return CleanupResult(filesRemoved, foldersRemoved, failures)
+        }
+
+        private fun isValidDateFolder(name: String): Boolean {
+            if (!dateFolderName.matches(name)) return false
+            return try {
+                // MonthDay accepts 29 February independently of the current year.
+                MonthDay.of(name.substring(3).toInt(), name.substring(0, 2).toInt())
+                true
+            } catch (_: DateTimeException) {
+                false
+            }
+        }
+
+        /** Shared by explicit date deletion, retention expiry, and startup cleanup. */
+        private fun deleteDirectoryRecursively(dataDir: File, date: String) {
+            val root = dataDir.canonicalFile
+            val folder = File(root, date)
+            require(folder.canonicalFile.parentFile == root) { "Deletion must target a direct child of the data directory." }
+            if (!folder.exists() || Files.isSymbolicLink(folder.toPath())) return
+
+            // Delete the entire folder without following nested links outside app storage.
+            Files.walkFileTree(folder.toPath(), object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attributes: BasicFileAttributes): FileVisitResult {
+                    Files.delete(file)
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun postVisitDirectory(dir: Path, error: IOException?): FileVisitResult {
+                    if (error != null) throw error
+                    Files.delete(dir)
+                    return FileVisitResult.CONTINUE
+                }
+            })
+        }
+
         /**
          * Deletes the file at [oldPath] if it exists, and returns [newPath]
          * to be shifted into the old slot.
