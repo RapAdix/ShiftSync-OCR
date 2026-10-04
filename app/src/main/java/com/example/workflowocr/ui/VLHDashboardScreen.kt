@@ -1,5 +1,7 @@
 package com.example.workflowocr
 
+import java.util.Locale
+
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -753,7 +755,7 @@ fun VlhSetupConfigScreen(
         List(49) { index ->
             val hour = index / 2
             val minute = if (index % 2 == 0) "00" else "30"
-            String.format("%02d:%s", hour, minute)
+            String.format(Locale.ROOT, "%02d:%s", hour, minute)
         }
     }
 
@@ -1291,7 +1293,7 @@ fun OperationalScanResultsView(
                 itemsIndexed(scannedGcsList) { index, gcValue ->
                     // Calculate the shifting hour slot based on the index position offset
                     val currentHour = (selectedStartHour + index) % 24
-                    val timeString = String.format("%02d:00 - %02d:00", currentHour, (currentHour + 1) % 24)
+                    val timeString = String.format(Locale.ROOT, "%02d:00 - %02d:00", currentHour, (currentHour + 1) % 24)
 
                     val crewNeeded = activeVlhState.calculateResultIndex(currentHour, gcValue)?.let { it + 1 }
 

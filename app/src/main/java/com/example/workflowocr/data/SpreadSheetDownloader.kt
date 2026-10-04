@@ -1,5 +1,7 @@
 package com.example.workflowocr
 
+import java.util.Locale
+
 import android.util.Log
 import java.net.CookieHandler
 import java.net.CookieManager
@@ -143,7 +145,7 @@ object SpreadSheetDownloader {
             val parts = dateStr.replace(".", "-").split("-")
             val day = parts.getOrNull(0)?.toIntOrNull() ?: return@withContext ProjectionResult.Failure.Unknown("Invalid Date Elements Format")
             val month = parts.getOrNull(1)?.toIntOrNull() ?: return@withContext ProjectionResult.Failure.Unknown("Invalid Date Elements Format")
-            val formattedTabName = String.format("%02d.%02d", day, month)
+            val formattedTabName = String.format(Locale.ROOT, "%02d.%02d", day, month)
 
             val sheet = workbook.getSheet(formattedTabName)
             if (sheet == null) {
@@ -306,7 +308,7 @@ object SpreadSheetDownloader {
                     val walkingDate = today.plusDays(daysAhead)
 
                     // Convert our loop instance date into target sheet matching format: "DD.MM"
-                    val sheetTabName = String.format("%02d.%02d", walkingDate.dayOfMonth, walkingDate.monthValue)
+                    val sheetTabName = String.format(Locale.ROOT, "%02d.%02d", walkingDate.dayOfMonth, walkingDate.monthValue)
                     val storageKeyName = walkingDate.format(storageDateFormatter)
 
                     // Check if this sheet exists in the workbook. If not, proceed to the next one

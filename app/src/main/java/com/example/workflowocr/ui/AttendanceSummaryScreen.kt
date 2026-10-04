@@ -1,5 +1,7 @@
 package com.example.workflowocr
 
+import java.util.Locale
+
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -515,7 +517,7 @@ private fun calculateHourlySummary(
                 else break
             }
 
-            val label = String.format("%02d:%02d", normalizedHour, (q * 15))
+            val label = String.format(Locale.ROOT, "%02d:%02d", normalizedHour, (q * 15))
             slotsInHour.add(TimeBlock(label, count))
         }
 
@@ -538,7 +540,7 @@ private fun calculateHourlySummary(
         }
 
         hourlyGroups.add(HourGroup(
-            hourLabel = String.format("%02d:00", normalizedHour),
+            hourLabel = String.format(Locale.ROOT, "%02d:00", normalizedHour),
             slots = slotsInHour,
             min = counts.first(),
             max = counts.last(),

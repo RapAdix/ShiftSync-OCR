@@ -21,7 +21,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,262 +43,260 @@ fun SettingsScreen(viewModel: TableViewModel) {
     val universalSettings = viewModel.universalSettings
     val scrollState = rememberScrollState()
 
-    Scaffold {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp, 0.dp)
-                .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // --- SECTION 1: GLOBAL FACILITY TIMINGS ---
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = stringResource(R.string.settings_workplace_shift_timings),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp, 0.dp)
+            .verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // --- SECTION 1: GLOBAL FACILITY TIMINGS ---
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = stringResource(R.string.settings_workplace_shift_timings),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
 
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_opening_hour),
-                        value = universalSettings.workplaceOpeningTime,
-                        enabled = true,
-                        onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceOpeningTime = it)) }
-                    )
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_closing_hour),
-                        value = universalSettings.workplaceClosingTime,
-                        enabled = true,
-                        onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceClosingTime = it)) }
-                    )
-                }
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_opening_hour),
+                    value = universalSettings.workplaceOpeningTime,
+                    enabled = true,
+                    onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceOpeningTime = it)) }
+                )
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_closing_hour),
+                    value = universalSettings.workplaceClosingTime,
+                    enabled = true,
+                    onValueChange = { viewModel.updateUniversalSettings(universalSettings.copy(workplaceClosingTime = it)) }
+                )
             }
+        }
 
-            // --- SECTION 2: REMOTE SPREADSHEET SOURCE LINK ---
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = stringResource(R.string.settings_cloud_sync_integration),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+        // --- SECTION 2: REMOTE SPREADSHEET SOURCE LINK ---
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = stringResource(R.string.settings_cloud_sync_integration),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
 
-                    // Local storage for url. Isolates rapid typing from slow disk I/O
-                    var urlInputState by remember(universalSettings.spreadsheetUrl) {
-                        mutableStateOf(universalSettings.spreadsheetUrl)
-                    }
-
-                    OutlinedTextField(
-                        value = urlInputState,
-                        onValueChange = { input ->
-                            // Update character state immediately on screen
-                            urlInputState = input
-                            // Safely trigger asynchronous background write task
-                            viewModel.updateUniversalSettings(universalSettings.copy(spreadsheetUrl = input))
-                        },
-                        label = { Text(stringResource(R.string.settings_spreadsheet_source_url)) },
-                        placeholder = { Text(stringResource(R.string.settings_spreadsheet_url_example)) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    var cellInputState by remember(universalSettings.targetCellCoordinate) {
-                        mutableStateOf(universalSettings.targetCellCoordinate)
-                    }
-
-                    OutlinedTextField(
-                        value = cellInputState,
-                        onValueChange = { input ->
-                            cellInputState = input
-                            viewModel.updateUniversalSettings(universalSettings.copy(targetCellCoordinate = input))
-                        },
-                        label = { Text(stringResource(R.string.settings_projection_cell_coordinate)) },
-                        placeholder = { Text(stringResource(R.string.settings_spreadsheet_cell_example)) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                // Local storage for url. Isolates rapid typing from slow disk I/O
+                var urlInputState by remember(universalSettings.spreadsheetUrl) {
+                    mutableStateOf(universalSettings.spreadsheetUrl)
                 }
+
+                OutlinedTextField(
+                    value = urlInputState,
+                    onValueChange = { input ->
+                        // Update character state immediately on screen
+                        urlInputState = input
+                        // Safely trigger asynchronous background write task
+                        viewModel.updateUniversalSettings(universalSettings.copy(spreadsheetUrl = input))
+                    },
+                    label = { Text(stringResource(R.string.settings_spreadsheet_source_url)) },
+                    placeholder = { Text(stringResource(R.string.settings_spreadsheet_url_example)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                var cellInputState by remember(universalSettings.targetCellCoordinate) {
+                    mutableStateOf(universalSettings.targetCellCoordinate)
+                }
+
+                OutlinedTextField(
+                    value = cellInputState,
+                    onValueChange = { input ->
+                        cellInputState = input
+                        viewModel.updateUniversalSettings(universalSettings.copy(targetCellCoordinate = input))
+                    },
+                    label = { Text(stringResource(R.string.settings_projection_cell_coordinate)) },
+                    placeholder = { Text(stringResource(R.string.settings_spreadsheet_cell_example)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
+        }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // --- SECTION 2.5: TARGET SCAN PAGES CONFIGURATION ---
-            Card(modifier = Modifier.fillMaxWidth()) {
+        // --- SECTION 2.5: TARGET SCAN PAGES CONFIGURATION ---
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_active_scan_templates),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Text(
+                    text = stringResource(R.string.settings_scan_template_explanation),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Constructing the 2x2 multi-select matrix row sets
+                val chunkedPages = remember { ScanPageType.entries.chunked(2) }
+
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = stringResource(R.string.settings_active_scan_templates),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    chunkedPages.forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowItems.forEach { pageType ->
+                                val isEnabled = universalSettings.enabledScanPages.contains(pageType)
 
-                    Text(
-                        text = stringResource(R.string.settings_scan_template_explanation),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    // Constructing the 2x2 multi-select matrix row sets
-                    val chunkedPages = remember { ScanPageType.entries.chunked(2) }
-
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        chunkedPages.forEach { rowItems ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                rowItems.forEach { pageType ->
-                                    val isEnabled = universalSettings.enabledScanPages.contains(pageType)
-
-                                    // Balanced grid weights
-                                    ScanPageToggleCard(
-                                        pageType = pageType,
-                                        isActive = isEnabled,
-                                        onClick = { toggleEnabledScanPages(pageType, isEnabled, viewModel) },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                                // Fill missing slots on rows that aren't perfectly filled out (for future expansions)
-                                if (rowItems.size < 2) {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
+                                // Balanced grid weights
+                                ScanPageToggleCard(
+                                    pageType = pageType,
+                                    isActive = isEnabled,
+                                    onClick = { toggleEnabledScanPages(pageType, isEnabled, viewModel) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            // Fill missing slots on rows that aren't perfectly filled out (for future expansions)
+                            if (rowItems.size < 2) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
                 }
             }
+        }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // --- SECTION 3: PRESET TYPE SELECTOR ---
-            Text(
-                text = stringResource(R.string.settings_table_layout_configuration),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
+        // --- SECTION 3: PRESET TYPE SELECTOR ---
+        Text(
+            text = stringResource(R.string.settings_table_layout_configuration),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
 
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(8.dp)) {
-                    PresetSelectionRow(
-                        label = stringResource(R.string.settings_layout_13_columns),
-                        selected = activePreset == PresetType.DEFAULT_13_COL,
-                        onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_13_COL) }
-                    )
-                    PresetSelectionRow(
-                        label = stringResource(R.string.settings_layout_12_columns),
-                        selected = activePreset == PresetType.DEFAULT_12_COL,
-                        onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_12_COL) }
-                    )
-                    PresetSelectionRow(
-                        label = stringResource(R.string.settings_custom_layout_template),
-                        selected = activePreset == PresetType.CUSTOM,
-                        onClick = { viewModel.updateLayoutPreset(PresetType.CUSTOM) }
-                    )
-                }
-            }
-
-            // --- SECTION 4: EDITABLE PARAMETERS ---
-            Text(
-                text = if (currentLayout.isCustom) stringResource(R.string.settings_modify_custom_layout) else stringResource(R.string.settings_view_locked_layout),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (currentLayout.isCustom) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            if (!currentLayout.isCustom) {
-                Text(
-                    text = stringResource(R.string.settings_unlock_layout_explanation),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(8.dp)) {
+                PresetSelectionRow(
+                    label = stringResource(R.string.settings_layout_13_columns),
+                    selected = activePreset == PresetType.DEFAULT_13_COL,
+                    onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_13_COL) }
+                )
+                PresetSelectionRow(
+                    label = stringResource(R.string.settings_layout_12_columns),
+                    selected = activePreset == PresetType.DEFAULT_12_COL,
+                    onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_12_COL) }
+                )
+                PresetSelectionRow(
+                    label = stringResource(R.string.settings_custom_layout_template),
+                    selected = activePreset == PresetType.CUSTOM,
+                    onClick = { viewModel.updateLayoutPreset(PresetType.CUSTOM) }
                 )
             }
+        }
 
-            // Group 2: Table Columns Configuration Mapping
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.settings_table_column_placements), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        // --- SECTION 4: EDITABLE PARAMETERS ---
+        Text(
+            text = if (currentLayout.isCustom) stringResource(R.string.settings_modify_custom_layout) else stringResource(R.string.settings_view_locked_layout),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (currentLayout.isCustom) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_expected_column_count),
-                        value = currentLayout.expectedCols,
-                        enabled = currentLayout.isCustom,
-                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(expectedCols = it)) }
-                    )
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_employee_name_column),
-                        value = currentLayout.nameCol,
-                        enabled = currentLayout.isCustom,
-                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(nameCol = it)) }
-                    )
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_shift_start_column),
-                        value = currentLayout.timeStartCol,
-                        enabled = currentLayout.isCustom,
-                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(timeStartCol = it)) }
-                    )
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_shift_end_column),
-                        value = currentLayout.timeEndCol,
-                        enabled = currentLayout.isCustom,
-                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(timeEndCol = it)) }
-                    )
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_first_modification_column),
-                        value = currentLayout.firstModificationCol,
-                        enabled = currentLayout.isCustom,
-                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(firstModificationCol = it)) }
-                    )
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_change_log_column),
-                        value = currentLayout.changeCol,
-                        enabled = currentLayout.isCustom,
-                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(changeCol = it)) }
-                    )
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_manager_signature_column),
-                        value = currentLayout.managerCol,
-                        enabled = currentLayout.isCustom,
-                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(managerCol = it)) }
-                    )
-                    NumericSettingInput(
-                        label = stringResource(R.string.settings_team_information_column),
-                        value = currentLayout.team?.toString() ?: "",
-                        enabled = currentLayout.isCustom,
-                        onValueChange = { rawString ->
-                            val updatedTeamValue = rawString.trim().toIntOrNull()
-                            viewModel.updateLayoutPreset(
-                                PresetType.CUSTOM,
-                                currentLayout.copy(team = updatedTeamValue)
-                            )
-                        }
-                    )
-                }
+        if (!currentLayout.isCustom) {
+            Text(
+                text = stringResource(R.string.settings_unlock_layout_explanation),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+
+        // Group 2: Table Columns Configuration Mapping
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.settings_table_column_placements), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_expected_column_count),
+                    value = currentLayout.expectedCols,
+                    enabled = currentLayout.isCustom,
+                    onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(expectedCols = it)) }
+                )
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_employee_name_column),
+                    value = currentLayout.nameCol,
+                    enabled = currentLayout.isCustom,
+                    onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(nameCol = it)) }
+                )
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_shift_start_column),
+                    value = currentLayout.timeStartCol,
+                    enabled = currentLayout.isCustom,
+                    onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(timeStartCol = it)) }
+                )
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_shift_end_column),
+                    value = currentLayout.timeEndCol,
+                    enabled = currentLayout.isCustom,
+                    onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(timeEndCol = it)) }
+                )
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_first_modification_column),
+                    value = currentLayout.firstModificationCol,
+                    enabled = currentLayout.isCustom,
+                    onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(firstModificationCol = it)) }
+                )
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_change_log_column),
+                    value = currentLayout.changeCol,
+                    enabled = currentLayout.isCustom,
+                    onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(changeCol = it)) }
+                )
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_manager_signature_column),
+                    value = currentLayout.managerCol,
+                    enabled = currentLayout.isCustom,
+                    onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(managerCol = it)) }
+                )
+                NumericSettingInput(
+                    label = stringResource(R.string.settings_team_information_column),
+                    value = currentLayout.team?.toString() ?: "",
+                    enabled = currentLayout.isCustom,
+                    onValueChange = { rawString ->
+                        val updatedTeamValue = rawString.trim().toIntOrNull()
+                        viewModel.updateLayoutPreset(
+                            PresetType.CUSTOM,
+                            currentLayout.copy(team = updatedTeamValue)
+                        )
+                    }
+                )
             }
+        }
 
-            // Group 3: Formatting Ratios
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.settings_structural_ratios), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        // Group 3: Formatting Ratios
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.settings_structural_ratios), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
-                    DoubleSettingInput(
-                        label = stringResource(R.string.settings_header_row_height_multiplier),
-                        value = currentLayout.headerRowHeightMultiplier,
-                        enabled = currentLayout.isCustom,
-                        onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(headerRowHeightMultiplier = it)) }
-                    )
-                }
+                DoubleSettingInput(
+                    label = stringResource(R.string.settings_header_row_height_multiplier),
+                    value = currentLayout.headerRowHeightMultiplier,
+                    enabled = currentLayout.isCustom,
+                    onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(headerRowHeightMultiplier = it)) }
+                )
             }
         }
     }

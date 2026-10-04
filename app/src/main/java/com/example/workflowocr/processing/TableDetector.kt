@@ -48,11 +48,9 @@ object TableDetector {
         ) : TableDetectionResult()
     }
 
-    class MissingTopRowException(message: String) : Exception(message)
-
     /** The UI resolves these reasons; local detector tests need no Android Context or resources. */
     class TableGridException(val reason: Reason, val found: Int = 0, val expected: Int = 0) : IllegalStateException(reason.name) {
-        enum class Reason { INCOMPLETE_COLUMNS, UNRELIABLE_GRID, TOO_FEW_ROWS }
+        enum class Reason { MISSING_TOP_ROW, INCOMPLETE_COLUMNS, UNRELIABLE_GRID, TOO_FEW_ROWS }
     }
 
     private const val MIN_REQUIRED_INTERSECTIONS_COEFF : Double = 0.4 // Require at least 40% of the most intersected belt's points
@@ -250,7 +248,8 @@ object TableDetector {
         // 2. Header presence check & 180° rotation fallback
         try {
             checkHeaderRowPresence(validHorizontal, headerRowHeightMultiplier)
-        } catch (_: MissingTopRowException) {
+        } catch (error: TableGridException) {
+            if (error.reason != TableGridException.Reason.MISSING_TOP_ROW) throw error
             Log.d("DEBUG", "Couldn't detect top header row. Rotating by 180 degrees.")
 
             val imgWidth = gray.cols()
@@ -267,7 +266,8 @@ object TableDetector {
             rotations += 2
             try {
                 checkHeaderRowPresence(validHorizontal, headerRowHeightMultiplier)
-            } catch (e: MissingTopRowException) {
+            } catch (e: TableGridException) {
+                if (e.reason != TableGridException.Reason.MISSING_TOP_ROW) throw e
                 Log.d("DEBUG", "Error: Couldn't detect top header row even after 180° rotation!")
                 structuralException = e
             }
@@ -556,7 +556,8 @@ object TableDetector {
 
     /**
      * Validates whether the top detected row matches the tall header row height proportion.
-     * Throws [MissingTopRowException] if the table appears upside down or missing its top row.
+     * Throws [TableGridException] with [TableGridException.Reason.MISSING_TOP_ROW]
+     * if the table appears upside down or missing its top row.
      */
     private fun checkHeaderRowPresence(
         horizontalLines: List<PolyLineSegment>,
@@ -602,7 +603,7 @@ object TableDetector {
 
         if (!isTopHeaderPresent) {
             Log.w("DEBUG", "Header check failed: Top gap (${firstGap.toInt()} px) < expected header (${expectedTallRowHeight.toInt()} px).")
-            throw MissingTopRowException("Header row missing at top of table structure.")
+            throw TableGridException(TableGridException.Reason.MISSING_TOP_ROW)
         } else {
             Log.d("DEBUG", "Header check passed: Top gap = ${firstGap.toInt()} px (Expected ~ ${expectedTallRowHeight.toInt()} px)")
         }

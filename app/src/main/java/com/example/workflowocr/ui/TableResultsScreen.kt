@@ -1,5 +1,7 @@
 package com.example.workflowocr
 
+import java.util.Locale
+
 import android.app.Application
 import android.graphics.Bitmap
 import android.util.Log
@@ -562,9 +564,9 @@ fun TableResultsScreen(viewModel: TableViewModel) {
                                     tint = SoftEmeraldGreen
                                 )
                             }
-                            displayTextTimeOrSnippet(row, row.startTimeSnippetPath, row.startTime)
+                            DisplayTextTimeOrSnippet(row, row.startTimeSnippetPath, row.startTime)
                             Spacer(Modifier.width(8.dp))
-                            displayTextTimeOrSnippet(row, row.finishTimeSnippetPath, row.finishTime)
+                            DisplayTextTimeOrSnippet(row, row.finishTimeSnippetPath, row.finishTime)
                         }
                     }
                 )
@@ -618,7 +620,7 @@ fun TableResultsScreen(viewModel: TableViewModel) {
 }
 
 @Composable
-fun displayTextTimeOrSnippet(row: ProcessorRow, path: String?, time: String) {
+fun DisplayTextTimeOrSnippet(row: ProcessorRow, path: String?, time: String) {
     if (row.hasTimeRecentlyCrossed()) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
     else if (TimeUtils.parseTimeOrNull(time) == null) path?.let {SnippetImage(path, height = 32.dp, width = 60.dp)} ?: TimeBadge("X")
     else TimeBadge(time, row.isRelevantButUltimatelyAbsent())
@@ -1054,7 +1056,7 @@ fun TimePicker15(
                                     MaterialTheme.typography.bodyLarge.fontSize
                             )
                         ) {
-                            append(String.format("%02d", (minutes / 60) % 24))
+                            append(String.format(Locale.ROOT, "%02d", (minutes / 60) % 24))
                         }
 
                         append(":")
@@ -1069,7 +1071,7 @@ fun TimePicker15(
                                     MaterialTheme.typography.bodyMedium.fontSize
                             )
                         ) {
-                            append(String.format("%02d", minutes % 60))
+                            append(String.format(Locale.ROOT, "%02d", minutes % 60))
                         }
                     }
 

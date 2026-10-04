@@ -1,5 +1,7 @@
 package com.example.workflowocr
 
+import java.util.Locale
+
 import android.util.Log
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -39,7 +41,7 @@ object TimeUtils {
     fun minutesToTimeString(mins: Int): String {
         val h = (mins / 60) % 24
         val m = mins % 60
-        return String.format("%02d:%02d", h, m)
+        return String.format(Locale.ROOT, "%02d:%02d", h, m)
     }
 
     fun currentTimeMinutes(): Int {

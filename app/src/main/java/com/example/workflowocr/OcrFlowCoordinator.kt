@@ -339,8 +339,8 @@ class OcrFlowCoordinator(
             context.resources.getQuantityString(R.plurals.scan_horizontal_line_count, error.horizontal.size, error.horizontal.size),
             context.resources.getQuantityString(R.plurals.scan_vertical_line_count, error.vertical.size, error.vertical.size)
         )
-        is TableDetector.MissingTopRowException -> context.getString(R.string.scan_table_header_missing)
         is TableDetector.TableGridException -> when (error.reason) {
+            TableDetector.TableGridException.Reason.MISSING_TOP_ROW -> context.getString(R.string.scan_table_header_missing)
             TableDetector.TableGridException.Reason.INCOMPLETE_COLUMNS -> context.resources.getQuantityString(
                 R.plurals.scan_table_columns_incomplete, error.expected, error.found, error.expected
             )
