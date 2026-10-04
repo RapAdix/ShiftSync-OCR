@@ -1,0 +1,10 @@
+<resources>
+    <!-- Polish translations; keys mirror the English feature file. -->
+    <string name="about_version">v2.0.0 (Dokładne wykrywanie tabel)</string>
+    <string name="about_ownership_copyright">Własność i prawa autorskie</string>
+    <string name="about_copyright_notice">© 2026 Adrian. Wszelkie prawa zastrzeżone.</string>
+    <string name="about_authorship">Ta aplikacja jest niezależnym oprogramowaniem opracowanym, napisanym i utrzymywanym wyłącznie przez autora. Kod źródłowy i gotowe wersje są bezpiecznie przechowywane w prywatnym systemie kontroli wersji.</string>
+    <string name="about_usage_restrictions">Ograniczenia użytkowania</string>
+    <string name="about_license_personal_use">Licencja CC BY-NC 4.0 zezwala wyłącznie na niekomercyjne użytkowanie osobiste.</string>
+    <string name="about_license_commercial_restriction">Komercyjne rozpowszechnianie, wdrażanie w miejscu pracy lub użytkowanie instytucjonalne w celu usprawniania działalności przedsiębiorstw, obniżania kosztów lub automatyzacji organizacji pracy w zewnętrznych placówkach jest SUROWO ZABRONIONE bez wyraźnej, pisemnej zgody właściciela praw autorskich.</string>
+</resources>

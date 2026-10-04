@@ -1,0 +1,33 @@
+<resources>
+    <!-- Polish translations; keys mirror the English feature file. -->
+    <string name="results_no_data_recorded">Brak zapisanych danych.</string>
+    <string name="results_showing_all_employees">Wyświetlani są wszyscy pracownicy</string>
+    <string name="results_showing_working_employees">Wyświetlani są tylko pracujący pracownicy</string>
+    <string name="results_show_all">Pokaż wszystkich</string>
+    <string name="results_entity_column_heading">PRACOWNIK</string>
+    <string name="results_start_column_heading">POCZĄTEK</string>
+    <string name="results_finish_column_heading">KONIEC</string>
+    <string name="results_modified_row_description">Zmieniony wiersz</string>
+    <string name="results_add_employee">Dodaj pracownika</string>
+    <string name="results_handwritten_snippet_description">Wycinek z odręcznym wpisem</string>
+    <string name="results_absent">NIEOBECNY</string>
+    <string name="results_working">PRACUJE</string>
+    <string name="results_modifications_after">Po zmianach:</string>
+    <string name="results_delete_entry">Usuń wpis</string>
+    <string name="results_modifications_before">Wykryte zmiany, przed:</string>
+    <string name="results_detected_modifications">Wykryte zmiany:</string>
+    <string name="attendance_required">Wymóg</string>
+    <string name="attendance_actual">Rzeczywiste</string>
+    <string name="attendance_download_projection_description">Pobierz prognozę</string>
+    <string name="attendance_weekday_short">Tydzień</string>
+    <string name="attendance_weekend_short">Weeknd</string>
+    <string name="projection_invalid_url">Błąd: niebezpieczny lub niepoprawny adres URL.</string>
+    <string name="projection_invalid_cell">Błąd: niepoprawne współrzędne komórki.</string>
+    <string name="projection_file_too_large">Przerwano: skoroszyt przekracza dopuszczalny rozmiar pliku.</string>
+    <string name="projection_network_error">Błąd synchronizacji: serwer rozłączył się lub zwrócił niepoprawną odpowiedź.</string>
+    <string name="results_missing_projection_and_vlh">Brak prognozowanych wartości GC i głównej tabeli konfiguracji VLH</string>
+    <string name="results_missing_vlh">Brak głównej tabeli konfiguracji VLH</string>
+    <string name="results_missing_projection">Brak zsynchronizowanych wartości GC z arkusza</string>
+    <string name="projection_date_tab_missing">Nie znaleziono zakładki „%1$s” w pliku Excel dla tej daty.</string>
+    <string name="projection_sync_error">Błąd synchronizacji: %1$s</string>
+</resources>

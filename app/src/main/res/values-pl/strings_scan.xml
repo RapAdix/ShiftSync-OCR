@@ -1,0 +1,73 @@
+<resources>
+    <!-- Polish translations; keys mirror the English feature file. -->
+    <string name="preview_cancel_processing">Anuluj przetwarzanie</string>
+    <string name="preview_table_detection_success">Wykryto tabelę! Rozpoznawanie tekstu…</string>
+    <string name="preview_extraction_aborted">Przetwarzanie przerwane: %1$s</string>
+    <string name="camera_permission_required">Wymagane jest uprawnienie do korzystania z aparatu.</string>
+    <string name="scan_new_sheet">ZESKANUJ NOWY ARKUSZ</string>
+    <string name="scan_run_ocr_engines">Uruchom OpenCV + ML Kit</string>
+    <string name="scan_use_last_image">Użyj ostatniego zdjęcia</string>
+    <string name="scan_for_debug">Skanuj do diagnostyki</string>
+    <string name="preview_confirm_cells_for_date">Sprawdź zaznaczone komórki w podglądzie poniżej. Jeśli są poprawne, podaj datę; w przeciwnym razie zrób nowe zdjęcie.</string>
+    <string name="preview_specify_date">Podaj datę</string>
+    <string name="preview_retake_photo">Zrób nowe zdjęcie</string>
+    <string name="preview_table_detection_failed">Nie udało się wykryć tabeli</string>
+    <string name="preview_text_recognition_progress">Rozpoznawanie tekstu…</string>
+    <string name="preview_table_detection_progress">Wykrywanie tabeli…</string>
+    <string name="preview_retake_sheet_picture">ZRÓB PONOWNIE ZDJĘCIE ARKUSZA</string>
+    <string name="preview_main_preview_description">Podgląd zdjęcia i wykrytych komórek</string>
+    <string name="preview_processing_table">Przetwarzanie tabeli…</string>
+    <string name="preview_alignment_grid_title">Wyznaczona siatka tabeli (diagnostyka)</string>
+    <string name="preview_diagnostic_grid_description">Diagnostyczny podgląd linii tabeli</string>
+    <string name="preview_unknown_table_error">Nieznany błąd rozpoznawania struktury tabeli.</string>
+    <string name="scan_select_page_layout">Wybierz układ strony</string>
+    <string name="scan_no_pages_enabled">Żadne strony nie są włączone w ustawieniach.</string>
+    <string name="date_picker_select_date">Wybierz datę</string>
+    <string name="date_picker_previous_month">Poprzedni miesiąc</string>
+    <string name="date_picker_next_month">Następny miesiąc</string>
+    <string name="date_picker_use_date">Wybierz tę datę</string>
+    <string name="date_picker_selected_date">Wybrano: %1$s</string>
+    <string name="camera_processing_digits">PRZETWARZANIE CYFR…</string>
+    <string name="camera_align_digits">UMIEŚĆ KOLUMNĘ CYFR W NIEBIESKIM OBSZARZE</string>
+    <string name="camera_shutter_description">Zrób zdjęcie</string>
+    <string name="camera_first_row">Pierwszy wiersz tutaj</string>
+    <string name="scan_employee_page_1">Pracownicy\n(Strona 1)</string>
+    <string name="scan_employee_page_2">Pracownicy\n(Strona 2)</string>
+    <string name="scan_employee_page_3">Pracownicy\n(Strona 3)</string>
+    <string name="scan_manager_page_1">Kierownicy\n(Strona 1)</string>
+    <string name="scan_table_layout_not_found">Nie można rozpoznać układu tabeli</string>
+    <string name="scan_schedule_rows_not_recognized">Nie rozpoznano wierszy grafiku. Zrób ponownie zdjęcie arkusza.</string>
+    <string name="scan_time_columns_missing">Brakuje kolumn z godzinami. Zrób ponownie zdjęcie arkusza.</string>
+    <string name="scan_time_cells_unreadable">Zbyt wiele komórek z godzinami jest nieczytelnych. Sprawdź siatkę i zrób ponownie zdjęcie arkusza.</string>
+    <string name="scan_table_background_noisy">Tło zawiera zbyt wiele zakłóceń (%1$s, %2$s). Zrób zdjęcie na jednolitym tle, bliżej arkusza.</string>
+    <string name="scan_table_grid_unreliable">Linie tabeli nie tworzą poprawnej siatki. Zrób ponownie zdjęcie arkusza.</string>
+    <string name="scan_table_header_missing">Brakuje wiersza nagłówka u góry tabeli.</string>
+
+    <plurals name="scan_horizontal_line_count">
+        <item quantity="one">%1$d linia pozioma</item>
+        <item quantity="few">%1$d linie poziome</item>
+        <item quantity="many">%1$d linii poziomych</item>
+        <item quantity="other">%1$d linii poziomych</item>
+    </plurals>
+
+    <plurals name="scan_vertical_line_count">
+        <item quantity="one">%1$d linia pionowa</item>
+        <item quantity="few">%1$d linie pionowe</item>
+        <item quantity="many">%1$d linii pionowych</item>
+        <item quantity="other">%1$d linii pionowych</item>
+    </plurals>
+
+    <plurals name="scan_table_columns_incomplete">
+        <item quantity="one">Niepełna siatka tabeli: wykryto %1$d z %2$d kolumny. Zrób ponownie zdjęcie arkusza.</item>
+        <item quantity="few">Niepełna siatka tabeli: wykryto %1$d z %2$d kolumn. Zrób ponownie zdjęcie arkusza.</item>
+        <item quantity="many">Niepełna siatka tabeli: wykryto %1$d z %2$d kolumn. Zrób ponownie zdjęcie arkusza.</item>
+        <item quantity="other">Niepełna siatka tabeli: wykryto %1$d z %2$d kolumn. Zrób ponownie zdjęcie arkusza.</item>
+    </plurals>
+
+    <plurals name="scan_table_rows_too_few">
+        <item quantity="one">Wykryto tylko %1$d wiersz tabeli. Zrób ponownie zdjęcie arkusza.</item>
+        <item quantity="few">Wykryto tylko %1$d wiersze tabeli. Zrób ponownie zdjęcie arkusza.</item>
+        <item quantity="many">Wykryto tylko %1$d wierszy tabeli. Zrób ponownie zdjęcie arkusza.</item>
+        <item quantity="other">Wykryto tylko %1$d wierszy tabeli. Zrób ponownie zdjęcie arkusza.</item>
+    </plurals>
+</resources>

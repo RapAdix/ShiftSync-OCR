@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
@@ -30,6 +32,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -42,6 +46,7 @@ fun SettingsScreen(viewModel: TableViewModel) {
     val currentLayout = viewModel.activeLayout
     val universalSettings = viewModel.universalSettings
     val scrollState = rememberScrollState()
+    val selectedLanguage = AppLanguage.fromLanguageCode(LocalConfiguration.current.locales[0]?.language)
 
     Column(
         modifier = Modifier
@@ -297,6 +302,37 @@ fun SettingsScreen(viewModel: TableViewModel) {
                     enabled = currentLayout.isCustom,
                     onValueChange = { viewModel.updateLayoutPreset(PresetType.CUSTOM, currentLayout.copy(headerRowHeightMultiplier = it)) }
                 )
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp).selectableGroup(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    stringResource(R.string.settings_language),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    stringResource(R.string.settings_language_description),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                AppLanguage.entries.forEach { language ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().selectable(
+                            selected = selectedLanguage == language,
+                            role = Role.RadioButton,
+                            onClick = { language.select() }
+                        ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = selectedLanguage == language, onClick = null)
+                        Text(stringResource(language.labelRes))
+                    }
+                }
             }
         }
     }

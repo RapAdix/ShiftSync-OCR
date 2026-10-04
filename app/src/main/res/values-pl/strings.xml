@@ -1,0 +1,41 @@
+<resources>
+    <!-- Polish translations; keys mirror the English feature file. -->
+    <string name="app_name">Work Flow OCR</string>
+    <string name="common_cancel">Anuluj</string>
+    <string name="common_save">Zapisz</string>
+    <string name="common_delete">Usuń</string>
+    <string name="common_add">Dodaj</string>
+    <string name="common_discard">Odrzuć</string>
+    <string name="common_start">Początek</string>
+    <string name="common_end">Koniec</string>
+    <string name="common_finish">Koniec</string>
+    <string name="common_name">Imię i nazwisko</string>
+    <string name="nav_close_menu">Zamknij menu</string>
+    <string name="nav_extractor_hub">Przetwarzanie dokumentów</string>
+    <string name="nav_screen_scan_hub">Skanowanie</string>
+    <string name="nav_last_results">Ostatnie wyniki</string>
+    <string name="nav_attendance_summary">Podsumowanie obecności</string>
+    <string name="nav_saved_schedules">Zapisane grafiki</string>
+    <string name="nav_no_saves_found">Brak zapisanych grafików</string>
+    <string name="nav_delete_saved_date_message">Wszystkie wycinki i dane JSON z tego dnia zostaną usunięte.</string>
+    <string name="nav_vlh_dashboard">Panel VLH</string>
+    <string name="nav_vlh_guidelines_description">Tabela wytycznych VLH</string>
+    <string name="nav_settings_hub">Ustawienia</string>
+    <string name="nav_about_license">O aplikacji i licencji</string>
+    <string name="nav_about_description">Informacje o aplikacji</string>
+    <string name="nav_sample_detection">Test wykrywania</string>
+    <string name="nav_menu">Menu</string>
+    <string name="nav_view_attendance">Pokaż podsumowanie obecności</string>
+    <string name="nav_view_table_results">Pokaż wyniki tabeli</string>
+    <string name="nav_loading_date">Wczytywanie %1$s…</string>
+    <string name="nav_delete_date_title">Usunąć %1$s?</string>
+    <string name="nav_screen_title_with_date">%1$s (%2$s)</string>
+    <string name="common_not_available">Brak danych</string>
+    <string name="nav_screen_preview">Podgląd</string>
+    <string name="nav_screen_table_results">Wyniki tabeli</string>
+    <string name="nav_screen_attendance">Obecność</string>
+    <string name="nav_screen_debug">TEST WYKRYWANIA</string>
+    <string name="nav_screen_vlh">Zarządzanie VLH</string>
+    <string name="nav_screen_settings">Ustawienia</string>
+    <string name="nav_screen_about">O aplikacji</string>
+</resources>

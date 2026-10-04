@@ -1,5 +1,9 @@
 <resources>
     <!-- Settings and table layout configuration -->
+    <string name="settings_language">App language</string>
+    <string name="settings_language_description">Choose the language used in the app.</string>
+    <string name="settings_language_english" translatable="false">English</string>
+    <string name="settings_language_polish" translatable="false">Polski</string>
     <string name="settings_workplace_shift_timings">Workplace Shifts Timings</string>
     <string name="settings_opening_hour">Opening Hour (0–23)</string>
     <string name="settings_closing_hour">Closing Hour (0–23)</string>

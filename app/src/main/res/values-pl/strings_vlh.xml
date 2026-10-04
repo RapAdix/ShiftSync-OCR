@@ -1,0 +1,40 @@
+<resources>
+    <!-- Polish translations; keys mirror the English feature file. -->
+    <string name="vlh_review_projection_history">Pokaż historię prognoz</string>
+    <string name="vlh_review_last_scan">Pokaż ostatnie zeskanowane zdjęcie</string>
+    <string name="vlh_configure_layout">Konfiguruj układ</string>
+    <string name="vlh_modify_template_configuration">Edytuj konfigurację szablonu</string>
+    <string name="vlh_target_definition_group">1. Wybierz rodzaj dnia</string>
+    <string name="vlh_target_column_allocation">2. Wybierz kolumnę</string>
+    <string name="vlh_adjust_time_bounds">3. Ustaw zakres godzin (co 30 minut)</string>
+    <string name="vlh_invalid_time_range">Godzina końcowa musi być późniejsza niż początkowa.</string>
+    <string name="vlh_launch_scanner">Uruchom skanowanie</string>
+    <string name="vlh_older_date">Poprzednia data</string>
+    <string name="vlh_no_document_projections">Brak prognoz</string>
+    <string name="vlh_sync_future_projections">Pobierz z serwera wszystkie przyszłe prognozy</string>
+    <string name="vlh_newer_date">Następna data</string>
+    <string name="vlh_no_projection_stored">Nie zapisano jeszcze prognozy. Najpierw pobierz lub wprowadź prognozy.</string>
+    <string name="vlh_shift_time_down">Przesuń godzinę w dół</string>
+    <string name="vlh_shift_time_up">Przesuń godzinę w górę</string>
+    <string name="vlh_time_frame">Przedział czasu</string>
+    <string name="vlh_scanned_gc">Zeskanowane GC</string>
+    <string name="vlh_insert_at_front">Wstaw na początku</string>
+    <string name="vlh_crew_required">Wymagana liczba pracowników</string>
+    <string name="vlh_insert_below">Wstaw poniżej</string>
+    <string name="vlh_delete_row">Usuń wiersz</string>
+    <string name="vlh_discard_changes">Odrzuć zmiany</string>
+    <string name="vlh_insert_first_row">Wstaw pierwszy wiersz (na początku)</string>
+    <string name="vlh_insert_row_below">Wstaw wiersz poniżej</string>
+    <string name="vlh_confirm_and_save">Zatwierdź i zapisz</string>
+    <string name="vlh_verify_document_scan">Sprawdź zdjęcie dokumentu źródłowego</string>
+    <string name="vlh_return_to_dashboard">Wróć do panelu</string>
+    <string name="vlh_raw_scan_description">Oryginalne zdjęcie dokumentu do OCR</string>
+    <string name="vlh_no_scan_snapshot">Brak zdjęcia dokumentu w pamięci.</string>
+    <string name="vlh_scan_active_template">ZESKANUJ TABELĘ WEDŁUG SZABLONU: %1$s</string>
+    <string name="vlh_column_short">Kol. %1$d</string>
+    <string name="vlh_align_starting_time">Użyj przycisków poniżej, aby dopasować godzinę początkową, jeśli pierwszy wiersz nie odpowiada %1$d:00.</string>
+    <string name="vlh_starting_hour">Godzina początkowa: %1$d:00</string>
+    <string name="vlh_edit_column_title">Edytuj kolumnę %1$d (%2$s)</string>
+    <string name="vlh_daytype_weekday">DZIEŃ POWSZEDNI</string>
+    <string name="vlh_daytype_weekend">WEEKEND</string>
+</resources>

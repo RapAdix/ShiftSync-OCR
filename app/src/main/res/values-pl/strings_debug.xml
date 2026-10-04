@@ -1,0 +1,18 @@
+<resources>
+    <!-- Polish translations; keys mirror the English feature file. -->
+    <string name="debug_extraction_title">--- DIAGNOSTYKA ROZPOZNAWANIA TEKSTU ---</string>
+    <string name="debug_no_numeric_patterns">Analiza OCR zakończona. Nie rozpoznano żadnych wzorców liczbowych na obu zdjęciach.</string>
+    <string name="debug_row_index">Numer wiersza</string>
+    <string name="debug_optimized_opencv">Po obróbce (OpenCV)</string>
+    <string name="debug_original_raw">Oryginał</string>
+    <string name="debug_row_label">Wiersz [%1$02d]:</string>
+    <string name="debug_run_table_detection_ocr">Uruchom wykrywanie tabeli + OCR</string>
+    <string name="debug_result_description">Wynik</string>
+    <string name="debug_adaptive_threshold">Progowanie adaptacyjne</string>
+    <string name="debug_threshold_description">Obraz po progowaniu</string>
+    <string name="debug_table_mask">Maska tabeli</string>
+    <string name="debug_table_mask_description">Maska</string>
+    <string name="debug_lines_description">Podgląd wykrytych linii</string>
+    <string name="debug_ocr_log">Wyniki OCR:</string>
+    <string name="debug_ocr_row">"Wiersz %1$d: "</string>
+</resources>

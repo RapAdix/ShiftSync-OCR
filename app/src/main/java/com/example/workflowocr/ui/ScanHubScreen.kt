@@ -90,7 +90,7 @@ fun ScanHubScreen(onScanRequest: () -> Unit, onStubRequest: () -> Unit, onDebugS
                 .fillMaxWidth()
                 .height(70.dp)
         ) {
-            Text(stringResource(R.string.scan_for_debug))
+            Text(stringResource(R.string.scan_for_debug), textAlign = TextAlign.Center)
         }
     }
 }

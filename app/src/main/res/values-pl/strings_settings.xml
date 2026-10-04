@@ -1,0 +1,31 @@
+<resources>
+    <!-- Polish translations; keys mirror the English feature file. -->
+    <string name="settings_language">Język aplikacji</string>
+    <string name="settings_language_description">Wybierz język używany w aplikacji.</string>
+    <string name="settings_workplace_shift_timings">Godziny pracy placówki</string>
+    <string name="settings_opening_hour">Godzina otwarcia (0–23)</string>
+    <string name="settings_closing_hour">Godzina zamknięcia (0–23)</string>
+    <string name="settings_cloud_sync_integration">Synchronizacja z chmurą</string>
+    <string name="settings_spreadsheet_source_url">Adres URL arkusza w OneDrive</string>
+    <string name="settings_projection_cell_coordinate">Komórka z danymi prognozy</string>
+    <string name="settings_active_scan_templates">Aktywne szablony skanowania</string>
+    <string name="settings_scan_template_explanation">Włącz szablony arkuszy używane w tej placówce. Wyłączone strony nie będą dostępne przy wyborze strony do zdjęcia.</string>
+    <string name="settings_table_layout_configuration">Konfiguracja układu tabeli</string>
+    <string name="settings_layout_13_columns">Domyślny układ 13-kolumnowy</string>
+    <string name="settings_layout_12_columns">Domyślny układ 12-kolumnowy</string>
+    <string name="settings_custom_layout_template">Własny szablon (edytowalny)</string>
+    <string name="settings_modify_custom_layout">Edytuj własny układ</string>
+    <string name="settings_view_locked_layout">Pokaż reguły aktywnego układu (zablokowane)</string>
+    <string name="settings_unlock_layout_explanation">Wybierz powyżej „Własny szablon”, aby odblokować edycję struktury tabeli.</string>
+    <string name="settings_table_column_placements">Rozmieszczenie kolumn tabeli</string>
+    <string name="settings_expected_column_count">Oczekiwana liczba kolumn</string>
+    <string name="settings_employee_name_column">Kolumna imienia i nazwiska pracownika</string>
+    <string name="settings_shift_start_column">Kolumna godziny rozpoczęcia zmiany</string>
+    <string name="settings_shift_end_column">Kolumna godziny zakończenia zmiany</string>
+    <string name="settings_first_modification_column">Pierwsza kolumna zmian</string>
+    <string name="settings_change_log_column">Kolumna rejestru zmian</string>
+    <string name="settings_manager_signature_column">Kolumna podpisu kierownika</string>
+    <string name="settings_team_information_column">Kolumna informacji o zespole (opcjonalna)</string>
+    <string name="settings_structural_ratios">Proporcje struktury</string>
+    <string name="settings_header_row_height_multiplier">Mnożnik wysokości wiersza nagłówka</string>
+</resources>

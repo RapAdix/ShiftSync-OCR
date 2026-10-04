@@ -8,12 +8,12 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.StringRes
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -74,6 +74,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -107,7 +109,7 @@ enum class Screen(@StringRes val titleRes: Int) {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     // Global scope and shared results state
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -117,6 +119,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLanguage.initializeDefault()
 
         // OpenCV Initialization
         System.loadLibrary("opencv_java4")
@@ -133,7 +136,11 @@ class MainActivity : ComponentActivity() {
                     val composeScope = rememberCoroutineScope()
                     val availableDates by tableViewModel.availableDates.collectAsState()
 
-                    var flowState by remember { mutableStateOf(MainNavigationState()) }
+                    // Locale changes recreate the activity. Keep Settings open, but do not
+                    // restore an in-progress scan whose coordinator was destroyed.
+                    var flowState by rememberSaveable(stateSaver = MainNavigationState.languageChangeSaver) {
+                        mutableStateOf(MainNavigationState())
+                    }
 
                     LaunchedEffect(drawerState.isOpen) {
                         if (drawerState.isOpen) {
@@ -173,7 +180,14 @@ class MainActivity : ComponentActivity() {
 data class MainNavigationState(
     val currentScreen: Screen = Screen.SCAN_HUB,
     val schedulesExpanded: Boolean = false
-)
+) {
+    companion object {
+        val languageChangeSaver = Saver<MainNavigationState, Boolean>(
+            save = { it.currentScreen == Screen.SETTINGS },
+            restore = { MainNavigationState(currentScreen = if (it) Screen.SETTINGS else Screen.SCAN_HUB) }
+        )
+    }
+}
 
 
 @Composable
