@@ -7,6 +7,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
@@ -94,7 +95,7 @@ object VlhTableExtractor {
         val centerX get() = (left + right) / 2.0
     }
     data class SeparatorLine(val startX: Double, val startY: Double, val endX: Double, val endY: Double)
-    /** Whitespace between two neighbouring header anchors, where a column separator must start. */
+    /** Whitespace between two neighboring header anchors, where a column separator must start. */
     private data class HeaderGap(val left: Double, val right: Double, val referenceY: Double, val fallbackX: Double) {
         val isOpen get() = right > left
         val center get() = (left + right) / 2.0
@@ -132,8 +133,8 @@ object VlhTableExtractor {
         fun toDeskewed(point: PointF): PointF {
             val dx = point.x - centerX
             val dy = point.y - centerY
-            val cosine = kotlin.math.cos(angleRadians)
-            val sine = kotlin.math.sin(angleRadians)
+            val cosine = cos(angleRadians)
+            val sine = sin(angleRadians)
             return PointF(
                 (centerX + cosine * dx + sine * dy).toFloat(),
                 (centerY - sine * dx + cosine * dy).toFloat()
@@ -143,8 +144,8 @@ object VlhTableExtractor {
         fun toOriginal(point: PointF): PointF {
             val dx = point.x - centerX
             val dy = point.y - centerY
-            val cosine = kotlin.math.cos(angleRadians)
-            val sine = kotlin.math.sin(angleRadians)
+            val cosine = cos(angleRadians)
+            val sine = sin(angleRadians)
             return PointF(
                 (centerX + cosine * dx - sine * dy).toFloat(),
                 (centerY + sine * dx + cosine * dy).toFloat()
@@ -388,7 +389,7 @@ object VlhTableExtractor {
      * OCR sometimes misses the short "LP" labels (e.g. on angled photos). Without them the
      * header-driven layout, which is the only one that supports slanted separators, cannot be
      * used. Infer an LP anchor from the first row-index numbers just below the header that lie
-     * left of the first labelled column or right of the last one.
+     * left of the first labeled column or right of the last one.
      */
     private fun synthesizeMissingIndexHeaders(headers: HeaderInfo, numbers: List<Pair<Int, TextBox>>): HeaderInfo {
         if (headers.indexHeaders.size > 1 || headers.positionHeaders.isEmpty() || headers.gcMarkerHeaders.isEmpty()) return headers
@@ -681,7 +682,7 @@ object VlhTableExtractor {
                 var score = 0.0
                 for (gapIndex in openIndices) {
                     val slope = slopeAt(gaps[gapIndex], leftSlope, rightSlope)
-                    val gridIndex = Math.round(slope / PERSPECTIVE_SLOPE_STEP).toInt() + PERSPECTIVE_SLOPE_STEPS
+                    val gridIndex = (slope / PERSPECTIVE_SLOPE_STEP).roundToInt() + PERSPECTIVE_SLOPE_STEPS
                     score += costs.getValue(gapIndex)[gridIndex.coerceIn(0, slopeGrid.lastIndex)] + abs(slope) * 0.25
                 }
                 if (score < bestScore) {
@@ -718,8 +719,7 @@ object VlhTableExtractor {
         columns: List<Column>,
         rowCount: Int
     ): Boolean {
-        if (rowCount <= INITIAL_GC_ROWS_TO_SKIP) return false
-        return columns.filter { it.kind == ColumnKind.GC }.any { column ->
+        return rowCount > INITIAL_GC_ROWS_TO_SKIP && columns.filter { it.kind == ColumnKind.GC }.any { column ->
             (INITIAL_GC_ROWS_TO_SKIP until rowCount).any { row -> rawGrid[row][column.index].isEmpty() }
         }
     }
@@ -1220,10 +1220,10 @@ object VlhTableExtractor {
                 result[mergeIndex] = TextBox(
                     "${previous.text} ${next.text}",
                     arrayOf(
-                        PointF(minX.toFloat(), minY.toFloat()),
-                        PointF(maxX.toFloat(), minY.toFloat()),
-                        PointF(maxX.toFloat(), maxY.toFloat()),
-                        PointF(minX.toFloat(), maxY.toFloat())
+                        PointF(minX, minY),
+                        PointF(maxX, minY),
+                        PointF(maxX, maxY),
+                        PointF(minX, maxY)
                     )
                 )
             } else result += next
