@@ -629,6 +629,9 @@ fun VlhManagementScreen(
                     coordinator.editingColumnId = null
                     coordinator.editingDayType = null
                     internalScreen = VlhSubScreen.DASHBOARD
+                },
+                onLaunchCamera = {
+                    internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER
                 }
             )
         }
@@ -1623,7 +1626,8 @@ fun OperationalScanResultsView(
 @Composable
 fun VlhColumnEditorScreen(
     coordinator: VlhWorkflowCoordinator,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onLaunchCamera: () -> Unit
 ) {
     val column = coordinator.getActiveEditingColumn() ?: return
 
@@ -1817,18 +1821,51 @@ fun VlhColumnEditorScreen(
                 }
             }
 
-            // Save confirmation panel scaled to match the layout grid width rules
-            Button(
-                onClick = {
-                    coordinator.updateFullColumnData(localRowsList.toList())
-                    onDismiss()
-                },
+            // Save confirmation panel centered at 60% width, with camera scan button right-aligned with a visible gap
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.6f) // Locks bottom button size to the 60% frame context
-                    .height(48.dp)
+                    .fillMaxWidth()
                     .padding(bottom = 8.dp)
             ) {
-                Text(stringResource(R.string.vlh_confirm_and_save), fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = {
+                        coordinator.updateFullColumnData(localRowsList.toList())
+                        onDismiss()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth(0.6f)
+                        .height(48.dp)
+                        .align(Alignment.Center)
+                ) {
+                    Text(
+                        stringResource(R.string.vlh_confirm_and_save),
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        val day = coordinator.editingDayType
+                        val colId = coordinator.editingColumnId
+                        if (day != null && colId != null) {
+                            coordinator.initiateColumnUpdate(day, colId, onLaunchCamera)
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 0.dp)
+                        .height(48.dp)
+                        .width(48.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = stringResource(R.string.vlh_launch_scanner),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
     }
