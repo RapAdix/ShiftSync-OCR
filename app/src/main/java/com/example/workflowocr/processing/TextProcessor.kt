@@ -416,17 +416,28 @@ object TextProcessor {
         return refinedGrid
     }
 
-    private fun String.coerceDigits(): String {
-        return this.replace("S", "5")
-            .replace("s", "5")
+    fun coerceDigits(text: String): String {
+        return text.replace("g", "9")
             .replace("G", "6")
+            .replace("S", "5")
+            .replace("s", "5")
+            .replace("z", "2")
+            .replace("Z", "2")
             .replace("p", "0")
             .replace("O", "0")
             .replace("o", "0")
             .replace("Q", "0")
             .replace("D", "0")
             .replace("B", "8")
+            .replace("b", "0")
+            .replace("I", "1")
+            .replace("i", "1")
+            .replace("L", "1")
+            .replace("l", "1")
     }
+
+    @JvmName("coerceDigitsExt")
+    fun String.coerceDigits(): String = coerceDigits(this)
 
     private fun repairTimeCols(text: String): String {
         // 1. Clean whitespace

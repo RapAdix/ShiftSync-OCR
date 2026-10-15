@@ -2,7 +2,15 @@ package com.example.workflowocr
 
 import java.util.Locale
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,11 +47,13 @@ import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -64,6 +74,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -89,6 +102,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -101,8 +115,11 @@ import com.example.workflowocr.ui.theme.SoftEmeraldGreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 enum class DayType(@androidx.annotation.StringRes val displayNameRes: Int) {
     WEEKDAY(R.string.vlh_daytype_weekday),
@@ -389,6 +406,95 @@ class VlhWorkflowCoordinator(
     fun activeVlh(): VlhTableState {
         return if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
     }
+
+    // Full VLH Table Scanning State
+    var showScanVlhDialog by mutableStateOf(false)
+    var scanTargetDayType by mutableStateOf(DayType.WEEKDAY)
+    var scanErrorMessage by mutableStateOf<String?>(null)
+
+    fun processFullVlhScan(
+        bitmap: Bitmap,
+        context: Context,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val dayType = scanTargetDayType
+        lastCapturedBitmap = bitmap
+
+        backgroundScope.launch {
+            try {
+                val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
+                    com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS
+                )
+                val visionText = suspendCancellableCoroutine { continuation ->
+                    recognizer.process(com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0))
+                        .addOnSuccessListener { continuation.resume(it) }
+                        .addOnFailureListener { continuation.resumeWithException(it) }
+                }
+                recognizer.close()
+
+                val extraction = com.example.workflowocr.processing.VlhTableExtractor.extract(visionText)
+                val table = extraction.rows
+
+                // Use detected GC-column positions; the table may contain index columns between data columns.
+                val newColumns = extraction.gcColumnIndices.mapIndexed { colIdx, gcTableCol ->
+                    val scannedRows = (0 until table.size).mapNotNull { rowIdx ->
+                        table[rowIdx].getOrNull(gcTableCol)?.trim()?.toIntOrNull()
+                    }
+
+                    val defaultName = if (extraction.gcColumnIndices.size == 6) {
+                        when (colIdx) {
+                            0 -> "05:00-10:30"
+                            1 -> "10:30-14:00"
+                            2 -> "14:00-17:00"
+                            3 -> "17:00-20:00"
+                            4 -> "20:00-24:00"
+                            5 -> "00:00-05:00"
+                            else -> "Column ${colIdx + 1}"
+                        }
+                    } else {
+                        "Column ${colIdx + 1}"
+                    }
+
+                    VlhColumnConfig(
+                        id = colIdx,
+                        name = defaultName,
+                        scannedRows = scannedRows
+                    )
+                }
+
+                if (newColumns.all { it.scannedRows.isEmpty() }) {
+                    throw IllegalStateException("No numeric values could be extracted from the detected GC columns. Please check image quality and table headings.")
+                }
+
+                val updatedTable = VlhTableState(type = dayType, columns = newColumns)
+                viewModel.storageManager.saveVlhTable(updatedTable)
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.vlh_scan_success_toast),
+                        Toast.LENGTH_LONG
+                    ).show()
+                    scanErrorMessage = null
+                    onSuccess()
+                }
+
+            } catch (e: Throwable) {
+                android.util.Log.e("VLH_SCAN", "Full VLH Scan extraction failed", e)
+                val errMsg = e.message ?: "Unknown extraction error"
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.vlh_scan_failed_toast, errMsg),
+                        Toast.LENGTH_LONG
+                    ).show()
+                    scanErrorMessage = errMsg
+                    onError(errMsg)
+                }
+            }
+        }
+    }
 }
 
 private enum class VlhSubScreen {
@@ -408,8 +514,59 @@ fun VlhManagementScreen(
 ) {
     val viewModel = LocalTableViewModel.current
     val coordinator = remember { VlhWorkflowCoordinator(viewModel, backgroundScope) }
+    val context = LocalContext.current
 
     var internalScreen by remember { mutableStateOf(VlhSubScreen.DASHBOARD) }
+
+    // System camera launcher for full VLH table scan (reusing the normal system camera pattern from OcrFlowCoordinator)
+    var tempImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempImageUri != null) {
+            val bitmap = StorageManager.ImageUtils.uriToBitmap(context, tempImageUri!!)
+            coordinator.processFullVlhScan(
+                bitmap = bitmap,
+                context = context,
+                onSuccess = {
+                    internalScreen = VlhSubScreen.DASHBOARD
+                },
+                onError = { _ ->
+                    coordinator.showScanVlhDialog = true
+                    internalScreen = VlhSubScreen.DASHBOARD
+                }
+            )
+        }
+        tempImageUri = null
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val uri = StorageManager.ImageUtils.createTempImageUri(context)
+            tempImageUri = uri
+            cameraLauncher.launch(uri)
+        } else {
+            Toast.makeText(context, context.getString(R.string.camera_permission_required), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun launchSystemCameraForVlh() {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            val uri = StorageManager.ImageUtils.createTempImageUri(context)
+            tempImageUri = uri
+            cameraLauncher.launch(uri)
+        } else {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 
     // Keep safe lifecycle listener active here
     LaunchedEffect(coordinator) {
@@ -422,6 +579,7 @@ fun VlhManagementScreen(
             VlhDashboardScreen(
                 coordinator = coordinator,
                 onNavigateToCamera = { internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER },
+                onNavigateToFullVlhCamera = { launchSystemCameraForVlh() },
                 onNavigateToSetup = { internalScreen = VlhSubScreen.SETUP_UTILITY },
                 onColumnClicked = { dayType, columnId ->
                     coordinator.editingDayType = dayType
@@ -491,6 +649,7 @@ fun VlhManagementScreen(
 fun VlhDashboardScreen(
     coordinator: VlhWorkflowCoordinator,
     onNavigateToCamera: () -> Unit,
+    onNavigateToFullVlhCamera: () -> Unit,
     onNavigateToSetup: () -> Unit,
     onColumnClicked: (DayType, Int) -> Unit,
     onNavigateToImageInspection: () -> Unit,
@@ -498,6 +657,22 @@ fun VlhDashboardScreen(
 ) {
     LaunchedEffect(coordinator) {
         coordinator.collectStart()
+    }
+
+    if (coordinator.showScanVlhDialog) {
+        ScanVlhSetupDialog(
+            initialDayType = coordinator.scanTargetDayType,
+            errorMessage = coordinator.scanErrorMessage,
+            onDismiss = {
+                coordinator.showScanVlhDialog = false
+                coordinator.scanErrorMessage = null
+            },
+            onConfirmScan = { dayType ->
+                coordinator.scanTargetDayType = dayType
+                coordinator.showScanVlhDialog = false
+                onNavigateToFullVlhCamera()
+            }
+        )
     }
 
     val tabs = listOf(DayType.WEEKDAY, DayType.WEEKEND)
@@ -724,15 +899,18 @@ fun VlhDashboardScreen(
         }
 
         // 4. THE BIG BUTTON
-        // Process outside sheets using the active structural template metrics
         Button(
-            onClick = { coordinator.initiateExternalTableProcessing(onNavigateToCamera) },
+            onClick = {
+                coordinator.scanTargetDayType = coordinator.activeDisplayTab
+                coordinator.scanErrorMessage = null
+                coordinator.showScanVlhDialog = true
+            },
             modifier = Modifier.fillMaxWidth().padding(16.dp).height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
         ) {
-            Icon(Icons.Default.CameraAlt, contentDescription = null)
+            Icon(Icons.Default.DocumentScanner, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text(stringResource(R.string.vlh_scan_active_template, stringResource(coordinator.activeDisplayTab.displayNameRes)))
+            Text(stringResource(R.string.vlh_scan_button))
         }
     }
 }
@@ -1819,4 +1997,85 @@ fun VlhImageInspectionScreen(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScanVlhSetupDialog(
+    initialDayType: DayType,
+    errorMessage: String?,
+    onDismiss: () -> Unit,
+    onConfirmScan: (dayType: DayType) -> Unit
+) {
+    var selectedDayType by remember { mutableStateOf(initialDayType) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.vlh_dialog_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Error Message Banner (if retrying after failed extraction)
+                if (!errorMessage.isNullOrBlank()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = errorMessage,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+
+                // 1. Day Type Selection
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.vlh_dialog_day_type_label),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        val options = listOf(DayType.WEEKDAY, DayType.WEEKEND)
+                        options.forEachIndexed { index, dayType ->
+                            SegmentedButton(
+                                selected = selectedDayType == dayType,
+                                onClick = { selectedDayType = dayType },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
+                            ) {
+                                Text(stringResource(dayType.displayNameRes))
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirmScan(selectedDayType)
+                }
+            ) {
+                Text(stringResource(R.string.vlh_dialog_scan_action))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.vlh_dialog_cancel_action))
+            }
+        }
+    )
 }

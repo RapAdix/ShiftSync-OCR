@@ -35,6 +35,14 @@
     <string name="vlh_align_starting_time">Użyj przycisków poniżej, aby dopasować godzinę początkową, jeśli pierwszy wiersz nie odpowiada %1$d:00.</string>
     <string name="vlh_starting_hour">Godzina początkowa: %1$d:00</string>
     <string name="vlh_edit_column_title">Edytuj kolumnę %1$d (%2$s)</string>
-    <string name="vlh_daytype_weekday">DZIEŃ POWSZEDNI</string>
-    <string name="vlh_daytype_weekend">WEEKEND</string>
+    <string name="vlh_daytype_weekday">Dzień roboczy</string>
+    <string name="vlh_daytype_weekend">Weekend</string>
+    <string name="vlh_scan_button">Skanuj VLH</string>
+    <string name="vlh_dialog_title">Skanuj tabelę VLH</string>
+    <string name="vlh_dialog_gc_columns_label">Przedziały czasowe w ciągu dnia (kolumny GC):</string>
+    <string name="vlh_dialog_day_type_label">Wybierz typ dnia:</string>
+    <string name="vlh_dialog_scan_action">Skanuj</string>
+    <string name="vlh_dialog_cancel_action">Anuluj</string>
+    <string name="vlh_scan_success_toast">Tabela VLH została pomyślnie wyodrębniona i zapisana!</string>
+    <string name="vlh_scan_failed_toast">Błąd skanowania: %1$s</string>
 </resources>

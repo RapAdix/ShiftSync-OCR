@@ -37,4 +37,12 @@
     <string name="vlh_edit_column_title">Edit Column %1$d (%2$s)</string>
     <string name="vlh_daytype_weekday">WEEKDAY</string>
     <string name="vlh_daytype_weekend">WEEKEND</string>
+    <string name="vlh_scan_button">Scan VLH</string>
+    <string name="vlh_dialog_title">Scan VLH Table</string>
+    <string name="vlh_dialog_gc_columns_label">Time periods in a day (How many GC columns):</string>
+    <string name="vlh_dialog_day_type_label">Select Day Type:</string>
+    <string name="vlh_dialog_scan_action">Scan</string>
+    <string name="vlh_dialog_cancel_action">Cancel</string>
+    <string name="vlh_scan_success_toast">VLH table extracted and saved successfully!</string>
+    <string name="vlh_scan_failed_toast">Scan failed: %1$s</string>
 </resources>
