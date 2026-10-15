@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
@@ -103,6 +104,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -400,6 +402,33 @@ class VlhWorkflowCoordinator(
 
         backgroundScope.launch {
             viewModel.storageManager.saveVlhTable(currentTable.copy(columns = updatedColumns))
+        }
+    }
+
+    /**
+     * Updates the name (timeframe string, e.g. "14:00- 17:00") of the active editing column
+     * and persists the updated table state to storage.
+     */
+    fun updateColumnName(newName: String) {
+        val day = editingDayType ?: return
+        val colId = editingColumnId ?: return
+        val currentTable = if (day == DayType.WEEKDAY) weekdayTable else weekendTable
+
+        val updatedColumns = currentTable.columns.map { column ->
+            if (column.id == colId) {
+                column.copy(name = newName)
+            } else column
+        }
+
+        val updatedTable = currentTable.copy(columns = updatedColumns)
+        if (day == DayType.WEEKDAY) {
+            weekdayTable = updatedTable
+        } else {
+            weekendTable = updatedTable
+        }
+
+        backgroundScope.launch {
+            viewModel.storageManager.saveVlhTable(updatedTable)
         }
     }
 
@@ -918,7 +947,64 @@ fun VlhDashboardScreen(
     }
 }
 
+/**
+ * Reusable dropdown selector for 30-minute interval time picking.
+ * Features auto-scrolling to the currently selected time option upon expansion.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun VlhTimePickerDropdown(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    options: List<String>,
+    modifier: Modifier = Modifier,
+    isError: Boolean = false
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val itemHeightPx = remember(density) { with(density) { 48.dp.roundToPx() } }
+
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            val selectedIdx = options.indexOf(value).coerceAtLeast(0)
+            scrollState.scrollTo(selectedIdx * itemHeightPx)
+        }
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            readOnly = true,
+            value = value,
+            onValueChange = {},
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            isError = isError,
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true)
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            scrollState = scrollState
+        ) {
+            options.forEach { selection ->
+                DropdownMenuItem(
+                    text = { Text(selection) },
+                    onClick = {
+                        onValueChange(selection)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun VlhSetupConfigScreen(
     coordinator: VlhWorkflowCoordinator,
@@ -947,10 +1033,6 @@ fun VlhSetupConfigScreen(
     var endTime by remember(selectedDay, selectedColId) {
         mutableStateOf(activeCol.name.split("-").lastOrNull()?.trim() ?: "08:00")
     }
-
-    // Dropdown expansion UI states
-    var startExpanded by remember { mutableStateOf(false) }
-    var endExpanded by remember { mutableStateOf(false) }
 
     // Dynamic validation condition: Ensure the end time happens after the start time
     val isValidRange = remember(startTime, endTime) {
@@ -1000,66 +1082,22 @@ fun VlhSetupConfigScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Start Time Selection Dropdown Box
-                    ExposedDropdownMenuBox(
-                        expanded = startExpanded,
-                        onExpandedChange = { startExpanded = !startExpanded },
+                    VlhTimePickerDropdown(
+                        value = startTime,
+                        onValueChange = { startTime = it },
+                        label = stringResource(R.string.common_start),
+                        options = timeOptions,
                         modifier = Modifier.weight(1f)
-                    ) {
-                        OutlinedTextField(
-                            readOnly = true,
-                            value = startTime,
-                            onValueChange = {},
-                            label = { Text(stringResource(R.string.common_start)) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = startExpanded) },
-                            modifier = Modifier.menuAnchor()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = startExpanded,
-                            onDismissRequest = { startExpanded = false }
-                        ) {
-                            timeOptions.forEach { selection ->
-                                DropdownMenuItem(
-                                    text = { Text(selection) },
-                                    onClick = {
-                                        startTime = selection
-                                        startExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    )
 
-                    // End Time Selection Dropdown Box
-                    ExposedDropdownMenuBox(
-                        expanded = endExpanded,
-                        onExpandedChange = { endExpanded = !endExpanded },
+                    VlhTimePickerDropdown(
+                        value = endTime,
+                        onValueChange = { endTime = it },
+                        label = stringResource(R.string.common_end),
+                        options = timeOptions,
+                        isError = !isValidRange,
                         modifier = Modifier.weight(1f)
-                    ) {
-                        OutlinedTextField(
-                            readOnly = true,
-                            value = endTime,
-                            onValueChange = {},
-                            label = { Text(stringResource(R.string.common_end)) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = endExpanded) },
-                            isError = !isValidRange, // Visual cue if range is inverted
-                            modifier = Modifier.menuAnchor()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = endExpanded,
-                            onDismissRequest = { endExpanded = false }
-                        ) {
-                            timeOptions.forEach { selection ->
-                                DropdownMenuItem(
-                                    text = { Text(selection) },
-                                    onClick = {
-                                        endTime = selection
-                                        endExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    )
                 }
 
                 if (!isValidRange) {
@@ -1377,7 +1415,6 @@ private fun downloadAllProjections(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OperationalScanResultsView(
     scannedGcsList: SnapshotStateList<Int>,
@@ -1635,10 +1672,31 @@ fun VlhColumnEditorScreen(
         mutableStateListOf<Int>().apply { addAll(column.scannedRows) }
     }
 
+    var showTimePickerDialog by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.vlh_edit_column_title, column.id + 1, column.name), style = MaterialTheme.typography.titleMedium) },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable { showTimePickerDialog = true }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.vlh_edit_column_title, column.id + 1, column.name),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = stringResource(R.string.vlh_adjust_time_bounds),
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.vlh_discard_changes))
@@ -1867,6 +1925,92 @@ fun VlhColumnEditorScreen(
                     )
                 }
             }
+        }
+
+        if (showTimePickerDialog) {
+            val timeOptions = remember {
+                List(49) { index ->
+                    val hour = index / 2
+                    val minute = if (index % 2 == 0) "00" else "30"
+                    String.format(Locale.ROOT, "%02d:%s", hour, minute)
+                }
+            }
+
+            var startTime by remember(column.name) {
+                mutableStateOf(column.name.split("-").firstOrNull()?.trim() ?: "05:00")
+            }
+            var endTime by remember(column.name) {
+                mutableStateOf(column.name.split("-").lastOrNull()?.trim() ?: "08:00")
+            }
+
+            val isValidRange = remember(startTime, endTime) {
+                val startIdx = timeOptions.indexOf(startTime)
+                val endIdx = timeOptions.indexOf(endTime)
+                startIdx >= 0 && endIdx >= 0 && startIdx < endIdx
+            }
+
+            AlertDialog(
+                onDismissRequest = { showTimePickerDialog = false },
+                title = {
+                    Text(
+                        text = stringResource(R.string.vlh_adjust_time_bounds),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            VlhTimePickerDropdown(
+                                value = startTime,
+                                onValueChange = { startTime = it },
+                                label = stringResource(R.string.common_start),
+                                options = timeOptions,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            VlhTimePickerDropdown(
+                                value = endTime,
+                                onValueChange = { endTime = it },
+                                label = stringResource(R.string.common_end),
+                                options = timeOptions,
+                                isError = !isValidRange,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        if (!isValidRange) {
+                            Text(
+                                text = stringResource(R.string.vlh_invalid_time_range),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val newTimeSpan = "$startTime- $endTime"
+                            coordinator.updateColumnName(newTimeSpan)
+                            showTimePickerDialog = false
+                        },
+                        enabled = isValidRange
+                    ) {
+                        Text(stringResource(R.string.common_save))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showTimePickerDialog = false }) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                }
+            )
         }
     }
 }
