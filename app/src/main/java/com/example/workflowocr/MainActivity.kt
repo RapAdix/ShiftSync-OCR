@@ -604,8 +604,7 @@ private fun AppNavigationDrawer(
                     )
                     Screen.VLH_MANAGEMENT -> {
                         VlhManagementScreen(
-                            backgroundScope = scope,
-                            onBackToMainHub = { coordinator.navigateTo(Screen.SCAN_HUB) }
+                            backgroundScope = scope
                         )
                     }
                     Screen.TABLE_RESULTS -> TableResultsScreen(

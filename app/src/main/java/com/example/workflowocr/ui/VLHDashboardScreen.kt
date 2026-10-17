@@ -88,6 +88,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -167,8 +168,7 @@ data class VlhTableState(
          * representing hours to easily check which hour falls into which column config loop.
          */
         fun containsHour(timeframe: String, hour: Int): Boolean {
-            if (!isValidTimeframe(timeframe)) return false
-            return try {
+            return isValidTimeframe(timeframe) && try {
                 val parts = timeframe.split("-").map { it.trim() }
                 val startHour = parts[0].split(":")[0].toInt()
                 val endHour = parts[1].split(":")[0].toInt()
@@ -249,7 +249,6 @@ class VlhWorkflowCoordinator(
     private val viewModel: TableViewModel,
     private val backgroundScope: CoroutineScope
 ) {
-    private val minimumRowsReturnedByOcrColumn: Int = 8
     // Core Persistent Storage State Structures
     var weekdayTable by mutableStateOf(VlhTableState(DayType.WEEKDAY))
     var weekendTable by mutableStateOf(VlhTableState(DayType.WEEKEND))
@@ -271,14 +270,6 @@ class VlhWorkflowCoordinator(
     var targetingDayType by mutableStateOf<DayType?>(null)
     var targetingColumnId by mutableStateOf<Int?>(null)
 
-    // Tracks if the camera capture session is processing a structural Master Table configuration,
-    // or scanning an external standalone operational document block
-    var isConfiguringMasterTable by mutableStateOf(true)
-
-    // Temporary holders for the standalone operational scan document workflow
-    val scannedGcsList: SnapshotStateList<Int> = mutableStateListOf()
-    var selectedStartHour by mutableStateOf(viewModel.universalSettings.workplaceOpeningTime) // Default starting alignment offset
-
     var lastCapturedBitmap by mutableStateOf<Bitmap?>(null)
 
     /**
@@ -287,20 +278,11 @@ class VlhWorkflowCoordinator(
     fun initiateColumnUpdate(dayType: DayType, columnId: Int, openCameraAction: () -> Unit) {
         targetingDayType = dayType
         targetingColumnId = columnId
-        isConfiguringMasterTable = true
         openCameraAction()
     }
 
     /**
-     * Triggers the independent execution scanning pipeline context
-     */
-    fun initiateExternalTableProcessing(openCameraAction: () -> Unit) {
-        isConfiguringMasterTable = false
-        openCameraAction()
-    }
-
-    /**
-     * Differentiate for VLH table update and for calculating people needed depending on the GC's and the VLH
+     * Processes single-column cropping and OCR row extraction to update the targeted VLH column.
      */
     fun handleCapturedImage(bitmap: Bitmap, onProcessingComplete: () -> Unit) {
         // Calculate coordinates relative to the resolution dimensions of the incoming bitmap image proxy
@@ -317,56 +299,30 @@ class VlhWorkflowCoordinator(
         val croppedColumn = Bitmap.createBitmap(bitmap, targetX, targetY, targetW, targetH)
         lastCapturedBitmap = croppedColumn
 
-        if (isConfiguringMasterTable) {
-            val day = targetingDayType ?: return
-            val colId = targetingColumnId ?: return
+        val day = targetingDayType ?: return
+        val colId = targetingColumnId ?: return
 
-            // Use the long-lived background scope so this block survives screen swaps safely
-            backgroundScope.launch {
-                val integerRowsList = withContext(Dispatchers.IO) {
-                    TextProcessor.extractAndExtrapolateIntRows(bitmap, x, y, w, h)
-                }
-
-                val currentTable = if (day == DayType.WEEKDAY) weekdayTable else weekendTable
-
-                // Unidirectional updates: Update column configurations inside our immutable list data model
-                val updatedColumns = currentTable.columns.map { column ->
-                    if (column.id == colId) column.copy(scannedRows = integerRowsList) else column
-                }
-                val updatedTable = currentTable.copy(columns = updatedColumns)
-
-                viewModel.storageManager.saveVlhTable(updatedTable)
-
-                // Reset tracking context safely on the main thread after processing yields results
-                withContext(Dispatchers.Main) {
-                    targetingDayType = null
-                    targetingColumnId = null
-                    onProcessingComplete()
-                }
+        // Use the long-lived background scope so this block survives screen swaps safely
+        backgroundScope.launch {
+            val integerRowsList = withContext(Dispatchers.IO) {
+                TextProcessor.extractAndExtrapolateIntRows(bitmap, x, y, w, h)
             }
-        } else {
-            backgroundScope.launch {
-                val extractedDigits = withContext(Dispatchers.IO) {
-                    val rows = TextProcessor.extractAndExtrapolateIntRows(bitmap, x, y, w, h)
-                    if (rows.size < minimumRowsReturnedByOcrColumn) {
-                        // If it is a picture of a computer screen -> try this denoising
-                        val cleanedBitmap = ImageProcessor.reduceMoireNoise(croppedColumn, true)
-                        val rowsCleaned = TextProcessor.extractAndExtrapolateIntRows(cleanedBitmap, 0, 0, cleanedBitmap.width, cleanedBitmap.height)
-                        if (rows.size > rowsCleaned.size) rows else rowsCleaned
-                    } else {
-                        rows
-                    }
-                }
 
-                withContext(Dispatchers.Main) {
-                    // Save the raw text numbers into memory
-                    scannedGcsList.clear()
-                    scannedGcsList.addAll(extractedDigits)
+            val currentTable = if (day == DayType.WEEKDAY) weekdayTable else weekendTable
 
-                    targetingDayType = null
-                    targetingColumnId = null
-                    onProcessingComplete()
-                }
+            // Unidirectional updates: Update column configurations inside our immutable list data model
+            val updatedColumns = currentTable.columns.map { column ->
+                if (column.id == colId) column.copy(scannedRows = integerRowsList) else column
+            }
+            val updatedTable = currentTable.copy(columns = updatedColumns)
+
+            viewModel.storageManager.saveVlhTable(updatedTable)
+
+            // Reset tracking context safely on the main thread after processing yields results
+            withContext(Dispatchers.Main) {
+                targetingDayType = null
+                targetingColumnId = null
+                onProcessingComplete()
             }
         }
     }
@@ -430,10 +386,6 @@ class VlhWorkflowCoordinator(
         backgroundScope.launch {
             viewModel.storageManager.saveVlhTable(updatedTable)
         }
-    }
-
-    fun activeVlh(): VlhTableState {
-        return if (activeDisplayTab == DayType.WEEKDAY) weekdayTable else weekendTable
     }
 
     // Full VLH Table Scanning State
@@ -530,7 +482,6 @@ private enum class VlhSubScreen {
     COLUMN_CAMERA_SCANNER, // Custom camera screen with a highlighted rectangle for fitting one table column
     DASHBOARD,             // Screen with VLH's tables and a button to read projected GCs
     SETUP_UTILITY,
-    OPERATIONAL_REPORTS,   // Crew Required screen
     COLUMN_EDITOR,         // Edit VLH column manually
     IMAGE_DISPLAY,         // Show recently captured image for debug purposes
     PROJECTION_HISTORY     // Display all stored projections and let user edit them
@@ -538,8 +489,7 @@ private enum class VlhSubScreen {
 
 @Composable
 fun VlhManagementScreen(
-    backgroundScope: CoroutineScope,
-    onBackToMainHub: () -> Unit
+    backgroundScope: CoroutineScope
 ) {
     val viewModel = LocalTableViewModel.current
     val coordinator = remember { VlhWorkflowCoordinator(viewModel, backgroundScope) }
@@ -607,7 +557,6 @@ fun VlhManagementScreen(
         VlhSubScreen.DASHBOARD -> {
             VlhDashboardScreen(
                 coordinator = coordinator,
-                onNavigateToCamera = { internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER },
                 onNavigateToFullVlhCamera = { launchSystemCameraForVlh() },
                 onNavigateToSetup = { internalScreen = VlhSubScreen.SETUP_UTILITY },
                 onColumnClicked = { dayType, columnId ->
@@ -615,8 +564,8 @@ fun VlhManagementScreen(
                     coordinator.editingColumnId = columnId
                     internalScreen = VlhSubScreen.COLUMN_EDITOR
                 },
-                onNavigateToImageInspection = {internalScreen = VlhSubScreen.IMAGE_DISPLAY},
-                onNavigateToProjectionHistory = {internalScreen = VlhSubScreen.PROJECTION_HISTORY}
+                onNavigateToImageInspection = { internalScreen = VlhSubScreen.IMAGE_DISPLAY },
+                onNavigateToProjectionHistory = { internalScreen = VlhSubScreen.PROJECTION_HISTORY }
             )
         }
         VlhSubScreen.SETUP_UTILITY -> VlhSetupConfigScreen(
@@ -628,27 +577,10 @@ fun VlhManagementScreen(
             CameraScreen(
                 onImageCaptured = { bitmap ->
                     coordinator.handleCapturedImage(bitmap) {
-                        // Execution callback: Redirect UI paths based on active processing engine selection
-                        if (coordinator.isConfiguringMasterTable) {
-                            internalScreen = VlhSubScreen.DASHBOARD
-                        } else {
-                            internalScreen = VlhSubScreen.OPERATIONAL_REPORTS
-                        }
+                        internalScreen = VlhSubScreen.DASHBOARD
                     }
                 },
                 onBackClicked = { internalScreen = VlhSubScreen.DASHBOARD }
-            )
-        }
-        VlhSubScreen.OPERATIONAL_REPORTS -> {
-            OperationalScanResultsView(
-                scannedGcsList = coordinator.scannedGcsList,
-                selectedStartHour = coordinator.selectedStartHour,
-                onStartHourChange = { updatedHour -> coordinator.selectedStartHour = updatedHour },
-                activeVlhState = coordinator.activeVlh(),
-                onDismiss = {
-                    internalScreen = VlhSubScreen.DASHBOARD
-                    coordinator.scannedGcsList.clear()
-                }
             )
         }
         VlhSubScreen.COLUMN_EDITOR -> {
@@ -680,7 +612,6 @@ fun VlhManagementScreen(
 @Composable
 fun VlhDashboardScreen(
     coordinator: VlhWorkflowCoordinator,
-    onNavigateToCamera: () -> Unit,
     onNavigateToFullVlhCamera: () -> Unit,
     onNavigateToSetup: () -> Unit,
     onColumnClicked: (DayType, Int) -> Unit,
@@ -1012,7 +943,7 @@ fun VlhSetupConfigScreen(
     onBack: () -> Unit
 ) {
     var selectedDay by remember { mutableStateOf(coordinator.activeDisplayTab) }
-    var selectedColId by remember { mutableStateOf(0) }
+    var selectedColId by remember { mutableIntStateOf(0) }
 
     val targetTable = if (selectedDay == DayType.WEEKDAY) coordinator.weekdayTable else coordinator.weekendTable
     val activeCol = targetTable.columns[selectedColId]
@@ -1146,7 +1077,7 @@ fun ProjectionHistoryReviewScreen(
 
     // 1. Prefetch DayProjectionData records from storage on initialization
     // wrapped in a key counter state so we can trigger a soft recomposition UI refresh on download success
-    var cacheRefreshTrigger by remember { mutableStateOf(0) }
+    var cacheRefreshTrigger by remember { mutableIntStateOf(0) }
     val historicProjectionsCache = remember(cacheRefreshTrigger) {
         viewModel.storageManager.prefetchAllAvailableProjections()
     }
@@ -1157,7 +1088,7 @@ fun ProjectionHistoryReviewScreen(
     }
 
     // Active selection tracking indexes
-    var selectedDateIndex by remember { mutableStateOf(0) }
+    var selectedDateIndex by remember { mutableIntStateOf(0) }
     val activeDateKey = availableDates.getOrNull(selectedDateIndex)
 
     // Track dynamic DayType (isWeekend) modifications using a mutable snapshot state map
@@ -1438,7 +1369,7 @@ fun OperationalScanResultsView(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
-                // TIME OFFSET SCROLLER: Let's users shift hours forward or backward
+                // TIME OFFSET SCROLLER: Lets users shift hours forward or backward
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -2180,7 +2111,6 @@ fun VlhImageInspectionScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScanVlhSetupDialog(
     initialDayType: DayType,
