@@ -178,6 +178,36 @@ class StorageManager(private val context: Context) {
     }
 
     /**
+     * Wipes all user-generated schedules, snippets, projections, and scanned VLH tables when rolling
+     * back to Demo Mode, while keeping UniversalSettings, PresetType, and TableLayout intact.
+     */
+    suspend fun clearAllUserDataExceptSettings() {
+        // 1. Delete all date directories and loose files under files/data/
+        val dataDir = getDataDir()
+        if (dataDir.exists() && dataDir.isDirectory && !Files.isSymbolicLink(dataDir.toPath())) {
+            val root = dataDir.canonicalFile
+            root.listFiles().orEmpty().forEach { entry ->
+                try {
+                    if (Files.isSymbolicLink(entry.toPath()) || entry.canonicalFile.parentFile != root) return@forEach
+                    if (entry.isDirectory) {
+                        deleteDirectoryRecursively(root, entry.name)
+                    } else if (entry.isFile) {
+                        Files.delete(entry.toPath())
+                    }
+                } catch (e: Exception) {
+                    Log.e("Storage", "Failed to delete entry during rollback to demo: ${entry.name}", e)
+                }
+            }
+        }
+
+        // 2. Remove stored VLH tables from DataStore (leaving UNIVERSAL_JSON_KEY, PRESET_TYPE_KEY, LAYOUT_JSON_KEY untouched)
+        context.dataStore.edit { preferences ->
+            preferences.remove(WEEKDAY_TABLE_KEY)
+            preferences.remove(WEEKEND_TABLE_KEY)
+        }
+    }
+
+    /**
      * Parses all directory date keys and drops records falling outside retention bounds:
      * - Must not be older than yesterday.
      * - Must not look into the future further than 1 month.

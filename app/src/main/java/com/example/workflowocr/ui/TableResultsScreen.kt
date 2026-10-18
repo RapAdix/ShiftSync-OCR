@@ -244,6 +244,24 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Deletes all saved schedules, snippets, projections, and scanned VLH tables, while
+     * preserving UniversalSettings and TableLayout presets. Used when rolling back to Demo Mode.
+     */
+    suspend fun resetUserDataPreservingSettings() = withContext(NonCancellable + Dispatchers.IO) {
+        dateStorageMutex.withLock {
+            storageManager.clearAllUserDataExceptSettings()
+            withContext(Dispatchers.Main) {
+                currentWorkingDate = null
+                extractedRows.clear()
+                _projectedGcs.clear()
+                isWeekend = false
+                editingRowId = null
+                _availableDates.value = emptyList()
+            }
+        }
+    }
+
     /** Once snippet writing starts, finish the whole save even if the scan is cancelled. */
     suspend fun saveExtractedScan(
         date: String,

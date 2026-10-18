@@ -86,6 +86,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.workflowocr.licensing.DeviceSlotReplacementDialog
+import com.example.workflowocr.licensing.LicenseLockoutScreen
+import com.example.workflowocr.licensing.LicenseManager
+import com.example.workflowocr.licensing.OrganizationSignInDialog
+import com.example.workflowocr.licensing.RollbackToDemoConfirmDialog
 import com.example.workflowocr.ui.theme.ShiftSyncTheme
 import com.example.workflowocr.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
@@ -97,6 +102,10 @@ import kotlinx.coroutines.launch
 // Create a provider holder. It throws an error if a screen tries to use it without initialization.
 val LocalTableViewModel = staticCompositionLocalOf<TableViewModel> {
     error("No TableViewModel provided! Wrap your content in CompositionLocalProvider.")
+}
+
+val LocalLicenseManager = staticCompositionLocalOf<LicenseManager> {
+    error("No LicenseManager provided! Wrap your content in CompositionLocalProvider.")
 }
 // Define the different "Planes" of application
 enum class Screen(@StringRes val titleRes: Int) {
@@ -118,10 +127,12 @@ class MainActivity : AppCompatActivity() {
     private val snackbarHostState = SnackbarHostState()
 
     private val tableViewModel: TableViewModel by viewModels()
+    private lateinit var licenseManager: LicenseManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppLanguage.initializeDefault()
+        licenseManager = LicenseManager(applicationContext, scope)
 
         // OpenCV Initialization
         System.loadLibrary("opencv_java4")
@@ -132,7 +143,10 @@ class MainActivity : AppCompatActivity() {
         val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.secret_sample_7_nodpi)
 
         setContent {
-            CompositionLocalProvider(LocalTableViewModel provides tableViewModel) {
+            CompositionLocalProvider(
+                LocalTableViewModel provides tableViewModel,
+                LocalLicenseManager provides licenseManager
+            ) {
                 ShiftSyncTheme {
                     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                     val composeScope = rememberCoroutineScope()
@@ -150,23 +164,57 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
 
-                    OcrLauncherBridge(
-                        onNavigate = { flowState = flowState.copy(currentScreen = it) },
-                        originalBitmap = originalBitmap,
-                        snackbarHostState = snackbarHostState
-                    ) { coordinator ->
-                        AppNavigationDrawer(
-                            drawerState = drawerState,
-                            state = flowState,
-                            coordinator = coordinator,
-                            availableDates = availableDates,
-                            tableViewModel = tableViewModel,
-                            composeScope = composeScope,
-                            onToggleSchedules = { flowState = flowState.copy(schedulesExpanded = !flowState.schedulesExpanded) },
-                            snackbarHostState = snackbarHostState,
-                            originalBitmap = originalBitmap,
-                            scope = scope
+                    // Global License Dialogs (Sign-In, Device Slot #1..#N Replacement Picker, Rollback Confirmation)
+                    if (licenseManager.showSignInDialog) {
+                        OrganizationSignInDialog(
+                            licenseManager = licenseManager,
+                            onDismiss = { licenseManager.showSignInDialog = false }
                         )
+                    }
+
+                    val slotsFull = licenseManager.pendingSlotsFull
+                    if (slotsFull != null) {
+                        DeviceSlotReplacementDialog(
+                            slotsFull = slotsFull,
+                            licenseManager = licenseManager,
+                            onDismiss = { licenseManager.pendingSlotsFull = null }
+                        )
+                    }
+
+                    if (licenseManager.showRollbackConfirmDialog) {
+                        RollbackToDemoConfirmDialog(
+                            licenseManager = licenseManager,
+                            onConfirmWipeAndRollback = {
+                                tableViewModel.resetUserDataPreservingSettings()
+                                flowState = MainNavigationState(currentScreen = Screen.SCAN_HUB)
+                            },
+                            onDismiss = { licenseManager.showRollbackConfirmDialog = false }
+                        )
+                    }
+
+                    // Root Access Gate: if signed in with an expired (>3d) or unverified (>3d) subscription,
+                    // hasDemoAccess() is false and the user cannot use any part of the app until resolved.
+                    if (licenseManager.isLoaded && !licenseManager.hasDemoAccess()) {
+                        LicenseLockoutScreen(licenseManager = licenseManager)
+                    } else {
+                        OcrLauncherBridge(
+                            onNavigate = { flowState = flowState.copy(currentScreen = it) },
+                            originalBitmap = originalBitmap,
+                            snackbarHostState = snackbarHostState
+                        ) { coordinator ->
+                            AppNavigationDrawer(
+                                drawerState = drawerState,
+                                state = flowState,
+                                coordinator = coordinator,
+                                availableDates = availableDates,
+                                tableViewModel = tableViewModel,
+                                composeScope = composeScope,
+                                onToggleSchedules = { flowState = flowState.copy(schedulesExpanded = !flowState.schedulesExpanded) },
+                                snackbarHostState = snackbarHostState,
+                                originalBitmap = originalBitmap,
+                                scope = scope
+                            )
+                        }
                     }
                 }
             }
@@ -201,6 +249,7 @@ fun OcrLauncherBridge(
 ) {
     val context = LocalContext.current
     val tableViewModel = LocalTableViewModel.current
+    val licenseManager = LocalLicenseManager.current
     val scope = rememberCoroutineScope()
     var tempImageUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -208,7 +257,7 @@ fun OcrLauncherBridge(
     var triggerCameraLaunch: (() -> Unit)? by remember { mutableStateOf(null) }
 
     // 2. Create the stable, self-contained Coordinator instance
-    val coordinator = remember(context, originalBitmap, snackbarHostState, tableViewModel) {
+    val coordinator = remember(context, originalBitmap, snackbarHostState, tableViewModel, licenseManager) {
         OcrFlowCoordinator(
             context = context,
             onNavigate = onNavigate,
@@ -216,7 +265,8 @@ fun OcrLauncherBridge(
             originalBitmap = originalBitmap,
             scope = scope,
             tableViewModel = tableViewModel,
-            snackbarHostState = snackbarHostState
+            snackbarHostState = snackbarHostState,
+            licenseManager = licenseManager
         )
     }
 

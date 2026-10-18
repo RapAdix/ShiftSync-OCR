@@ -7,6 +7,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.example.workflowocr.licensing.LicenseManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +25,8 @@ class OcrFlowCoordinator(
     private val originalBitmap: Bitmap,
     private val scope: CoroutineScope,
     private val tableViewModel: TableViewModel,
-    private val snackbarHostState: SnackbarHostState
+    private val snackbarHostState: SnackbarHostState,
+    private val licenseManager: LicenseManager? = null
 ) {
     var isDebugCapture by mutableStateOf(false)
         private set
@@ -102,6 +104,10 @@ class OcrFlowCoordinator(
     }
 
     fun onScanRequest() {
+        if (licenseManager != null && !licenseManager.hasSubscriptionAccess()) {
+            licenseManager.showSignInDialog = true
+            return
+        }
         this.isDebugCapture = false
         val enabledPages = tableViewModel.universalSettings.enabledScanPages
         if (enabledPages.size > 1) {
@@ -113,6 +119,11 @@ class OcrFlowCoordinator(
     }
 
     fun onPageSelected(pageType: ScanPageType) {
+        if (licenseManager != null && !licenseManager.hasSubscriptionAccess()) {
+            this.showPagePicker = false
+            licenseManager.showSignInDialog = true
+            return
+        }
         this.activeScanningPage = pageType
         this.showPagePicker = false
         onTriggerCameraLaunch()
@@ -123,6 +134,10 @@ class OcrFlowCoordinator(
     }
 
     fun onDebugScanRequest() {
+        if (licenseManager != null && !licenseManager.hasSubscriptionAccess()) {
+            licenseManager.showSignInDialog = true
+            return
+        }
         this.isDebugCapture = true
         onTriggerCameraLaunch()
     }
@@ -156,6 +171,9 @@ class OcrFlowCoordinator(
     }
 
     fun onStubRequest() {
+        if (licenseManager != null && !licenseManager.hasDemoAccess()) {
+            return
+        }
         val bitmapToProcess = (this.capturedBitmap ?: originalBitmap).also {
             this.capturedBitmap = it
         }
@@ -179,6 +197,11 @@ class OcrFlowCoordinator(
     }
 
     fun onRedoClicked() {
+        if (licenseManager != null && !licenseManager.hasSubscriptionAccess()) {
+            navigateTo(Screen.SCAN_HUB)
+            licenseManager.showSignInDialog = true
+            return
+        }
         navigateTo(Screen.SCAN_HUB)
         onTriggerCameraLaunch()
     }

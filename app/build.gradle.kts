@@ -34,24 +34,32 @@ android {
 
     flavorDimensions.add("version")
 
+    val localProperties = Properties()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localProperties.load(FileInputStream(localPropertiesFile))
+    }
+    val licenseServerUrl = localProperties.getProperty(
+        "LICENSE_SERVER_URL",
+        "https://shiftsync-licensing.example.workers.dev"
+    )
+
     productFlavors {
         create("internal") {
             dimension = "version"
             applicationIdSuffix = ".internal"
             versionNameSuffix = "-internal"
             manifestPlaceholders += mapOf("manifestAppName" to "ShiftSync INTERNAL")
+            buildConfigField("boolean", "IS_INTERNAL_FLAVOR", "true")
+            buildConfigField("String", "LICENSE_SERVER_URL", "\"$licenseServerUrl\"")
         }
 
         create("production") {
             dimension = "version"
             manifestPlaceholders += mapOf("manifestAppName" to "ShiftSync")
+            buildConfigField("boolean", "IS_INTERNAL_FLAVOR", "false")
+            buildConfigField("String", "LICENSE_SERVER_URL", "\"$licenseServerUrl\"")
         }
-    }
-
-    val localProperties = Properties()
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        localProperties.load(FileInputStream(localPropertiesFile))
     }
 
     signingConfigs {
@@ -84,6 +92,7 @@ android {
     buildFeatures {
         compose = true
         viewBinding = true
+        buildConfig = true
     }
     externalNativeBuild {
         ndkBuild {

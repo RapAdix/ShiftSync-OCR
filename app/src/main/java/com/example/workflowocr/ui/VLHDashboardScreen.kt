@@ -492,6 +492,7 @@ fun VlhManagementScreen(
     backgroundScope: CoroutineScope
 ) {
     val viewModel = LocalTableViewModel.current
+    val licenseManager = LocalLicenseManager.current
     val coordinator = remember { VlhWorkflowCoordinator(viewModel, backgroundScope) }
     val context = LocalContext.current
 
@@ -533,17 +534,19 @@ fun VlhManagementScreen(
     }
 
     fun launchSystemCameraForVlh() {
-        val hasPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
+        licenseManager.guardSubscriptionAction {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
 
-        if (hasPermission) {
-            val uri = StorageManager.ImageUtils.createTempImageUri(context)
-            tempImageUri = uri
-            cameraLauncher.launch(uri)
-        } else {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
+            if (hasPermission) {
+                val uri = StorageManager.ImageUtils.createTempImageUri(context)
+                tempImageUri = uri
+                cameraLauncher.launch(uri)
+            } else {
+                permissionLauncher.launch(Manifest.permission.CAMERA)
+            }
         }
     }
 
@@ -570,7 +573,11 @@ fun VlhManagementScreen(
         }
         VlhSubScreen.SETUP_UTILITY -> VlhSetupConfigScreen(
             coordinator = coordinator,
-            onLaunchCamera = { internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER },
+            onLaunchCamera = {
+                licenseManager.guardSubscriptionAction {
+                    internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER
+                }
+            },
             onBack = { internalScreen = VlhSubScreen.DASHBOARD }
         )
         VlhSubScreen.COLUMN_CAMERA_SCANNER -> {
@@ -592,7 +599,9 @@ fun VlhManagementScreen(
                     internalScreen = VlhSubScreen.DASHBOARD
                 },
                 onLaunchCamera = {
-                    internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER
+                    licenseManager.guardSubscriptionAction {
+                        internalScreen = VlhSubScreen.COLUMN_CAMERA_SCANNER
+                    }
                 }
             )
         }

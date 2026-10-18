@@ -39,12 +39,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.workflowocr.licensing.LicenseSettingsSectionCard
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: TableViewModel) {
     val activePreset = viewModel.activePresetType
     val currentLayout = viewModel.activeLayout
     val universalSettings = viewModel.universalSettings
+    val licenseManager = LocalLicenseManager.current
     val scrollState = rememberScrollState()
     val selectedLanguage = AppLanguage.fromLanguageCode(LocalConfiguration.current.locales[0]?.language)
 
@@ -55,6 +58,9 @@ fun SettingsScreen(viewModel: TableViewModel) {
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // --- SECTION 0: ORGANIZATION LICENSE & DEVICE SLOT (#1..#N) ---
+        LicenseSettingsSectionCard(licenseManager = licenseManager)
+
         // --- SECTION 1: GLOBAL FACILITY TIMINGS ---
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

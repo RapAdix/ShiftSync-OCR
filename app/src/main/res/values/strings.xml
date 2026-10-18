@@ -38,4 +38,38 @@
     <string name="nav_screen_vlh">VLH Management</string>
     <string name="nav_screen_settings">Settings</string>
     <string name="nav_screen_about">About</string>
+
+    <!-- Organization Licensing & Device Seat Management -->
+    <string name="license_settings_header">Organization License &amp; Device Slot</string>
+    <string name="license_device_slot_badge">Device #%1$d of %2$d</string>
+    <string name="license_device_name_label">Registered as: %1$s</string>
+    <string name="license_paid_until_label">Subscription valid until: %1$s</string>
+    <string name="license_last_verified_label">Last online check: %1$s</string>
+    <string name="license_demo_mode_status">Demo Mode — You can test with \"Use last image\". Sign in with your organization credentials to scan new pages.</string>
+    <string name="license_sign_in_title">Organization Sign-In</string>
+    <string name="license_sign_in_subtitle">Enter your organization code and license key to activate scanning on this device.</string>
+    <string name="license_org_code_label">Organization Code</string>
+    <string name="license_password_label">License Key / Password</string>
+    <string name="license_device_nickname_label">Device Nickname (optional)</string>
+    <string name="license_device_nickname_placeholder">e.g. Kitchen, Office, Manager</string>
+    <string name="license_sign_in_button">Sign In</string>
+    <string name="license_verify_now_button">Verify License Online</string>
+    <string name="license_switch_account_button">Sign In to Another Account</string>
+    <string name="license_rollback_to_demo_button">Rollback to Demo Mode (Deletes Saved Data)</string>
+    <string name="license_rollback_short_button">Rollback to Demo</string>
+    <string name="license_slots_full_title">All %1$d Device Slots In Use</string>
+    <string name="license_slots_full_description">%1$s has reached its limit of %2$d active devices. Choose which device number to log out and replace with this phone:</string>
+    <string name="license_slot_last_active">Last active: %1$s</string>
+    <string name="license_replace_slot_button">Log Out &amp; Take Device #%1$d</string>
+    <string name="license_rollback_title">Rollback to Demo Mode?</string>
+    <string name="license_rollback_message">Rolling back to Demo Mode will sign out this device and permanently delete all saved schedules, employee snippets, projections, and scanned VLH tables. Your workplace and layout settings will be kept.</string>
+    <string name="license_rollback_confirm_button">Delete Data &amp; Rollback</string>
+    <string name="license_lock_expired_title">Subscription Expired</string>
+    <string name="license_lock_expired_body">Your organization\'s paid period ended more than 3 days ago. Please renew your contract and tap Verify, sign in to another account, or rollback to Demo Mode.</string>
+    <string name="license_lock_offline_title">Online Verification Required</string>
+    <string name="license_lock_offline_body">This device has not verified its license online in over 3 days. Please connect to the internet and tap Verify License Online.</string>
+    <string name="license_lock_clock_title">System Clock Change Detected</string>
+    <string name="license_lock_clock_body">Your device clock appears to have been moved backward. Please connect to the internet and tap Verify License Online to restore access.</string>
+    <string name="license_lock_revoked_title">Device Slot Reassigned</string>
+    <string name="license_lock_revoked_body">Another phone took over this device slot in your organization. Sign in again to claim a slot or rollback to Demo Mode.</string>
 </resources>

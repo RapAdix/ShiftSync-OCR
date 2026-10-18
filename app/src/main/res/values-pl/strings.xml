@@ -38,4 +38,38 @@
     <string name="nav_screen_vlh">Zarządzanie VLH</string>
     <string name="nav_screen_settings">Ustawienia</string>
     <string name="nav_screen_about">O aplikacji</string>
+
+    <!-- Organization Licensing & Device Seat Management -->
+    <string name="license_settings_header">Licencja organizacji i numer urządzenia</string>
+    <string name="license_device_slot_badge">Urządzenie #%1$d z %2$d</string>
+    <string name="license_device_name_label">Zarejestrowano jako: %1$s</string>
+    <string name="license_paid_until_label">Subskrypcja ważna do: %1$s</string>
+    <string name="license_last_verified_label">Ostatnia weryfikacja online: %1$s</string>
+    <string name="license_demo_mode_status">Tryb Demo — Możesz przetestować aplikację przyciskiem „Użyj ostatniego zdjęcia”. Zaloguj się na konto organizacji, aby skanować nowe strony.</string>
+    <string name="license_sign_in_title">Logowanie organizacji</string>
+    <string name="license_sign_in_subtitle">Wprowadź kod organizacji oraz klucz licencyjny, aby aktywować skanowanie na tym urządzeniu.</string>
+    <string name="license_org_code_label">Kod organizacji</string>
+    <string name="license_password_label">Klucz licencyjny / Hasło</string>
+    <string name="license_device_nickname_label">Nazwa pomocnicza urządzenia (opcjonalnie)</string>
+    <string name="license_device_nickname_placeholder">np. Kuchnia, Biuro, Kierownik</string>
+    <string name="license_sign_in_button">Zaloguj się</string>
+    <string name="license_verify_now_button">Zweryfikuj licencję online</string>
+    <string name="license_switch_account_button">Zaloguj na inne konto</string>
+    <string name="license_rollback_to_demo_button">Wróć do trybu Demo (Usuwa zapisane dane)</string>
+    <string name="license_rollback_short_button">Powrót do Demo</string>
+    <string name="license_slots_full_title">Wszystkie %1$d miejsca są zajęte</string>
+    <string name="license_slots_full_description">Organizacja %1$s osiągnęła limit %2$d aktywnych urządzeń. Wybierz numer urządzenia, które chcesz wylogować i zastąpić tym telefonem:</string>
+    <string name="license_slot_last_active">Ostatnia aktywność: %1$s</string>
+    <string name="license_replace_slot_button">Wyloguj i przejmij Urządzenie #%1$d</string>
+    <string name="license_rollback_title">Wrócić do trybu Demo?</string>
+    <string name="license_rollback_message">Powrót do trybu Demo wyloguje to urządzenie i trwale usunie wszystkie zapisane grafiki, wycinki zdjęć, projekcje oraz zeskanowane tabele VLH. Ustawienia godzin pracy i układu tabeli zostaną zachowane.</string>
+    <string name="license_rollback_confirm_button">Usuń dane i wróć do Demo</string>
+    <string name="license_lock_expired_title">Subskrypcja wygasła</string>
+    <string name="license_lock_expired_body">Opłacony okres dla Twojej organizacji zakończył się ponad 3 dni temu. Odnów subskrypcję i kliknij Zweryfikuj, zaloguj się na inne konto lub wróć do trybu Demo.</string>
+    <string name="license_lock_offline_title">Wymagana weryfikacja online</string>
+    <string name="license_lock_offline_body">To urządzenie nie weryfikowało licencji przez internet od ponad 3 dni. Połącz się z internetem i kliknij Zweryfikuj licencję online.</string>
+    <string name="license_lock_clock_title">Wykryto cofnięcie zegara systemowego</string>
+    <string name="license_lock_clock_body">Zegar systemowy urządzenia został cofnięty. Połącz się z internetem i kliknij Zweryfikuj licencję online, aby przywrócić dostęp.</string>
+    <string name="license_lock_revoked_title">Miejsce urządzenia zostało przejęte</string>
+    <string name="license_lock_revoked_body">Inny telefon przejął ten numer urządzenia w Twojej organizacji. Zaloguj się ponownie lub wróć do trybu Demo.</string>
 </resources>
