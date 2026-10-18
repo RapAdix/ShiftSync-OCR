@@ -96,12 +96,12 @@ class LicenseManager(
     private val scope: CoroutineScope
 ) {
     companion object {
-        const val THREE_DAYS_MILLIS: Long = 3L * 24L * 60L * 60L * 1000L
+        internal const val THREE_DAYS_MILLIS: Long = 3L * 24L * 60L * 60L * 1000L
         private const val CLOCK_ROLLBACK_TOLERANCE_MILLIS: Long = 15L * 60L * 1000L // 15 min tolerance for NTP adjustments
         private val STATE_KEY = stringPreferencesKey("stored_license_state_v1")
         private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-        fun defaultDeviceModelName(): String {
+        internal fun defaultDeviceModelName(): String {
             val manufacturer = Build.MANUFACTURER?.trim().orEmpty()
             val model = Build.MODEL?.trim().orEmpty()
             return if (model.startsWith(manufacturer, ignoreCase = true)) {
@@ -111,7 +111,7 @@ class LicenseManager(
             }.ifBlank { "Android Device" }
         }
 
-        fun evaluateStateLockReason(
+        internal fun evaluateStateLockReason(
             current: StoredLicenseState,
             nowWallMillis: Long,
             currentElapsedRealtimeMillis: Long
@@ -156,7 +156,7 @@ class LicenseManager(
             return LicenseLockReason.NONE
         }
 
-        fun evaluateHasSubscriptionAccess(
+        internal fun evaluateHasSubscriptionAccess(
             current: StoredLicenseState,
             nowWallMillis: Long,
             currentElapsedRealtimeMillis: Long
@@ -170,7 +170,7 @@ class LicenseManager(
             return evaluateStateLockReason(current, nowWallMillis, currentElapsedRealtimeMillis) == LicenseLockReason.NONE
         }
 
-        fun evaluateHasDemoAccess(
+        internal fun evaluateHasDemoAccess(
             current: StoredLicenseState,
             nowWallMillis: Long,
             currentElapsedRealtimeMillis: Long
@@ -184,6 +184,8 @@ class LicenseManager(
             return evaluateHasSubscriptionAccess(current, nowWallMillis, currentElapsedRealtimeMillis)
         }
     }
+
+    private val loadedDeferred = kotlinx.coroutines.CompletableDeferred<Unit>()
 
     var state by mutableStateOf(
         StoredLicenseState(
@@ -216,6 +218,13 @@ class LicenseManager(
         }
     }
 
+    /**
+     * Suspends until the initial license state has been loaded from disk.
+     */
+    suspend fun awaitLoaded() {
+        loadedDeferred.await()
+    }
+
     private suspend fun loadFromDisk() {
         try {
             val prefs = context.licenseDataStore.data.first()
@@ -237,23 +246,29 @@ class LicenseManager(
                     internalStubActive = BuildConfig.IS_INTERNAL_FLAVOR
                 )
                 state = initial
-                saveState(initial)
+                writeStateToDisk(initial)
             }
         } catch (e: Exception) {
             Log.e("LicenseManager", "Failed to load license state", e)
         } finally {
             isLoaded = true
+            loadedDeferred.complete(Unit)
         }
     }
 
     private suspend fun saveState(newState: StoredLicenseState) {
+        awaitLoaded()
         val now = System.currentTimeMillis()
         val withClock = newState.copy(
             maxObservedWallClockMillis = maxOf(newState.maxObservedWallClockMillis, now)
         )
         state = withClock
+        writeStateToDisk(withClock)
+    }
+
+    private suspend fun writeStateToDisk(stateToWrite: StoredLicenseState) {
         context.licenseDataStore.edit { prefs ->
-            prefs[STATE_KEY] = json.encodeToString(withClock)
+            prefs[STATE_KEY] = json.encodeToString(stateToWrite)
         }
     }
 
@@ -265,6 +280,7 @@ class LicenseManager(
      * this returns true automatically so automated tests and developer workflows work out-of-the-box.
      */
     fun hasSubscriptionAccess(nowWallMillis: Long = System.currentTimeMillis()): Boolean {
+        if (!isLoaded) return false
         return evaluateHasSubscriptionAccess(state, nowWallMillis, SystemClock.elapsedRealtime())
     }
 
@@ -279,10 +295,12 @@ class LicenseManager(
      * or confirm rolling back to Demo Mode (which deletes all non-settings data).
      */
     fun hasDemoAccess(nowWallMillis: Long = System.currentTimeMillis()): Boolean {
+        if (!isLoaded) return false
         return evaluateHasDemoAccess(state, nowWallMillis, SystemClock.elapsedRealtime())
     }
 
     fun getLockReason(nowWallMillis: Long = System.currentTimeMillis()): LicenseLockReason {
+        if (!isLoaded) return LicenseLockReason.NONE
         val current = state
         if (BuildConfig.IS_INTERNAL_FLAVOR && current.internalStubActive) {
             return LicenseLockReason.NONE
@@ -297,6 +315,7 @@ class LicenseManager(
      * Checks if the user is in the 3-day post-expiration grace period (`paidUntil < now <= paidUntil + 3 days`).
      */
     fun isInExpiryGracePeriod(nowWallMillis: Long = System.currentTimeMillis()): Boolean {
+        if (!isLoaded) return false
         val current = state
         if (BuildConfig.IS_INTERNAL_FLAVOR && current.internalStubActive) return false
         if (!current.isSignedIn) return false
@@ -310,6 +329,7 @@ class LicenseManager(
      * If [hasSubscriptionAccess] is true, runs [action] immediately; otherwise opens the Sign-In dialog.
      */
     fun guardSubscriptionAction(action: () -> Unit) {
+        if (!isLoaded) return
         if (hasSubscriptionAccess()) {
             action()
         } else {
@@ -320,6 +340,7 @@ class LicenseManager(
     fun setInternalStubEnabled(enabled: Boolean) {
         if (!BuildConfig.IS_INTERNAL_FLAVOR) return
         scope.launch {
+            awaitLoaded()
             saveState(state.copy(internalStubActive = enabled))
         }
     }
@@ -328,6 +349,7 @@ class LicenseManager(
         val trimmed = newUrl.trim().trimEnd('/')
         if (trimmed.isBlank()) return
         scope.launch {
+            awaitLoaded()
             saveState(state.copy(serverBaseUrl = trimmed))
         }
     }
@@ -340,6 +362,7 @@ class LicenseManager(
         password: String,
         customNickname: String
     ): LoginOutcome = withContext(Dispatchers.IO) {
+        awaitLoaded()
         val cleanOrg = orgCode.trim().uppercase()
         val cleanPass = password.trim()
         val model = defaultDeviceModelName()
@@ -448,6 +471,7 @@ class LicenseManager(
         slotsFull: LoginOutcome.SlotsFull,
         chosenSlotNumber: Int
     ): LoginOutcome = withContext(Dispatchers.IO) {
+        awaitLoaded()
         try {
             val payload = JsonObject(
                 mapOf(
@@ -496,6 +520,7 @@ class LicenseManager(
      * Contacts `/api/v1/verify` to refresh `paidUntilMillis` and `lastVerifiedWallClockMillis`.
      */
     suspend fun verifyOnlineNow(): Boolean = withContext(Dispatchers.IO) {
+        awaitLoaded()
         val current = state
         if (!current.isSignedIn || current.sessionToken.isBlank()) return@withContext false
         if (current.organizationCode == "INTERNAL-TEST") {
@@ -578,6 +603,7 @@ class LicenseManager(
      * 3. Clears the stored organization credentials so [hasDemoAccess] becomes `true` and [hasSubscriptionAccess] becomes `false`.
      */
     suspend fun rollbackToDemoMode(onWipeNonSettingsData: suspend () -> Unit) {
+        awaitLoaded()
         val current = state
         if (current.isSignedIn && current.sessionToken.isNotBlank() && current.sessionToken != "REVOKED") {
             withContext(Dispatchers.IO) {
