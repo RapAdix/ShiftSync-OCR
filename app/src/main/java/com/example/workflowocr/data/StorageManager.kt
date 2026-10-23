@@ -49,6 +49,7 @@ class StorageManager(private val context: Context) {
             val cleanup = cleanStoredSchedules(getDataDir(), PROCESSOR_ROW_FILE_NAME, PROJECTION_FILE_NAME)
             Log.i("StorageCleanup", "Removed ${cleanup.filesRemoved} loose files and ${cleanup.foldersRemoved} broken folders; failures=${cleanup.failures}")
             purgeExpiredSensitiveData()
+            purgeTempCameraCache()
         } catch (e: Exception) {
             Log.e("Storage", "Initialization data purge failed", e)
         }
@@ -204,6 +205,35 @@ class StorageManager(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences.remove(WEEKDAY_TABLE_KEY)
             preferences.remove(WEEKEND_TABLE_KEY)
+        }
+
+        // 3. Also purge any leftover temporary camera scan files
+        purgeTempCameraCache()
+    }
+
+    /**
+     * Wipes any leftover temporary files from `externalCacheDir`.
+     * Because all persistent user data (schedules, snippets, settings) lives in `filesDir`
+     * and DataStore, everything in `externalCacheDir` is disposable camera transit data.
+     */
+    private fun purgeTempCameraCache() {
+        val cacheDir = context.externalCacheDir ?: return
+        if (!cacheDir.exists() || !cacheDir.isDirectory) return
+        var removed = 0
+        cacheDir.listFiles().orEmpty().forEach { file ->
+            try {
+                if (file.isDirectory) {
+                    file.deleteRecursively()
+                    removed++
+                } else if (file.isFile) {
+                    if (file.delete()) removed++
+                }
+            } catch (e: Exception) {
+                Log.w("StorageCleanup", "Failed to delete cache file: ${file.name}", e)
+            }
+        }
+        if (removed > 0) {
+            Log.i("StorageCleanup", "Purged $removed leftover temporary camera scan files from cache.")
         }
     }
 
@@ -562,6 +592,27 @@ class StorageManager(private val context: Context) {
                 ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
                     decoder.isMutableRequired = true // Important for OpenCV/Processing
                 }
+            }
+        }
+
+        fun deleteTempImageUri(context: Context, uri: Uri?) {
+            if (uri == null) return
+            try {
+                context.contentResolver.delete(uri, null, null)
+            } catch (e: Exception) {
+                Log.w("Storage", "Failed to delete temp image URI via ContentResolver: $uri", e)
+            }
+            try {
+                val fileName = uri.lastPathSegment
+                val cacheDir = context.externalCacheDir
+                if (!fileName.isNullOrBlank() && cacheDir != null) {
+                    val file = File(cacheDir, fileName)
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("Storage", "Failed to delete temp image file from cache: ${e.message}")
             }
         }
     }

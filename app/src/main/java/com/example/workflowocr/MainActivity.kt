@@ -283,19 +283,25 @@ fun OcrLauncherBridge(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success && tempImageUri != null) {
-            val bitmap = StorageManager.ImageUtils.uriToBitmap(context, tempImageUri!!)
-            coordinator.handleCameraResult(bitmap)
-        } else {
-            coordinator.onCameraCancelled()
-        }
+        val uriToDispose = tempImageUri
         tempImageUri = null
+        try {
+            if (success && uriToDispose != null) {
+                val bitmap = StorageManager.ImageUtils.uriToBitmap(context, uriToDispose)
+                coordinator.handleCameraResult(bitmap)
+            } else {
+                coordinator.onCameraCancelled()
+            }
+        } finally {
+            StorageManager.ImageUtils.deleteTempImageUri(context, uriToDispose)
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
+            StorageManager.ImageUtils.deleteTempImageUri(context, tempImageUri)
             val uri = StorageManager.ImageUtils.createTempImageUri(context)
             tempImageUri = uri
             cameraLauncher.launch(uri)
@@ -313,6 +319,7 @@ fun OcrLauncherBridge(
         ) == PackageManager.PERMISSION_GRANTED
 
         if (hasPermission) {
+            StorageManager.ImageUtils.deleteTempImageUri(context, tempImageUri)
             val uri = StorageManager.ImageUtils.createTempImageUri(context)
             tempImageUri = uri
             cameraLauncher.launch(uri)

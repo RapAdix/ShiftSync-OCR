@@ -504,27 +504,33 @@ fun VlhManagementScreen(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success && tempImageUri != null) {
-            val bitmap = StorageManager.ImageUtils.uriToBitmap(context, tempImageUri!!)
-            coordinator.processFullVlhScan(
-                bitmap = bitmap,
-                context = context,
-                onSuccess = {
-                    internalScreen = VlhSubScreen.DASHBOARD
-                },
-                onError = { _ ->
-                    coordinator.showScanVlhDialog = true
-                    internalScreen = VlhSubScreen.DASHBOARD
-                }
-            )
-        }
+        val uriToDispose = tempImageUri
         tempImageUri = null
+        try {
+            if (success && uriToDispose != null) {
+                val bitmap = StorageManager.ImageUtils.uriToBitmap(context, uriToDispose)
+                coordinator.processFullVlhScan(
+                    bitmap = bitmap,
+                    context = context,
+                    onSuccess = {
+                        internalScreen = VlhSubScreen.DASHBOARD
+                    },
+                    onError = { _ ->
+                        coordinator.showScanVlhDialog = true
+                        internalScreen = VlhSubScreen.DASHBOARD
+                    }
+                )
+            }
+        } finally {
+            StorageManager.ImageUtils.deleteTempImageUri(context, uriToDispose)
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
+            StorageManager.ImageUtils.deleteTempImageUri(context, tempImageUri)
             val uri = StorageManager.ImageUtils.createTempImageUri(context)
             tempImageUri = uri
             cameraLauncher.launch(uri)
@@ -541,6 +547,7 @@ fun VlhManagementScreen(
             ) == PackageManager.PERMISSION_GRANTED
 
             if (hasPermission) {
+                StorageManager.ImageUtils.deleteTempImageUri(context, tempImageUri)
                 val uri = StorageManager.ImageUtils.createTempImageUri(context)
                 tempImageUri = uri
                 cameraLauncher.launch(uri)
