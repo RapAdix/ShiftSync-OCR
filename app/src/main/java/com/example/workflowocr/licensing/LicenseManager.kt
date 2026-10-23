@@ -236,7 +236,8 @@ class LicenseManager(
                 state = decoded.copy(
                     deviceInstallId = decoded.deviceInstallId.ifBlank { UUID.randomUUID().toString() },
                     deviceLabel = decoded.deviceLabel.ifBlank { defaultDeviceModelName() },
-                    maxObservedWallClockMillis = updatedMaxClock
+                    maxObservedWallClockMillis = updatedMaxClock,
+                    serverBaseUrl = BuildConfig.LICENSE_SERVER_URL
                 )
             } else {
                 val initial = StoredLicenseState(

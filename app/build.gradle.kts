@@ -39,10 +39,8 @@ android {
     if (localPropertiesFile.exists()) {
         localProperties.load(FileInputStream(localPropertiesFile))
     }
-    val licenseServerUrl = localProperties.getProperty(
-        "LICENSE_SERVER_URL",
-        "https://shiftsync-licensing.example.workers.dev"
-    )
+    val licenseServerUrl = System.getenv("LICENSE_SERVER_URL")
+        ?: localProperties.getProperty("LICENSE_SERVER_URL", "")
 
     productFlavors {
         create("internal") {
