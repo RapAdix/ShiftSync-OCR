@@ -40,7 +40,7 @@ interface DeviceSeatRow {
     assigned_at: number;
     last_seen_at: number;
     takeover_count_24h: number;
-    last_takeover_at: number;
+    takeover_window_start_at: number;
 }
 
 export default {
@@ -166,7 +166,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
         const tokenHash = await sha256Hex(rawToken);
         await env.DB.prepare(
             `INSERT OR REPLACE INTO device_seats
-             (org_id, slot_number, device_install_id, device_label, session_token_hash, assigned_at, last_seen_at, takeover_count_24h, last_takeover_at)
+             (org_id, slot_number, device_install_id, device_label, session_token_hash, assigned_at, last_seen_at, takeover_count_24h, takeover_window_start_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)`
         )
             .bind(org.id, freeSlot, deviceInstallId, deviceLabel, tokenHash, now, now)
@@ -254,14 +254,23 @@ async function handleTakeover(request: Request, env: Env): Promise<Response> {
         .first<DeviceSeatRow>();
 
     let takeoverCount = 1;
-    if (currentSeat) {
-        const within24h = (now - currentSeat.last_takeover_at) < ONE_DAY_MS;
-        takeoverCount = within24h ? currentSeat.takeover_count_24h + 1 : 1;
-        if (takeoverCount > MAX_SLOT_TAKEOVERS_PER_24H) {
-            return jsonResponse({
-                error: "TAKEOVER_RATE_LIMIT",
-                message: `Device #${slotNumber} has been reassigned too many times in the last 24 hours. Please pick another slot or contact support.`
-            }, 429);
+    let windowStartTime = now;
+
+    if (currentSeat && currentSeat.takeover_window_start_at > 0) {
+        const isWithinWindow = (now - currentSeat.takeover_window_start_at) < ONE_DAY_MS;
+        if (isWithinWindow) {
+            takeoverCount = currentSeat.takeover_count_24h + 1;
+            windowStartTime = currentSeat.takeover_window_start_at; // Preserve original window start time
+            if (takeoverCount > MAX_SLOT_TAKEOVERS_PER_24H) {
+                return jsonResponse({
+                    error: "TAKEOVER_RATE_LIMIT",
+                    message: `Device #${slotNumber} has reached the limit of ${MAX_SLOT_TAKEOVERS_PER_24H} reassignments within a 24-hour window. Please pick another slot or contact support.`
+                }, 429);
+            }
+        } else {
+            // More than 24h passed since window started -> start a fresh window
+            takeoverCount = 1;
+            windowStartTime = now;
         }
     }
 
@@ -270,10 +279,10 @@ async function handleTakeover(request: Request, env: Env): Promise<Response> {
 
     await env.DB.prepare(
         `INSERT OR REPLACE INTO device_seats
-         (org_id, slot_number, device_install_id, device_label, session_token_hash, assigned_at, last_seen_at, takeover_count_24h, last_takeover_at)
+         (org_id, slot_number, device_install_id, device_label, session_token_hash, assigned_at, last_seen_at, takeover_count_24h, takeover_window_start_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-        .bind(org.id, slotNumber, deviceInstallId, deviceLabel, tokenHash, now, now, takeoverCount, now)
+        .bind(org.id, slotNumber, deviceInstallId, deviceLabel, tokenHash, now, now, takeoverCount, windowStartTime)
         .run();
 
     return jsonResponse({

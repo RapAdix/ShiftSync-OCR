@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS device_seats (
     assigned_at INTEGER NOT NULL,
     last_seen_at INTEGER NOT NULL,
     takeover_count_24h INTEGER NOT NULL DEFAULT 0,
-    last_takeover_at INTEGER NOT NULL DEFAULT 0,
+    takeover_window_start_at INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (org_id, slot_number),
     FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE
 );
