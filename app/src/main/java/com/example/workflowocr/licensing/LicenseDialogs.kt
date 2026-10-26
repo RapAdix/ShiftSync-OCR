@@ -48,11 +48,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.workflowocr.BuildConfig
 import com.example.workflowocr.R
 import kotlinx.coroutines.launch
@@ -613,31 +617,39 @@ fun LicenseSettingsSectionCard(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = stringResource(R.string.license_settings_header),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
                 )
 
                 if (state.isSignedIn && state.slotNumber > 0) {
+                    val devicePrefix = stringResource(R.string.license_device_prefix)
+                    val slotRatio = stringResource(R.string.license_slot_ratio, state.slotNumber, state.maxDevices)
+                    val badgeText = buildAnnotatedString {
+                        withStyle(SpanStyle(fontSize = 12.sp, fontWeight = FontWeight.Normal)) {
+                            append(devicePrefix)
+                            if (!devicePrefix.endsWith(" ")) append(" ")
+                        }
+                        withStyle(SpanStyle(fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)) {
+                            append(slotRatio)
+                        }
+                    }
+
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         shape = MaterialTheme.shapes.small
                     ) {
                         Text(
-                            text = stringResource(
-                                R.string.license_device_slot_badge,
-                                state.slotNumber,
-                                state.maxDevices
-                            ),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
+                            text = badgeText,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            maxLines = 1,
+                            modifier = Modifier.padding(start = 7.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
                         )
                     }
                 }
@@ -656,7 +668,7 @@ fun LicenseSettingsSectionCard(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Bypasses server check for automated tests (Device #1 of 10)",
+                            text = "Bypasses server licensing checks for automated tests and development",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

@@ -41,6 +41,8 @@
 
     <!-- Organization Licensing & Device Seat Management -->
     <string name="license_settings_header">Licencja organizacji i numer urządzenia</string>
+    <string name="license_device_prefix">"Urządzenie "</string>
+    <string name="license_slot_ratio">#%1$d z %2$d</string>
     <string name="license_device_slot_badge">Urządzenie #%1$d z %2$d</string>
     <string name="license_device_name_label">Zarejestrowano jako: %1$s</string>
     <string name="license_paid_until_label">Subskrypcja ważna do: %1$s</string>
