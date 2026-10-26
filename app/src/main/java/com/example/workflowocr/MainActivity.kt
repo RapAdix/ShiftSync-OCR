@@ -75,6 +75,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -253,33 +254,8 @@ fun OcrLauncherBridge(
     val scope = rememberCoroutineScope()
     var tempImageUri by remember { mutableStateOf<Uri?>(null) }
 
-    // 1. Declare the camera activation logic ahead of time
-    var triggerCameraLaunch: (() -> Unit)? by remember { mutableStateOf(null) }
+    var coordinatorRef: OcrFlowCoordinator? = null
 
-    // 2. Create the stable, self-contained Coordinator instance
-    val coordinator = remember(context, originalBitmap, snackbarHostState, tableViewModel, licenseManager) {
-        OcrFlowCoordinator(
-            context = context,
-            onNavigate = onNavigate,
-            onTriggerCameraLaunch = { triggerCameraLaunch?.invoke() }, // Safely routes to the assigned hardware trigger
-            originalBitmap = originalBitmap,
-            scope = scope,
-            tableViewModel = tableViewModel,
-            snackbarHostState = snackbarHostState,
-            licenseManager = licenseManager
-        )
-    }
-
-    if (coordinator.isManualDateDialogVisible) {
-        ManualDatePickerDialog(
-            onDateSelected = { date ->
-                coordinator.submitManualDate(date.format(StorageManager.storageDateFormatter()))
-            },
-            onDismissRequest = coordinator::dismissManualDateDialog
-        )
-    }
-
-    // The "Launcher" that handles the result of the camera app
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
@@ -288,9 +264,9 @@ fun OcrLauncherBridge(
         try {
             if (success && uriToDispose != null) {
                 val bitmap = StorageManager.ImageUtils.uriToBitmap(context, uriToDispose)
-                coordinator.handleCameraResult(bitmap)
+                coordinatorRef?.handleCameraResult(bitmap)
             } else {
-                coordinator.onCameraCancelled()
+                coordinatorRef?.onCameraCancelled()
             }
         } finally {
             StorageManager.ImageUtils.deleteTempImageUri(context, uriToDispose)
@@ -306,13 +282,13 @@ fun OcrLauncherBridge(
             tempImageUri = uri
             cameraLauncher.launch(uri)
         } else {
-            coordinator.onCameraCancelled()
+            coordinatorRef?.onCameraCancelled()
             Toast.makeText(context, context.getString(R.string.camera_permission_required), Toast.LENGTH_SHORT).show()
         }
     }
 
-    // 3. Assign the actual hardware interaction trigger implementation block
-    triggerCameraLaunch = {
+    // Keep the coordinator's long-lived trigger callback pointed at the latest camera launchers.
+    val currentLaunchCamera by rememberUpdatedState {
         val hasPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.CAMERA
@@ -326,6 +302,30 @@ fun OcrLauncherBridge(
         } else {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    // 1. Create the stable, self-contained Coordinator instance
+    val coordinator = remember(context, originalBitmap, snackbarHostState, tableViewModel, licenseManager) {
+        OcrFlowCoordinator(
+            context = context,
+            onNavigate = onNavigate,
+            onTriggerCameraLaunch = { currentLaunchCamera() },
+            originalBitmap = originalBitmap,
+            scope = scope,
+            tableViewModel = tableViewModel,
+            snackbarHostState = snackbarHostState,
+            licenseManager = licenseManager
+        )
+    }
+    coordinatorRef = coordinator
+
+    if (coordinator.isManualDateDialogVisible) {
+        ManualDatePickerDialog(
+            onDateSelected = { date ->
+                coordinator.submitManualDate(date.format(StorageManager.storageDateFormatter()))
+            },
+            onDismissRequest = coordinator::dismissManualDateDialog
+        )
     }
 
     content(coordinator)

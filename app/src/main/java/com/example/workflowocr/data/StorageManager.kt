@@ -2,10 +2,10 @@ package com.example.workflowocr
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
-import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.datastore.preferences.core.edit
@@ -19,6 +19,7 @@ import org.opencv.core.Point
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
@@ -585,11 +586,19 @@ class StorageManager(private val context: Context) {
         }
 
         fun uriToBitmap(context: Context, uri: Uri): Bitmap {
+            // Read the file bytes inside .use {} so the underlying ContentResolver / FileProvider
+            // file descriptor is guaranteed to be 100% closed before deleteTempImageUri runs.
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: throw IOException("Unable to open input stream for URI: $uri")
+
             return if (Build.VERSION.SDK_INT < 28) {
-                MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+                val options = BitmapFactory.Options().apply { inMutable = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                    ?: throw IOException("Failed to decode bitmap from URI: $uri")
             } else {
-                val source = ImageDecoder.createSource(context.contentResolver, uri)
+                val source = ImageDecoder.createSource(ByteBuffer.wrap(bytes))
                 ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                     decoder.isMutableRequired = true // Important for OpenCV/Processing
                 }
             }
@@ -598,21 +607,21 @@ class StorageManager(private val context: Context) {
         fun deleteTempImageUri(context: Context, uri: Uri?) {
             if (uri == null) return
             try {
-                context.contentResolver.delete(uri, null, null)
-            } catch (e: Exception) {
-                Log.w("Storage", "Failed to delete temp image URI via ContentResolver: $uri", e)
-            }
-            try {
                 val fileName = uri.lastPathSegment
                 val cacheDir = context.externalCacheDir
                 if (!fileName.isNullOrBlank() && cacheDir != null) {
                     val file = File(cacheDir, fileName)
-                    if (file.exists()) {
-                        file.delete()
+                    if (file.exists() && file.delete()) {
+                        return
                     }
                 }
             } catch (e: Exception) {
                 Log.w("Storage", "Failed to delete temp image file from cache: ${e.message}")
+            }
+            try {
+                context.contentResolver.delete(uri, null, null)
+            } catch (e: Exception) {
+                Log.w("Storage", "Failed to delete temp image URI via ContentResolver: $uri", e)
             }
         }
     }
