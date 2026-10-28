@@ -363,7 +363,7 @@ private fun AppNavigationDrawer(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // This button closes the drawer
@@ -564,6 +564,7 @@ private fun AppNavigationDrawer(
         Scaffold(
             topBar = {
                 TopAppBar(
+                    expandedHeight = 56.dp,
                     title = {
                         val baseTitle = stringResource(state.currentScreen.titleRes)
 
@@ -672,7 +673,10 @@ private fun AppNavigationDrawer(
                         coordinator.capturedBitmap ?: originalBitmap
                     )
                     Screen.SETTINGS -> SettingsScreen(tableViewModel)
-                    Screen.ABOUT -> AboutScreen()
+                    Screen.ABOUT -> AboutScreen(
+                        licenseManager = LocalLicenseManager.current,
+                        onNavigateToSettings = { coordinator.navigateTo(Screen.SETTINGS) }
+                    )
                 }
             }
         }

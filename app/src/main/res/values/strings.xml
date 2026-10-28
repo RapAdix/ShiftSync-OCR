@@ -20,8 +20,8 @@
     <string name="nav_delete_saved_date_message">All snippets and JSON for this day will be removed.</string>
     <string name="nav_vlh_dashboard">VLH Dashboard</string>
     <string name="nav_vlh_guidelines_description">VLH Guidelines Matrix</string>
-    <string name="nav_settings_hub">Settings (Hub)</string>
-    <string name="nav_about_license">About &amp; License</string>
+    <string name="nav_settings_hub">Settings</string>
+    <string name="nav_about_license">About</string>
     <string name="nav_about_description">About App</string>
     <string name="nav_sample_detection">Sample Detection</string>
     <string name="nav_menu">Menu</string>

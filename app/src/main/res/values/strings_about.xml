@@ -8,4 +8,8 @@
     <string name="about_license_personal_use">Licensed strictly for Non-Commercial personal use under CC BY-NC 4.0.</string>
     <string name="about_license_commercial_restriction">Commercial enterprise distribution, field deployment, or institutional use to optimize corporate operations, reduce overhead, or automate labor frameworks across external corporate facilities is STRICTLY PROHIBITED without explicit, direct written authorization from the copyright holder.</string>
     <string name="about_brand_name" translatable="false">ShiftSync</string>
+    <string name="about_subscription_active">Active License: %1$s</string>
+    <string name="about_subscription_demo">Demo Mode (Unlicensed)</string>
+    <string name="about_subscription_manage_button">Manage in Settings</string>
+    <string name="about_subscription_activate_button">Activate License</string>
 </resources>

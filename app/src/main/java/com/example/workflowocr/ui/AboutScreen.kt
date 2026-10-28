@@ -13,34 +13,46 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.workflowocr.licensing.LicenseManager
 
 @Composable
-fun AboutScreen() {
+fun AboutScreen(
+    licenseManager: LicenseManager? = null,
+    onNavigateToSettings: (() -> Unit)? = null
+) {
+    val state = licenseManager?.state
+    val isSignedIn = state?.isSignedIn == true
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 16.dp)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 1. App Header/Branding
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = stringResource(R.string.about_brand_name),
             style = MaterialTheme.typography.headlineLarge,
@@ -53,9 +65,83 @@ fun AboutScreen() {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        // 2. Active License & Subscription Status Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSignedIn) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                }
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp, 16.dp, 0.dp, 16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(0.62f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (isSignedIn) Icons.Default.CheckCircle else Icons.Default.Key,
+                            contentDescription = null,
+                            tint = if (isSignedIn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = if (state != null && state.isSignedIn) {
+                                    val orgLabel = state.organizationName.ifBlank { state.organizationCode }
+                                    stringResource(R.string.about_subscription_active, orgLabel)
+                                } else {
+                                    stringResource(R.string.about_subscription_demo)
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (state != null && state.isSignedIn && state.slotNumber > 0) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.license_device_slot_badge,
+                                        state.slotNumber,
+                                        state.maxDevices
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
 
-        // 2. Core Copyright & Attribution Card
+                    if (onNavigateToSettings != null) {
+                        TextButton(
+                            onClick = onNavigateToSettings,
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.weight(0.38f)
+                        ) {
+                            Text(
+                                text = if (isSignedIn) {
+                                    stringResource(R.string.about_subscription_manage_button)
+                                } else {
+                                    stringResource(R.string.about_subscription_activate_button)
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+        // 3. Core Copyright & Attribution Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -91,7 +177,7 @@ fun AboutScreen() {
             }
         }
 
-        // 3. The Strict Legal Restriction Card (The Shield)
+        // 4. The Strict Legal Restriction Card (The Shield)
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(

@@ -7,4 +7,8 @@
     <string name="about_usage_restrictions">Ograniczenia użytkowania</string>
     <string name="about_license_personal_use">Licencja CC BY-NC 4.0 zezwala wyłącznie na niekomercyjne użytkowanie osobiste.</string>
     <string name="about_license_commercial_restriction">Komercyjne rozpowszechnianie, wdrażanie w miejscu pracy lub użytkowanie instytucjonalne w celu usprawniania działalności przedsiębiorstw, obniżania kosztów lub automatyzacji organizacji pracy w zewnętrznych placówkach jest SUROWO ZABRONIONE bez wyraźnej, pisemnej zgody właściciela praw autorskich.</string>
+    <string name="about_subscription_active">Aktywna licencja: %1$s</string>
+    <string name="about_subscription_demo">Tryb Demo (Brak licencji)</string>
+    <string name="about_subscription_manage_button">Zarządzaj w Ustawieniach</string>
+    <string name="about_subscription_activate_button">Aktywuj licencję</string>
 </resources>

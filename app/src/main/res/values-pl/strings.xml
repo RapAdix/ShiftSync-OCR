@@ -21,7 +21,7 @@
     <string name="nav_vlh_dashboard">Panel VLH</string>
     <string name="nav_vlh_guidelines_description">Tabela wytycznych VLH</string>
     <string name="nav_settings_hub">Ustawienia</string>
-    <string name="nav_about_license">O aplikacji i licencji</string>
+    <string name="nav_about_license">O aplikacji</string>
     <string name="nav_about_description">Informacje o aplikacji</string>
     <string name="nav_sample_detection">Test wykrywania</string>
     <string name="nav_menu">Menu</string>
