@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -346,9 +347,11 @@ private fun AppNavigationDrawer(
     scope: CoroutineScope
 ) {
     var pendingDate by remember { mutableStateOf<String?>(null) }
+    var settingsInitialTab by remember { mutableStateOf(SettingsTab.WORKFLOW) }
     // Ignore drawer navigation while a saved date is being loaded or deleted.
     fun selectDrawerScreen(screen: Screen) {
         if (pendingDate == null) {
+            if (screen == Screen.SETTINGS) settingsInitialTab = SettingsTab.WORKFLOW
             coordinator.navigateTo(screen)
             composeScope.launch { drawerState.close() }
         }
@@ -564,7 +567,7 @@ private fun AppNavigationDrawer(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    expandedHeight = 56.dp,
+                    expandedHeight = 52.dp,
                     title = {
                         val baseTitle = stringResource(state.currentScreen.titleRes)
 
@@ -575,10 +578,13 @@ private fun AppNavigationDrawer(
                             baseTitle
                         }
 
-                        Text(text = fullTitle)
+                        Text(text = fullTitle, modifier = Modifier.offset(y = 2.dp))
                     },
                     navigationIcon = {
-                        IconButton(onClick = { composeScope.launch { drawerState.open() } }) {
+                        IconButton(
+                            onClick = { composeScope.launch { drawerState.open() } },
+                            modifier = Modifier.offset(y = 2.dp)
+                        ) {
                             Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.nav_menu))
                         }
                     },
@@ -587,6 +593,7 @@ private fun AppNavigationDrawer(
                         if (state.currentScreen == Screen.PROCESSING_PREVIEW) {
                             FilledIconButton(
                                 onClick = coordinator::onCancelProcessing,
+                                modifier = Modifier.offset(y = 2.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(
                                     containerColor = MaterialTheme.colorScheme.error,
                                     contentColor = Color.White
@@ -600,7 +607,8 @@ private fun AppNavigationDrawer(
                         }
                         if (state.currentScreen == Screen.TABLE_RESULTS) {
                             IconButton(
-                                onClick = { coordinator.navigateTo(Screen.ATTENDANCE_COUNT) }
+                                onClick = { coordinator.navigateTo(Screen.ATTENDANCE_COUNT) },
+                                modifier = Modifier.offset(y = 2.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Calculate,
@@ -611,7 +619,8 @@ private fun AppNavigationDrawer(
                         }
                         if (state.currentScreen == Screen.ATTENDANCE_COUNT) {
                             IconButton(
-                                onClick = { coordinator.navigateTo(Screen.TABLE_RESULTS) }
+                                onClick = { coordinator.navigateTo(Screen.TABLE_RESULTS) },
+                                modifier = Modifier.offset(y = 2.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.List,
@@ -672,10 +681,13 @@ private fun AppNavigationDrawer(
                     Screen.SAMPLE_DETECTION -> TableDetectionDebugScreen(
                         coordinator.capturedBitmap ?: originalBitmap
                     )
-                    Screen.SETTINGS -> SettingsScreen(tableViewModel)
+                    Screen.SETTINGS -> SettingsScreen(tableViewModel, settingsInitialTab)
                     Screen.ABOUT -> AboutScreen(
                         licenseManager = LocalLicenseManager.current,
-                        onNavigateToSettings = { coordinator.navigateTo(Screen.SETTINGS) }
+                        onNavigateToSettings = {
+                            settingsInitialTab = SettingsTab.LICENSE
+                            coordinator.navigateTo(Screen.SETTINGS)
+                        }
                     )
                 }
             }

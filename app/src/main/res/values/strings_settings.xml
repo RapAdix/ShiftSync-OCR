@@ -2,6 +2,11 @@
     <!-- Settings and table layout configuration -->
     <string name="settings_language">App language</string>
     <string name="settings_language_description">Choose the language used in the app.</string>
+    <string name="settings_tab_license">License</string>
+    <string name="settings_tab_language">Language</string>
+    <string name="settings_tab_workflow">Workflow</string>
+    <string name="settings_tab_sync">Sync</string>
+    <string name="settings_tab_layout">Layout</string>
     <string name="settings_language_english" translatable="false">English</string>
     <string name="settings_language_polish" translatable="false">Polski</string>
     <string name="settings_workplace_shift_timings">Workplace Shifts Timings</string>
