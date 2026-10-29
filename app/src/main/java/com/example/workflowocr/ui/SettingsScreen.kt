@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectable
@@ -61,6 +64,7 @@ fun SettingsScreen(
 ) {
     val selectedLanguage = AppLanguage.fromLanguageCode(LocalConfiguration.current.locales[0]?.language)
     var selectedTab by rememberSaveable { mutableStateOf(initialTab) }
+    val layoutListState = rememberLazyListState()
 
     Column(
         modifier = Modifier
@@ -85,19 +89,24 @@ fun SettingsScreen(
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            when (selectedTab) {
-                SettingsTab.LICENSE -> LicenseSettingsSectionCard(LocalLicenseManager.current)
-                SettingsTab.LANGUAGE -> LanguageSettingsCard(selectedLanguage)
-                SettingsTab.WORKFLOW -> WorkflowSettings(viewModel)
-                SettingsTab.SYNC -> SpreadsheetSettings(viewModel)
-                SettingsTab.LAYOUT -> TableLayoutSettings(viewModel)
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            if (selectedTab == SettingsTab.LAYOUT) {
+                TableLayoutSettings(viewModel, layoutListState)
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    when (selectedTab) {
+                        SettingsTab.LICENSE -> LicenseSettingsSectionCard(LocalLicenseManager.current)
+                        SettingsTab.LANGUAGE -> LanguageSettingsCard(selectedLanguage)
+                        SettingsTab.WORKFLOW -> WorkflowSettings(viewModel)
+                        SettingsTab.SYNC -> SpreadsheetSettings(viewModel)
+                        SettingsTab.LAYOUT -> Unit
+                    }
+                }
             }
         }
     }
@@ -241,81 +250,107 @@ private fun SpreadsheetSettings(viewModel: TableViewModel) {
 }
 
 @Composable
-private fun TableLayoutSettings(viewModel: TableViewModel) {
+private fun TableLayoutSettings(viewModel: TableViewModel, listState: LazyListState) {
     val activePreset = viewModel.activePresetType
     val layout = viewModel.activeLayout
 
-    Text(
-        stringResource(R.string.settings_table_layout_configuration),
-        modifier = Modifier.padding(top = 8.dp),
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary
-    )
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            PresetSelectionRow(
-                label = stringResource(R.string.settings_layout_13_columns),
-                selected = activePreset == PresetType.DEFAULT_13_COL,
-                onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_13_COL) }
-            )
-            PresetSelectionRow(
-                label = stringResource(R.string.settings_layout_12_columns),
-                selected = activePreset == PresetType.DEFAULT_12_COL,
-                onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_12_COL) }
-            )
-            PresetSelectionRow(
-                label = stringResource(R.string.settings_custom_layout_template),
-                selected = activePreset == PresetType.CUSTOM,
-                onClick = { viewModel.updateLayoutPreset(PresetType.CUSTOM) }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item(key = "layout_title") {
+            Text(
+                stringResource(R.string.settings_table_layout_configuration),
+                modifier = Modifier.padding(top = 8.dp),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
             )
         }
-    }
-
-    Text(
-        if (layout.isCustom) stringResource(R.string.settings_modify_custom_layout)
-        else stringResource(R.string.settings_view_locked_layout),
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = if (layout.isCustom) MaterialTheme.colorScheme.secondary
-        else MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    if (!layout.isCustom) {
-        Text(
-            stringResource(R.string.settings_unlock_layout_explanation),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline
-        )
-    }
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item(key = "layout_presets") {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    PresetSelectionRow(
+                        label = stringResource(R.string.settings_layout_13_columns),
+                        selected = activePreset == PresetType.DEFAULT_13_COL,
+                        onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_13_COL) }
+                    )
+                    PresetSelectionRow(
+                        label = stringResource(R.string.settings_layout_12_columns),
+                        selected = activePreset == PresetType.DEFAULT_12_COL,
+                        onClick = { viewModel.updateLayoutPreset(PresetType.DEFAULT_12_COL) }
+                    )
+                    PresetSelectionRow(
+                        label = stringResource(R.string.settings_custom_layout_template),
+                        selected = activePreset == PresetType.CUSTOM,
+                        onClick = { viewModel.updateLayoutPreset(PresetType.CUSTOM) }
+                    )
+                }
+            }
+        }
+        item(key = "layout_edit_heading") {
+            Text(
+                if (layout.isCustom) stringResource(R.string.settings_modify_custom_layout)
+                else stringResource(R.string.settings_view_locked_layout),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (layout.isCustom) MaterialTheme.colorScheme.secondary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (!layout.isCustom) {
+            item(key = "layout_locked_explanation") {
+                Text(
+                    stringResource(R.string.settings_unlock_layout_explanation),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+        item(key = "column_placements_heading") {
             Text(
                 stringResource(R.string.settings_table_column_placements),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold
             )
+        }
+        item(key = "expected_columns") {
             NumericSettingInput(stringResource(R.string.settings_expected_column_count), layout.expectedCols, layout.isCustom) {
                 viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(expectedCols = it))
             }
+        }
+        item(key = "name_column") {
             NumericSettingInput(stringResource(R.string.settings_employee_name_column), layout.nameCol, layout.isCustom) {
                 viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(nameCol = it))
             }
+        }
+        item(key = "start_column") {
             NumericSettingInput(stringResource(R.string.settings_shift_start_column), layout.timeStartCol, layout.isCustom) {
                 viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(timeStartCol = it))
             }
+        }
+        item(key = "end_column") {
             NumericSettingInput(stringResource(R.string.settings_shift_end_column), layout.timeEndCol, layout.isCustom) {
                 viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(timeEndCol = it))
             }
+        }
+        item(key = "first_modification_column") {
             NumericSettingInput(stringResource(R.string.settings_first_modification_column), layout.firstModificationCol, layout.isCustom) {
                 viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(firstModificationCol = it))
             }
+        }
+        item(key = "change_column") {
             NumericSettingInput(stringResource(R.string.settings_change_log_column), layout.changeCol, layout.isCustom) {
                 viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(changeCol = it))
             }
+        }
+        item(key = "manager_column") {
             NumericSettingInput(stringResource(R.string.settings_manager_signature_column), layout.managerCol, layout.isCustom) {
                 viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(managerCol = it))
             }
+        }
+        item(key = "team_column") {
             NumericSettingInput(
                 stringResource(R.string.settings_team_information_column),
                 layout.team?.toString() ?: "",
@@ -324,23 +359,24 @@ private fun TableLayoutSettings(viewModel: TableViewModel) {
                 viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(team = rawString.trim().toIntOrNull()))
             }
         }
-    }
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                stringResource(R.string.settings_structural_ratios),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            DoubleSettingInput(
-                label = stringResource(R.string.settings_header_row_height_multiplier),
-                value = layout.headerRowHeightMultiplier,
-                enabled = layout.isCustom,
-                onValueChange = {
-                    viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(headerRowHeightMultiplier = it))
+        item(key = "structural_ratios") {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        stringResource(R.string.settings_structural_ratios),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    DoubleSettingInput(
+                        label = stringResource(R.string.settings_header_row_height_multiplier),
+                        value = layout.headerRowHeightMultiplier,
+                        enabled = layout.isCustom,
+                        onValueChange = {
+                            viewModel.updateLayoutPreset(PresetType.CUSTOM, layout.copy(headerRowHeightMultiplier = it))
+                        }
+                    )
                 }
-            )
+            }
         }
     }
 }
