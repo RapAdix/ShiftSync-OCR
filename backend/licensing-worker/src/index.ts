@@ -127,6 +127,20 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
 
     const existingSeats = seatsResult.results ?? [];
 
+    // Ensure no OTHER device in this organization already uses the same device_label or user-picked nickname
+    const labelConflict = existingSeats.find(
+        s => s.device_install_id !== deviceInstallId &&
+             isSameDeviceNameOrNickname(s.device_label, deviceLabel)
+    );
+    if (labelConflict) {
+        const displayConflict = extractCustomNickname(deviceLabel) ?? deviceLabel;
+        return jsonResponse({
+            error: "DUPLICATE_DEVICE_LABEL",
+            conflictingLabel: displayConflict,
+            message: `Another device in this organization is already registered as "${displayConflict}". Please enter a different Device Nickname.`
+        }, 409);
+    }
+
     // 1. Check if this exact physical app installation already holds a slot
     const existingForInstall = existingSeats.find(s => s.device_install_id === deviceInstallId);
     if (existingForInstall) {
@@ -246,12 +260,33 @@ async function handleTakeover(request: Request, env: Env): Promise<Response> {
         return jsonResponse({ error: "INVALID_TAKEOVER_TOKEN", message: "Takeover session expired or invalid. Please sign in again." }, 401);
     }
 
+    // Use the cryptographically signed deviceLabel from the takeover token if tampered
+    const effectiveDeviceLabel = verifiedPayload.deviceLabel || deviceLabel;
+
     const now = Date.now();
-    const currentSeat = await env.DB.prepare(
-        "SELECT * FROM device_seats WHERE org_id = ? AND slot_number = ?"
+    const seatsResult = await env.DB.prepare(
+        "SELECT * FROM device_seats WHERE org_id = ? AND slot_number <= ?"
     )
-        .bind(org.id, slotNumber)
-        .first<DeviceSeatRow>();
+        .bind(org.id, org.max_devices)
+        .all<DeviceSeatRow>();
+    const existingSeats = seatsResult.results ?? [];
+
+    // Ensure no OTHER slot (other than the one being replaced) in this organization already uses the same device_label or nickname
+    const labelConflict = existingSeats.find(
+        s => s.slot_number !== slotNumber &&
+             s.device_install_id !== deviceInstallId &&
+             isSameDeviceNameOrNickname(s.device_label, effectiveDeviceLabel)
+    );
+    if (labelConflict) {
+        const displayConflict = extractCustomNickname(effectiveDeviceLabel) ?? effectiveDeviceLabel;
+        return jsonResponse({
+            error: "DUPLICATE_DEVICE_LABEL",
+            conflictingLabel: displayConflict,
+            message: `Another device in this organization is already registered as "${displayConflict}". Please enter a different Device Nickname.`
+        }, 409);
+    }
+
+    const currentSeat = existingSeats.find(s => s.slot_number === slotNumber);
 
     let takeoverCount = 1;
     let windowStartTime = now;
@@ -274,6 +309,13 @@ async function handleTakeover(request: Request, env: Env): Promise<Response> {
         }
     }
 
+    // Free any other slot that might have been held by this same deviceInstallId
+    await env.DB.prepare(
+        "DELETE FROM device_seats WHERE org_id = ? AND device_install_id = ? AND slot_number != ?"
+    )
+        .bind(org.id, deviceInstallId, slotNumber)
+        .run();
+
     const rawToken = generateRandomToken();
     const tokenHash = await sha256Hex(rawToken);
 
@@ -282,7 +324,7 @@ async function handleTakeover(request: Request, env: Env): Promise<Response> {
          (org_id, slot_number, device_install_id, device_label, session_token_hash, assigned_at, last_seen_at, takeover_count_24h, takeover_window_start_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-        .bind(org.id, slotNumber, deviceInstallId, deviceLabel, tokenHash, now, now, takeoverCount, windowStartTime)
+        .bind(org.id, slotNumber, deviceInstallId, effectiveDeviceLabel, tokenHash, now, now, takeoverCount, windowStartTime)
         .run();
 
     return jsonResponse({
@@ -292,7 +334,7 @@ async function handleTakeover(request: Request, env: Env): Promise<Response> {
         organizationName: org.display_name,
         slotNumber,
         maxDevices: org.max_devices,
-        deviceLabel,
+        deviceLabel: effectiveDeviceLabel,
         paidUntilMillis: org.paid_until,
         serverTimeMillis: now
     }, 200);
@@ -416,6 +458,36 @@ function timingSafeEqual(a: string, b: string): boolean {
     return diff === 0;
 }
 
+/**
+ * Extracts the custom nickname from a formatted device label `"Model Name (Nickname)"`,
+ * or returns null if no custom nickname was provided.
+ * Supports arbitrary parentheses inside the nickname itself (e.g. `"Model (Kuchnia (1))"` -> `"Kuchnia (1)"`).
+ */
+function extractCustomNickname(label: string): string | null {
+    const trimmed = label.trim();
+    const openIdx = trimmed.indexOf(" (");
+    if (openIdx === -1 || !trimmed.endsWith(")")) return null;
+    const nick = trimmed.slice(openIdx + 2, -1).trim();
+    return nick.length > 0 ? nick : null;
+}
+
+/**
+ * Returns true if two devices share either the exact same full label (e.g. identical phone model with no nickname)
+ * OR the same user-picked custom nickname inside parentheses (even across different phone models).
+ */
+function isSameDeviceNameOrNickname(existingLabel: string, candidateLabel: string): boolean {
+    const a = existingLabel.trim().toLowerCase();
+    const b = candidateLabel.trim().toLowerCase();
+    if (a === b) return true;
+
+    const nickA = extractCustomNickname(existingLabel)?.toLowerCase() ?? null;
+    const nickB = extractCustomNickname(candidateLabel)?.toLowerCase() ?? null;
+    if (nickA && nickB && nickA === nickB) return true;
+    if (nickA && nickA === b) return true;
+    if (nickB && nickB === a) return true;
+    return false;
+}
+
 interface TakeoverPayload {
     orgId: string;
     deviceInstallId: string;
@@ -425,7 +497,7 @@ interface TakeoverPayload {
 
 async function signTakeoverToken(payload: TakeoverPayload, secret: string): Promise<string> {
     const jsonStr = JSON.stringify(payload);
-    const b64 = btoa(jsonStr);
+    const b64 = btoa(encodeURIComponent(jsonStr));
     const sig = await sha256Hex(`${secret}.${b64}`);
     return `${b64}.${sig}`;
 }
@@ -438,7 +510,8 @@ async function verifyTakeoverToken(token: string, secret: string): Promise<Takeo
     const expectedSig = await sha256Hex(`${secret}.${b64}`);
     if (!timingSafeEqual(sig, expectedSig)) return null;
     try {
-        const payload = JSON.parse(atob(b64)) as TakeoverPayload;
+        const jsonStr = decodeURIComponent(atob(b64));
+        const payload = JSON.parse(jsonStr) as TakeoverPayload;
         if (Date.now() > payload.exp) return null;
         return payload;
     } catch {

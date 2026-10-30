@@ -74,4 +74,24 @@
     <string name="license_lock_clock_body">Your device clock appears to have been moved backward. Please connect to the internet and tap Verify License Online to restore access.</string>
     <string name="license_lock_revoked_title">Device Slot Reassigned</string>
     <string name="license_lock_revoked_body">Another phone took over this device slot in your organization. Sign in again to claim a slot or rollback to Demo Mode.</string>
+    <string name="license_status_verified_ok">License verified successfully.</string>
+    <string name="license_status_offline">Offline — could not reach licensing server.</string>
+    <string name="license_status_revoked">This device session was revoked or suspended.</string>
+    <string name="license_status_verify_http_error">Verification failed (HTTP %1$d).</string>
+    <string name="license_error_missing_fields">Please enter both Organization Code and License Key.</string>
+    <string name="license_error_invalid_credentials">Invalid organization code or license key.</string>
+    <string name="license_error_account_suspended">This organization account is currently suspended.</string>
+    <string name="license_error_subscription_expired">This organization\'s subscription expired more than 3 days ago.</string>
+    <string name="license_error_duplicate_device_label">Another device in this organization is already registered as \"%1$s\". Please enter a different Device Nickname.</string>
+    <string name="license_error_invalid_takeover_token">Takeover session expired or invalid. Please sign in again.</string>
+    <string name="license_error_takeover_rate_limit">Device #%1$d has reached the limit of 5 reassignments within 24 hours. Please pick another slot or contact support.</string>
+    <string name="license_error_network_signin">Could not reach licensing server. Check your internet connection.</string>
+    <string name="license_error_network_takeover">Network error while claiming Device #%1$d. Check your internet connection.</string>
+    <string name="license_error_signin_http">Sign-in failed (HTTP %1$d).</string>
+    <string name="license_error_takeover_http">Could not replace Device #%1$d (HTTP %2$d).</string>
+    <string name="license_time_never">never</string>
+    <string name="license_time_just_now">just now</string>
+    <string name="license_time_minutes_ago">%1$dm ago</string>
+    <string name="license_time_hours_ago">%1$dh ago</string>
+    <string name="license_time_days_ago">%1$dd ago</string>
 </resources>

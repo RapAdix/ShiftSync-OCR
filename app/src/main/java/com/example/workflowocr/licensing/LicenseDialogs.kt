@@ -38,6 +38,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -153,10 +154,11 @@ fun OrganizationSignInDialog(
             }
         },
         confirmButton = {
+            val missingFieldsMessage = stringResource(R.string.license_error_missing_fields)
             Button(
                 onClick = {
                     if (orgCode.isBlank() || password.isBlank()) {
-                        errorMessage = "Please enter both Organization Code and License Key."
+                        errorMessage = missingFieldsMessage
                         return@Button
                     }
                     isSubmitting = true
@@ -445,6 +447,16 @@ fun LicenseLockoutScreen(
     val scope = rememberCoroutineScope()
     val state = licenseManager.state
     val reason = licenseManager.getLockReason()
+
+    // Automatically attempt an online verification the instant the Lockout Screen is shown
+    // (unless the session was already explicitly revoked by the server).
+    // If internet is available and the license is active, this unlocks the screen immediately
+    // without requiring the user to press the Verify button manually.
+    LaunchedEffect(Unit) {
+        if (reason != LicenseLockReason.SESSION_REVOKED && !licenseManager.isVerifying) {
+            licenseManager.verifyOnlineNow()
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -749,16 +761,17 @@ private fun formatDate(epochMillis: Long): String {
     return sdf.format(Date(epochMillis))
 }
 
+@Composable
 private fun formatRelativeTime(epochMillis: Long): String {
-    if (epochMillis <= 0L) return "never"
+    if (epochMillis <= 0L) return stringResource(R.string.license_time_never)
     val diff = (System.currentTimeMillis() - epochMillis).coerceAtLeast(0L)
     val minutes = TimeUnit.MILLISECONDS.toMinutes(diff)
     val hours = TimeUnit.MILLISECONDS.toHours(diff)
     val days = TimeUnit.MILLISECONDS.toDays(diff)
     return when {
-        minutes < 2 -> "just now"
-        minutes < 60 -> "${minutes}m ago"
-        hours < 48 -> "${hours}h ago"
-        else -> "${days}d ago"
+        minutes < 2 -> stringResource(R.string.license_time_just_now)
+        minutes < 60 -> stringResource(R.string.license_time_minutes_ago, minutes)
+        hours < 48 -> stringResource(R.string.license_time_hours_ago, hours)
+        else -> stringResource(R.string.license_time_days_ago, days)
     }
 }

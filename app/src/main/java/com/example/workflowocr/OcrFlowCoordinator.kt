@@ -26,7 +26,7 @@ class OcrFlowCoordinator(
     private val scope: CoroutineScope,
     private val tableViewModel: TableViewModel,
     private val snackbarHostState: SnackbarHostState,
-    private val licenseManager: LicenseManager? = null
+    private val licenseManager: LicenseManager
 ) {
     var isDebugCapture by mutableStateOf(false)
         private set
@@ -104,29 +104,24 @@ class OcrFlowCoordinator(
     }
 
     fun onScanRequest() {
-        if (licenseManager != null && !licenseManager.hasSubscriptionAccess()) {
-            licenseManager.showSignInDialog = true
-            return
-        }
-        this.isDebugCapture = false
-        val enabledPages = tableViewModel.universalSettings.enabledScanPages
-        if (enabledPages.size > 1) {
-            this.showPagePicker = true
-        } else {
-            this.activeScanningPage = enabledPages.firstOrNull() ?: ScanPageType.EMPLOYEE_P1
-            onTriggerCameraLaunch()
+        licenseManager.guardSubscriptionAction {
+            this.isDebugCapture = false
+            val enabledPages = tableViewModel.universalSettings.enabledScanPages
+            if (enabledPages.size > 1) {
+                this.showPagePicker = true
+            } else {
+                this.activeScanningPage = enabledPages.firstOrNull() ?: ScanPageType.EMPLOYEE_P1
+                onTriggerCameraLaunch()
+            }
         }
     }
 
     fun onPageSelected(pageType: ScanPageType) {
-        if (licenseManager != null && !licenseManager.hasSubscriptionAccess()) {
-            this.showPagePicker = false
-            licenseManager.showSignInDialog = true
-            return
-        }
-        this.activeScanningPage = pageType
         this.showPagePicker = false
-        onTriggerCameraLaunch()
+        licenseManager.guardSubscriptionAction {
+            this.activeScanningPage = pageType
+            onTriggerCameraLaunch()
+        }
     }
 
     fun onPagePickerDismissed() {
@@ -134,12 +129,10 @@ class OcrFlowCoordinator(
     }
 
     fun onDebugScanRequest() {
-        if (licenseManager != null && !licenseManager.hasSubscriptionAccess()) {
-            licenseManager.showSignInDialog = true
-            return
+        licenseManager.guardSubscriptionAction {
+            this.isDebugCapture = true
+            onTriggerCameraLaunch()
         }
-        this.isDebugCapture = true
-        onTriggerCameraLaunch()
     }
 
     fun handleCameraResult(bitmap: Bitmap) {
@@ -171,7 +164,8 @@ class OcrFlowCoordinator(
     }
 
     fun onStubRequest() {
-        if (licenseManager != null && !licenseManager.hasDemoAccess()) {
+        if (!licenseManager.hasDemoAccess()) {
+            licenseManager.refreshAccessEvaluation()
             return
         }
         val bitmapToProcess = (this.capturedBitmap ?: originalBitmap).also {
@@ -197,13 +191,8 @@ class OcrFlowCoordinator(
     }
 
     fun onRedoClicked() {
-        if (licenseManager != null && !licenseManager.hasSubscriptionAccess()) {
-            navigateTo(Screen.SCAN_HUB)
-            licenseManager.showSignInDialog = true
-            return
-        }
         navigateTo(Screen.SCAN_HUB)
-        onTriggerCameraLaunch()
+        licenseManager.guardSubscriptionAction { onTriggerCameraLaunch() }
     }
 
     /**

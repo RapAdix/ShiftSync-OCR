@@ -121,7 +121,6 @@ enum class Screen(@StringRes val titleRes: Int) {
     ABOUT(R.string.nav_screen_about)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : AppCompatActivity() {
 
     // Global scope and shared results state
@@ -220,6 +219,13 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (::licenseManager.isInitialized) {
+            licenseManager.refreshAccessEvaluation()
         }
     }
 
