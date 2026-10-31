@@ -53,15 +53,17 @@ The Attendance Summary and VLH workflows show the people recorded on the workshe
 
 ## Main capabilities
 
-- Captures worksheet images with the device camera.
+- Captures worksheet images with the device camera (with support for multi-page schedules).
 - Detects table structure, lines, and cells from photographed documents.
-- Recognizes text from scanned cells.
+- Recognizes text from scanned cells and preserves cropped row/modification snippets for quick visual verification.
 - Provides processing previews and diagnostic imagery when detection needs attention.
-- Presents extracted rows in an interactive results view.
+- Presents extracted rows in an interactive results view with per-date history.
 - Provides attendance summaries and schedule-oriented workflows.
-- Supports VLH management, including table scanning and crew requirement workflows.
+- Supports VLH management, including borderless VLH table OCR extraction (with perspective and tilt compensation) and crew requirement workflows.
 - Pulls projected Guest Count (GC) values from a configured online Excel workbook.
 - Automatically calculates the expected human requirement from the projected GC and the configured VLH rules.
+- Supports English and Polish (`pl`) in-app language switching.
+- Includes Organization Licensing & Device Seat Management (`Device #1..#N`) with a built-in Demo Mode ("Use last image") and a 3-day offline verification grace window.
 
 ## How the workflow works
 
@@ -89,24 +91,26 @@ The projected GC is combined with the configured VLH table to calculate the expe
 
 ### Technology
 
-- Kotlin and Android
-- Jetpack Compose with Material 3
+- Kotlin and Android (AppCompat per-app localization + Jetpack Compose with Material 3)
 - CameraX
 - OpenCV 4.12, including native C++ line detection
 - Google ML Kit Text Recognition
 - Kotlin Serialization and DataStore Preferences
-- Apache POI for reading online Excel workbooks
+- Apache POI for reading Excel workbooks
+- Cloudflare Workers + Cloudflare D1 (Serverless SQLite) for organization licensing and device seat management
 - Gradle with Kotlin DSL
 
 ### Project structure
 
 | Area | Purpose |
 | --- | --- |
-| `app/src/main/java/com/example/workflowocr` | Application screens, scan flow, OCR, table analysis, storage, and spreadsheet synchronization |
+| `app/src/main/java/com/example/workflowocr` | Application screens, scan flow coordinator, OCR, table analysis, VLH extraction, storage, and spreadsheet synchronization |
+| `app/src/main/java/com/example/workflowocr/licensing` | Client-side organization licensing, device seat (`#1..#N`) management, Demo Mode guards, and lockout/sign-in UI |
 | `app/src/main/cpp` | Native OpenCV line-detection implementation |
 | `app/src/androidTest` | Instrumented regression tests and public scan fixtures |
-| `app/src/test` | Test and fixture-generation utilities |
-| `app/src/main/res` | Android resources, themes, layouts, and app icons |
+| `app/src/test` | Unit tests and fixture utilities |
+| `app/src/main/res` | Android resources, English & Polish (`values-pl`) localizations, themes, layouts, and app icons |
+| `backend/licensing-worker` | Cloudflare Worker + D1 schema for organization subscriptions and device slot (`#1..#N`) enforcement |
 
 ### Requirements
 
@@ -135,16 +139,17 @@ The project provides `internal` and `production` product flavors. The internal f
 
 ### Testing
 
-The project includes unit-test utilities and Android instrumentation tests for table-cell detection, cell analysis, and native line detection. Public image fixtures are stored under `app/src/androidTest/assets/test_fixtures_public`.
+The project includes unit tests and Android instrumentation tests for table-cell detection, cell analysis, VLH table extraction, and native line detection. Synthetic/anonymized public test fixtures are stored under `app/src/androidTest/assets/test_fixtures_public`.
 
 ```bash
-./gradlew test
-./gradlew connectedCheck
+./gradlew testInternalDebugUnitTest
+./gradlew connectedInternalDebugAndroidTest
 ```
 
 ## Privacy and permissions
 
-ShiftSync needs camera access to photograph worksheets. Review the Android permission prompts and avoid scanning documents containing information that should not be processed on the device or included in test fixtures.
+- **Camera (`android.permission.CAMERA`)**: Used exclusively to capture worksheet images when initiated by the user. All OCR processing and table extraction run locally on the device. Temporary full-resolution camera captures are deleted immediately after processing, and extracted schedules, row snippets, and VLH tables remain stored locally in the app's private storage.
+- **Internet (`android.permission.INTERNET`)**: Used only for downloading projected Guest Count (GC) workbooks from a user-configured URL and for verifying organization license seats (`orgCode` and device slot status). Scanned worksheets and employee data are never uploaded or transmitted off the device.
 
 ## License
 
