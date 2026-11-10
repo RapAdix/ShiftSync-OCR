@@ -139,22 +139,23 @@ data class VlhColumnConfig(
 @Serializable
 data class VlhTableState(
     val type: DayType,
-    val columns: List<VlhColumnConfig> = List(6) { id ->
-        VlhColumnConfig(
-            id = id,
-            name = when(id) {
-                0 -> "05:00-10:30"
-                1 -> "10:30-14:00"
-                2 -> "14:00-17:00"
-                3 -> "17:00-20:00"
-                4 -> "20:00-24:00"
-                5 -> "00:00-05:00"
-                else -> "Column ${id + 1}"
-            }
-        )
+    val columns: List<VlhColumnConfig> = List(TOTAL_COLUMNS) { id ->
+        VlhColumnConfig(id = id, name = defaultColumnName(id))
     }
 ) {
     companion object TimeframeValidator {
+        const val TOTAL_COLUMNS = 6
+
+        fun defaultColumnName(id: Int): String = when (id) {
+            0 -> "05:00-10:30"
+            1 -> "10:30-14:00"
+            2 -> "14:00-17:00"
+            3 -> "17:00-20:00"
+            4 -> "20:00-24:00"
+            5 -> "00:00-05:00"
+            else -> "Column ${id + 1}"
+        }
+
         // Matches 24-hour formats with :00 or :30 precision (e.g., "05:00 - 08:30" or "14:30 - 22:00")
         private val timeSpanRegex =
             Regex("""^(0[0-9]|1[0-9]|2[0-3]):(00|30)\s*-\s*((?:0[0-9]|1[0-9]|2[0-3]):(?:00|30)|24:00)$""")
@@ -269,15 +270,22 @@ class VlhWorkflowCoordinator(
 
     var targetingDayType by mutableStateOf<DayType?>(null)
     var targetingColumnId by mutableStateOf<Int?>(null)
+    var targetingColumnName by mutableStateOf<String?>(null)
 
     var lastCapturedBitmap by mutableStateOf<Bitmap?>(null)
 
     /**
      * Prepares configuration tracking states before opening up the camera overlay target screen
      */
-    fun initiateColumnUpdate(dayType: DayType, columnId: Int, openCameraAction: () -> Unit) {
+    fun initiateColumnUpdate(
+        dayType: DayType,
+        columnId: Int,
+        openCameraAction: () -> Unit,
+        columnName: String? = null
+    ) {
         targetingDayType = dayType
         targetingColumnId = columnId
+        targetingColumnName = columnName
         openCameraAction()
     }
 
@@ -301,6 +309,7 @@ class VlhWorkflowCoordinator(
 
         val day = targetingDayType ?: return
         val colId = targetingColumnId ?: return
+        val newName = targetingColumnName
 
         // Use the long-lived background scope so this block survives screen swaps safely
         backgroundScope.launch {
@@ -312,7 +321,12 @@ class VlhWorkflowCoordinator(
 
             // Unidirectional updates: Update column configurations inside our immutable list data model
             val updatedColumns = currentTable.columns.map { column ->
-                if (column.id == colId) column.copy(scannedRows = integerRowsList) else column
+                if (column.id == colId) {
+                    column.copy(
+                        name = if (!newName.isNullOrBlank() && VlhTableState.isValidTimeframe(newName)) newName else column.name,
+                        scannedRows = integerRowsList
+                    )
+                } else column
             }
             val updatedTable = currentTable.copy(columns = updatedColumns)
 
@@ -322,6 +336,7 @@ class VlhWorkflowCoordinator(
             withContext(Dispatchers.Main) {
                 targetingDayType = null
                 targetingColumnId = null
+                targetingColumnName = null
                 onProcessingComplete()
             }
         }
@@ -418,28 +433,22 @@ class VlhWorkflowCoordinator(
                 val table = extraction.rows
 
                 // Use detected GC-column positions; the table may contain index columns between data columns.
-                val newColumns = extraction.gcColumnIndices.mapIndexed { colIdx, gcTableCol ->
-                    val scannedRows = (0 until table.size).mapNotNull { rowIdx ->
-                        table[rowIdx].getOrNull(gcTableCol)?.trim()?.toIntOrNull()
-                    }
-
-                    val defaultName = if (extraction.gcColumnIndices.size == 6) {
-                        when (colIdx) {
-                            0 -> "05:00-10:30"
-                            1 -> "10:30-14:00"
-                            2 -> "14:00-17:00"
-                            3 -> "17:00-20:00"
-                            4 -> "20:00-24:00"
-                            5 -> "00:00-05:00"
-                            else -> "Column ${colIdx + 1}"
+                val currentTable = if (dayType == DayType.WEEKDAY) weekdayTable else weekendTable
+                val newColumns = List(VlhTableState.TOTAL_COLUMNS) { colIdx ->
+                    val gcTableCol = extraction.gcColumnIndices.getOrNull(colIdx)
+                    val scannedRows = if (gcTableCol != null) {
+                        (0 until table.size).mapNotNull { rowIdx ->
+                            table[rowIdx].getOrNull(gcTableCol)?.trim()?.toIntOrNull()
                         }
                     } else {
-                        "Column ${colIdx + 1}"
+                        emptyList()
                     }
+
+                    val preservedName = currentTable.columns.getOrNull(colIdx)?.name ?: VlhTableState.defaultColumnName(colIdx)
 
                     VlhColumnConfig(
                         id = colIdx,
-                        name = defaultName,
+                        name = preservedName,
                         scannedRows = scannedRows
                     )
                 }
@@ -862,7 +871,7 @@ fun VlhDashboardScreen(
                                 }
 
                                 // DYNAMIC PLACEHOLDERS: Calculated safely per individual column data boundaries
-                                val missingSlots = minRows - column.scannedRows.size
+                                val missingSlots = totalRowsCount - column.scannedRows.size
                                 if (missingSlots > 0) {
                                     repeat(missingSlots) {
                                         Box(modifier = Modifier.height(28.dp), contentAlignment = Alignment.Center) {
@@ -962,7 +971,7 @@ fun VlhSetupConfigScreen(
     var selectedColId by remember { mutableIntStateOf(0) }
 
     val targetTable = if (selectedDay == DayType.WEEKDAY) coordinator.weekdayTable else coordinator.weekendTable
-    val activeCol = targetTable.columns[selectedColId]
+    val activeCol = targetTable.columns.getOrElse(selectedColId) { VlhColumnConfig(id = selectedColId, name = VlhTableState.defaultColumnName(selectedColId)) }
 
     // Generate pre-baked 30-minute intervals: ["00:00", "00:30", "01:00" ... "24:00"]
     val timeOptions = remember {
@@ -1068,7 +1077,7 @@ fun VlhSetupConfigScreen(
                     val combinedTimeSpan = "$startTime- $endTime"
                     activeCol.name = combinedTimeSpan
 
-                    coordinator.initiateColumnUpdate(selectedDay, selectedColId, onLaunchCamera)
+                    coordinator.initiateColumnUpdate(selectedDay, selectedColId, onLaunchCamera, combinedTimeSpan)
                 },
                 enabled = isValidRange, // Button locks if validation parameters fail
                 modifier = Modifier.weight(1f)

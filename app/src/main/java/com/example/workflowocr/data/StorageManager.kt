@@ -479,7 +479,7 @@ class StorageManager(private val context: Context) {
     }
 
     companion object {
-        private val dateFolderName = Regex("[0-9]{2}-[0-9]{2}")
+        private val dateFolderName = Regex("[0-9]{1,2}-[0-9]{1,2}")
 
         private data class CleanupResult(val filesRemoved: Int, val foldersRemoved: Int, val failures: Int)
 
@@ -523,9 +523,12 @@ class StorageManager(private val context: Context) {
 
         private fun isValidDateFolder(name: String): Boolean {
             if (!dateFolderName.matches(name)) return false
+            val parts = name.split("-")
+            val day = parts.getOrNull(0)?.toIntOrNull() ?: return false
+            val month = parts.getOrNull(1)?.toIntOrNull() ?: return false
             return try {
                 // MonthDay accepts 29 February independently of the current year.
-                MonthDay.of(name.substring(3).toInt(), name.substring(0, 2).toInt())
+                MonthDay.of(month, day)
                 true
             } catch (_: DateTimeException) {
                 false

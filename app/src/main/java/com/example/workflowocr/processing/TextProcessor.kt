@@ -493,7 +493,19 @@ object TextProcessor {
             throw CouldNotDetermineDateException("Date unknown. The candidates were [$d1] [$d2] [$d3]")
 
         val date = when (winner.length) {
-            2, 4 -> winner.take(winner.length / 2) + "-" + winner.substring(winner.length / 2, winner.length)
+            2, 4 -> {
+                val half = winner.length / 2
+                val day = winner.take(half).toIntOrNull()
+                val month = winner.substring(half).toIntOrNull()
+                if (day == null || month == null) {
+                    throw CouldNotDetermineDateException("Date voting malfunction. The winner was $winner")
+                }
+                try {
+                    java.time.MonthDay.of(month, day).format(StorageManager.storageDateFormatter())
+                } catch (_: Exception) {
+                    throw CouldNotDetermineDateException("Invalid calendar date from winner $winner")
+                }
+            }
             3 -> resolveThreeDigitDate(winner)
             else -> throw CouldNotDetermineDateException("Date voting malfunction. The winner was $winner")
         }
@@ -528,17 +540,18 @@ object TextProcessor {
         val dateA = tryParse(dayA, monthA)
         val dateB = tryParse(dayB, monthB)
 
+        val formatter = StorageManager.storageDateFormatter()
         return when {
             // Only one is a valid calendar date
-            dateA != null && dateB == null -> "$dayA-$monthA"
-            dateA == null && dateB != null -> "$dayB-$monthB"
+            dateA != null && dateB == null -> dateA.format(formatter)
+            dateA == null && dateB != null -> dateB.format(formatter)
 
             // Both are valid (e.g. "112" -> 11-Feb or 1-Dec). Pick the one closer to today.
             dateA != null && dateB != null -> {
                 val diffA = abs(ChronoUnit.DAYS.between(now, dateA))
                 val diffB = abs(ChronoUnit.DAYS.between(now, dateB))
 
-                if (diffA <= diffB) "$dayA-$monthA" else "$dayB-$monthB"
+                if (diffA <= diffB) dateA.format(formatter) else dateB.format(formatter)
             }
 
             // Neither is a valid date (e.g. "329" -> 32-9 is impossible, 3-29 is impossible)
