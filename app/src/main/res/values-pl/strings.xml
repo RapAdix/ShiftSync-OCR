@@ -71,7 +71,7 @@
     <string name="license_lock_offline_title">Wymagana weryfikacja online</string>
     <string name="license_lock_offline_body">To urządzenie nie weryfikowało licencji przez internet od ponad 3 dni. Połącz się z internetem i kliknij Zweryfikuj licencję online.</string>
     <string name="license_lock_clock_title">Wykryto cofnięcie zegara systemowego</string>
-    <string name="license_lock_clock_body">Zegar systemowy urządzenia został cofnięty. Połącz się z internetem i kliknij Zweryfikuj licencję online, aby przywrócić dostęp.</string>
+    <string name="license_lock_clock_body">Zegar systemowy urządzenia został cofnięty. Ustaw prawidłową datę i godzinę w ustawieniach telefonu (najlepiej włącz automatyczną datę i godzinę), a następnie połącz się z internetem i kliknij Zweryfikuj licencję online.</string>
     <string name="license_lock_revoked_title">Miejsce urządzenia zostało przejęte</string>
     <string name="license_lock_revoked_body">Inny telefon przejął ten numer urządzenia w Twojej organizacji. Zaloguj się ponownie lub wróć do trybu Demo.</string>
     <string name="license_status_verified_ok">Licencja zweryfikowana pomyślnie.</string>
@@ -87,6 +87,7 @@
     <string name="license_error_takeover_rate_limit">Urządzenie #%1$d osiągnęło limit 5 zmian w ciągu 24 godzin. Wybierz inne miejsce lub skontaktuj się z pomocą.</string>
     <string name="license_error_network_signin">Nie udało się połączyć z serwerem licencji. Sprawdź połączenie z internetem.</string>
     <string name="license_error_network_takeover">Błąd sieci podczas przejmowania Urządzenia #%1$d. Sprawdź połączenie z internetem.</string>
+    <string name="license_error_ssl_clock">Data i godzina w telefonie są niezgodne z czasem serwera licencji. Ustaw prawidłową datę i godzinę w telefonie i spróbuj ponownie.</string>
     <string name="license_error_signin_http">Logowanie nie powiodło się (HTTP %1$d).</string>
     <string name="license_error_takeover_http">Nie udało się zastąpić Urządzenia #%1$d (HTTP %2$d).</string>
     <string name="license_time_never">nigdy</string>

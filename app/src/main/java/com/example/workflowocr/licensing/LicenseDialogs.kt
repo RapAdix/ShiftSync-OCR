@@ -38,6 +38,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -448,6 +449,12 @@ fun LicenseLockoutScreen(
     val state = licenseManager.state
     val reason = licenseManager.getLockReason()
 
+    DisposableEffect(Unit) {
+        onDispose {
+            licenseManager.clearStatusMessage()
+        }
+    }
+
     // Automatically attempt an online verification the instant the Lockout Screen is shown
     // (unless the session was already explicitly revoked by the server).
     // If internet is available and the license is active, this unlocks the screen immediately
@@ -716,6 +723,15 @@ fun LicenseSettingsSectionCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                if (licenseManager.lastStatusMessage != null) {
+                    val isVerifiedOk = licenseManager.lastStatusMessage == stringResource(R.string.license_status_verified_ok)
+                    Text(
+                        text = licenseManager.lastStatusMessage.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isVerifiedOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),

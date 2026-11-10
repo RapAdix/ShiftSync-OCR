@@ -33,7 +33,13 @@ import kotlinx.serialization.json.intOrNull
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.cert.CertPathValidatorException
+import java.security.cert.CertificateException
+import java.security.cert.CertificateExpiredException
+import java.security.cert.CertificateNotYetValidException
 import java.util.UUID
+import javax.net.ssl.SSLException
+import javax.net.ssl.SSLHandshakeException
 
 private val Context.licenseDataStore by preferencesDataStore(name = "license_preferences")
 
@@ -101,9 +107,36 @@ class LicenseManager(
 ) {
     companion object {
         internal const val THREE_DAYS_MILLIS: Long = 3L * 24L * 60L * 60L * 1000L
-        private const val CLOCK_ROLLBACK_TOLERANCE_MILLIS: Long = 15L * 60L * 1000L // 15 min tolerance for NTP adjustments
+        internal const val CLOCK_ROLLBACK_TOLERANCE_MILLIS: Long = 15L * 60L * 1000L
         private val STATE_KEY = stringPreferencesKey("stored_license_state_v1")
         private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+        internal fun isDeviceClockSkewedFromServer(
+            deviceNowMillis: Long,
+            serverNowMillis: Long?
+        ): Boolean {
+            if (serverNowMillis == null || serverNowMillis <= 0L) return false
+            return kotlin.math.abs(deviceNowMillis - serverNowMillis) > CLOCK_ROLLBACK_TOLERANCE_MILLIS
+        }
+
+        internal fun isSslOrClockError(throwable: Throwable): Boolean {
+            var current: Throwable? = throwable
+            var depth = 0
+            while (current != null && depth < 10) {
+                if (current is SSLHandshakeException ||
+                    current is CertificateNotYetValidException ||
+                    current is CertificateExpiredException ||
+                    current is CertPathValidatorException ||
+                    current is CertificateException ||
+                    (current is SSLException && current.message?.contains("CERTIFICATE_VERIFY_FAILED", ignoreCase = true) == true)
+                ) {
+                    return true
+                }
+                current = current.cause
+                depth++
+            }
+            return false
+        }
 
         internal fun defaultDeviceModelName(): String {
             val manufacturer = Build.MANUFACTURER?.trim().orEmpty()
@@ -268,11 +301,11 @@ class LicenseManager(
         }
     }
 
-    private suspend fun saveState(newState: StoredLicenseState) {
+    private suspend fun saveState(newState: StoredLicenseState, resetMaxClock: Boolean = false) {
         awaitLoaded()
         val now = System.currentTimeMillis()
         val withClock = newState.copy(
-            maxObservedWallClockMillis = maxOf(newState.maxObservedWallClockMillis, now)
+            maxObservedWallClockMillis = if (resetMaxClock) now else maxOf(newState.maxObservedWallClockMillis, now)
         )
         state = withClock
         writeStateToDisk(withClock)
@@ -332,11 +365,24 @@ class LicenseManager(
         return evaluateStateLockReason(current, nowWallMillis, SystemClock.elapsedRealtime())
     }
 
+    fun clearStatusMessage() {
+        lastStatusMessage = null
+    }
+
     /**
      * Forces Compose to re-evaluate time-dependent license checks (`hasDemoAccess`, `hasSubscriptionAccess`).
      */
     fun refreshAccessEvaluation() {
-        evaluationTickMillis = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        evaluationTickMillis = now
+        if (isLoaded && getLockReason(now) == LicenseLockReason.NONE &&
+            lastStatusMessage == getLocalizedString(R.string.license_error_ssl_clock)
+        ) {
+            lastStatusMessage = null
+            if (state.isSignedIn && !(BuildConfig.IS_INTERNAL_FLAVOR && state.internalStubActive)) {
+                verifyOnlineSilently()
+            }
+        }
     }
 
     /**
@@ -402,7 +448,7 @@ class LicenseManager(
                 maxObservedWallClockMillis = now,
                 internalStubActive = false
             )
-            saveState(newState)
+            saveState(newState, resetMaxClock = true)
             return@withContext LoginOutcome.Success(newState)
         }
 
@@ -415,11 +461,15 @@ class LicenseManager(
                     "deviceLabel" to kotlinx.serialization.json.JsonPrimitive(fullLabel)
                 )
             )
-            val (httpCode, responseJson) = postJson("${state.serverBaseUrl}/api/v1/login", payload.toString())
+            val (httpCode, responseJson, serverTimeMillis) = postJson("${state.serverBaseUrl}/api/v1/login", payload.toString())
+            val now = System.currentTimeMillis()
+            if (isDeviceClockSkewedFromServer(now, serverTimeMillis)) {
+                return@withContext LoginOutcome.Error(getLocalizedString(R.string.license_error_ssl_clock))
+            }
 
             when (httpCode) {
                 200 -> {
-                    val now = System.currentTimeMillis()
+                    val verifiedNow = serverTimeMillis ?: now
                     val newState = state.copy(
                         isSignedIn = true,
                         sessionToken = responseJson["sessionToken"]?.jsonPrimitive?.content.orEmpty(),
@@ -428,13 +478,13 @@ class LicenseManager(
                         slotNumber = responseJson["slotNumber"]?.jsonPrimitive?.intOrNull ?: 1,
                         maxDevices = responseJson["maxDevices"]?.jsonPrimitive?.intOrNull ?: 1,
                         deviceLabel = responseJson["deviceLabel"]?.jsonPrimitive?.content ?: fullLabel,
-                        paidUntilMillis = responseJson["paidUntilMillis"]?.jsonPrimitive?.longOrNull ?: now,
-                        lastVerifiedWallClockMillis = now,
+                        paidUntilMillis = responseJson["paidUntilMillis"]?.jsonPrimitive?.longOrNull ?: verifiedNow,
+                        lastVerifiedWallClockMillis = verifiedNow,
                         lastVerifiedElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
-                        maxObservedWallClockMillis = now,
+                        maxObservedWallClockMillis = verifiedNow,
                         internalStubActive = false
                     )
-                    saveState(newState)
+                    saveState(newState, resetMaxClock = true)
                     withContext(Dispatchers.Main) {
                         pendingSlotsFull = null
                         lastStatusMessage = null
@@ -490,9 +540,12 @@ class LicenseManager(
             }
         } catch (e: Exception) {
             Log.e("LicenseManager", "Sign-in network error", e)
-            LoginOutcome.Error(
-                getLocalizedString(R.string.license_error_network_signin)
-            )
+            val msgRes = if (isSslOrClockError(e)) {
+                R.string.license_error_ssl_clock
+            } else {
+                R.string.license_error_network_signin
+            }
+            LoginOutcome.Error(getLocalizedString(msgRes))
         }
     }
 
@@ -514,9 +567,13 @@ class LicenseManager(
                     "deviceLabel" to kotlinx.serialization.json.JsonPrimitive(slotsFull.deviceLabel)
                 )
             )
-            val (httpCode, responseJson) = postJson("${state.serverBaseUrl}/api/v1/takeover", payload.toString())
+            val (httpCode, responseJson, serverTimeMillis) = postJson("${state.serverBaseUrl}/api/v1/takeover", payload.toString())
+            val now = System.currentTimeMillis()
+            if (isDeviceClockSkewedFromServer(now, serverTimeMillis)) {
+                return@withContext LoginOutcome.Error(getLocalizedString(R.string.license_error_ssl_clock))
+            }
             if (httpCode == 200) {
-                val now = System.currentTimeMillis()
+                val verifiedNow = serverTimeMillis ?: now
                 val newState = state.copy(
                     isSignedIn = true,
                     sessionToken = responseJson["sessionToken"]?.jsonPrimitive?.content.orEmpty(),
@@ -525,13 +582,13 @@ class LicenseManager(
                     slotNumber = responseJson["slotNumber"]?.jsonPrimitive?.intOrNull ?: chosenSlotNumber,
                     maxDevices = responseJson["maxDevices"]?.jsonPrimitive?.intOrNull ?: slotsFull.maxDevices,
                     deviceLabel = responseJson["deviceLabel"]?.jsonPrimitive?.content ?: slotsFull.deviceLabel,
-                    paidUntilMillis = responseJson["paidUntilMillis"]?.jsonPrimitive?.longOrNull ?: now,
-                    lastVerifiedWallClockMillis = now,
+                    paidUntilMillis = responseJson["paidUntilMillis"]?.jsonPrimitive?.longOrNull ?: verifiedNow,
+                    lastVerifiedWallClockMillis = verifiedNow,
                     lastVerifiedElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
-                    maxObservedWallClockMillis = now,
+                    maxObservedWallClockMillis = verifiedNow,
                     internalStubActive = false
                 )
-                saveState(newState)
+                saveState(newState, resetMaxClock = true)
                 withContext(Dispatchers.Main) {
                     pendingSlotsFull = null
                     lastStatusMessage = null
@@ -549,9 +606,12 @@ class LicenseManager(
             }
         } catch (e: Exception) {
             Log.e("LicenseManager", "Takeover network error", e)
-            LoginOutcome.Error(
+            val errMsg = if (isSslOrClockError(e)) {
+                getLocalizedString(R.string.license_error_ssl_clock)
+            } else {
                 getLocalizedString(R.string.license_error_network_takeover, chosenSlotNumber)
-            )
+            }
+            LoginOutcome.Error(errMsg)
         }
     }
 
@@ -569,7 +629,8 @@ class LicenseManager(
                     lastVerifiedWallClockMillis = now,
                     lastVerifiedElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
                     maxObservedWallClockMillis = now
-                )
+                ),
+                resetMaxClock = true
             )
             return@withContext true
         }
@@ -582,10 +643,17 @@ class LicenseManager(
                     "deviceInstallId" to kotlinx.serialization.json.JsonPrimitive(current.deviceInstallId)
                 )
             )
-            val (httpCode, responseJson) = postJson("${current.serverBaseUrl}/api/v1/verify", payload.toString())
+            val (httpCode, responseJson, serverTimeMillis) = postJson("${current.serverBaseUrl}/api/v1/verify", payload.toString())
+            val now = System.currentTimeMillis()
+            if (isDeviceClockSkewedFromServer(now, serverTimeMillis)) {
+                withContext(Dispatchers.Main) {
+                    lastStatusMessage = getLocalizedString(R.string.license_error_ssl_clock)
+                }
+                return@withContext false
+            }
             when (httpCode) {
                 200 -> {
-                    val now = System.currentTimeMillis()
+                    val verifiedNow = serverTimeMillis ?: now
                     val updated = current.copy(
                         organizationCode = responseJson["organizationCode"]?.jsonPrimitive?.content ?: current.organizationCode,
                         organizationName = responseJson["organizationName"]?.jsonPrimitive?.content ?: current.organizationName,
@@ -593,11 +661,11 @@ class LicenseManager(
                         maxDevices = responseJson["maxDevices"]?.jsonPrimitive?.intOrNull ?: current.maxDevices,
                         deviceLabel = responseJson["deviceLabel"]?.jsonPrimitive?.content ?: current.deviceLabel,
                         paidUntilMillis = responseJson["paidUntilMillis"]?.jsonPrimitive?.longOrNull ?: current.paidUntilMillis,
-                        lastVerifiedWallClockMillis = now,
+                        lastVerifiedWallClockMillis = verifiedNow,
                         lastVerifiedElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
-                        maxObservedWallClockMillis = now
+                        maxObservedWallClockMillis = verifiedNow
                     )
-                    saveState(updated)
+                    saveState(updated, resetMaxClock = true)
                     withContext(Dispatchers.Main) {
                         lastStatusMessage = getLocalizedString(R.string.license_status_verified_ok)
                     }
@@ -629,8 +697,13 @@ class LicenseManager(
             }
         } catch (e: Exception) {
             Log.w("LicenseManager", "Online verification failed: ${e.message}")
+            val msgRes = if (isSslOrClockError(e)) {
+                R.string.license_error_ssl_clock
+            } else {
+                R.string.license_status_offline
+            }
             withContext(Dispatchers.Main) {
-                lastStatusMessage = getLocalizedString(R.string.license_status_offline)
+                lastStatusMessage = getLocalizedString(msgRes)
             }
             false
         } finally {
@@ -638,8 +711,10 @@ class LicenseManager(
         }
     }
 
-    private suspend fun verifyOnlineSilently() {
-        verifyOnlineNow()
+    fun verifyOnlineSilently() {
+        scope.launch {
+            verifyOnlineNow()
+        }
     }
 
     /**
@@ -734,7 +809,7 @@ class LicenseManager(
         }
     }
 
-    private fun postJson(urlString: String, bodyJson: String): Pair<Int, JsonObject> {
+    private fun postJson(urlString: String, bodyJson: String): HttpJsonResult {
         val url = URL(urlString)
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -750,6 +825,7 @@ class LicenseManager(
                 writer.flush()
             }
             val code = conn.responseCode
+            val headerDateMillis = conn.date.takeIf { it > 0L }
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             val parsed = if (text.isNotBlank()) {
@@ -761,9 +837,17 @@ class LicenseManager(
             } else {
                 JsonObject(emptyMap())
             }
-            code to parsed
+            val jsonServerTime = parsed["serverTimeMillis"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0L }
+            val serverTimeMillis = jsonServerTime ?: headerDateMillis
+            HttpJsonResult(code = code, body = parsed, serverTimeMillis = serverTimeMillis)
         } finally {
             conn.disconnect()
         }
     }
 }
+
+private data class HttpJsonResult(
+    val code: Int,
+    val body: JsonObject,
+    val serverTimeMillis: Long?
+)
