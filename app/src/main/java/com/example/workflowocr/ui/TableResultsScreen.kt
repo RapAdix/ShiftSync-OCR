@@ -147,10 +147,10 @@ class TableViewModel(application: Application) : AndroidViewModel(application) {
     private val _availableDates = MutableStateFlow<List<String>>(emptyList())
     val availableDates: StateFlow<List<String>> = _availableDates.asStateFlow()
 
-    var activePresetType by mutableStateOf(PresetType.DEFAULT_13_COL)
+    var activePresetType by mutableStateOf(PresetType.DEFAULT_12_COL)
         private set
 
-    var activeLayout by mutableStateOf(PresetDefaults.layout13Col)
+    var activeLayout by mutableStateOf(PresetDefaults.layout12Col)
         private set
     var universalSettings by mutableStateOf(UniversalSettings())
         private set

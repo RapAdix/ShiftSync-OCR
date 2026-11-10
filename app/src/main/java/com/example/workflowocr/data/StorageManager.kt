@@ -67,7 +67,7 @@ class StorageManager(private val context: Context) {
         }
 
         // 2. Parse Preset Type
-        val presetTypeStr = preferences[PRESET_TYPE_KEY] ?: PresetType.DEFAULT_13_COL.name
+        val presetTypeStr = preferences[PRESET_TYPE_KEY] ?: PresetType.DEFAULT_12_COL.name
         val presetType = PresetType.valueOf(presetTypeStr)
 
         // 3. Parse Layout
