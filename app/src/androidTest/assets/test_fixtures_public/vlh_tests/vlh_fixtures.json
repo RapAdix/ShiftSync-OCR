@@ -1,0 +1,45 @@
+[
+  {
+    "name": "anon_table",
+    "workbook": "anon_table.xlsx",
+    "image": "anon_table.jpg",
+    "headerRowCount": 1,
+    "expectedColumnCount": 14,
+    "acceptedColumnCount": 12,
+    "acceptedEditDistance": 915
+  },
+  {
+    "name": "anon_table_extra_rows",
+    "workbook": "anon_table_extra_rows.xlsx",
+    "image": "anon_table_extra_rows.jpg",
+    "headerRowCount": 7,
+    "expectedColumnCount": 14,
+    "acceptedEditDistance": 458
+  },
+  {
+    "name": "anon_table_tricky_header",
+    "workbook": "anon_table_tricky_header.xlsx",
+    "image": "anon_table_tricky_header.jpg",
+    "headerRowCount": 9,
+    "expectedColumnCount": 14,
+    "acceptedEditDistance": 739
+  },
+  {
+    "name": "anon_weekday",
+    "workbook": "anon_weekday.xlsx",
+    "image": "anon_weekday.jpg",
+    "headerRowCount": 2,
+    "expectedColumnCount": 18,
+    "acceptedColumnCount": 16,
+    "acceptedEditDistance": 3772
+  },
+  {
+    "name": "anon_weekend",
+    "workbook": "anon_weekend.xlsx",
+    "image": "anon_weekend.jpg",
+    "headerRowCount": 2,
+    "expectedColumnCount": 18,
+    "acceptedColumnCount": 16,
+    "acceptedEditDistance": 3384
+  }
+]

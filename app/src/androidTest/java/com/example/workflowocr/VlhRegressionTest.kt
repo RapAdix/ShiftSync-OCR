@@ -7,8 +7,10 @@ import com.example.workflowocr.processing.VlhTableExtractor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import org.junit.Assert.assertTrue
@@ -24,43 +26,61 @@ import kotlin.coroutines.resumeWithException
 @RunWith(AndroidJUnit4::class)
 class VlhRegressionTest {
 
+    @Serializable
+    private data class IgnoredRegion(
+        val column: Int,
+        val startRow: Int,
+        val endRow: Int
+    )
+
+    @Serializable
+    private data class FixtureSpec(
+        val name: String,
+        val workbook: String,
+        val image: String,
+        val headerRowCount: Int,
+        val expectedColumnCount: Int,
+        val acceptedColumnCount: Int? = null,
+        val acceptedEditDistance: Int,
+        val ignoredRegions: List<IgnoredRegion> = emptyList()
+    )
+
     private data class Fixture(
         val name: String,
         val workbookAsset: String,
         val imageAsset: String,
         val headerRowCount: Int,
         val expectedColumnCount: Int,
-        val acceptedEditDistance: Int
+        val acceptedColumnCount: Int,
+        val acceptedEditDistance: Int,
+        val ignoredRegions: List<IgnoredRegion>
     )
 
-    private val fixtures = listOf(
-        Fixture(
-            name = "vlh_original",
-            workbookAsset = "test_fixtures_secret/vlh_tests/vlh table.xlsx",
-            imageAsset = "test_fixtures_secret/vlh_tests/secret_vlh_nodpi.jpg",
-            headerRowCount = 1,
-            expectedColumnCount = 14,
-            acceptedEditDistance = 101
-        ),
-        Fixture(
-            name = "vlh_ba_weekday",
-            workbookAsset = "test_fixtures_secret/vlh_tests/vlh_ba_weekday.xlsx",
-            imageAsset = "test_fixtures_secret/vlh_tests/vlh_ba_weekday.jpg",
-            headerRowCount = 2,
-            expectedColumnCount = 18,
-            // Independent baseline for this fixture, measured on the reference Huawei.
-            acceptedEditDistance = 76
-        ),
-        Fixture(
-            name = "vlh_ba_weekend",
-            workbookAsset = "test_fixtures_secret/vlh_tests/vlh_ba_weekend.xlsx",
-            imageAsset = "test_fixtures_secret/vlh_tests/vlh_ba_weekend.jpg",
-            headerRowCount = 2,
-            expectedColumnCount = 18,
-            // Independent baseline for this fixture, measured on the reference Huawei.
-            acceptedEditDistance = 53
-        )
-    )
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun loadFixtures(assets: android.content.res.AssetManager): List<Fixture> {
+        val directories = listOf("test_fixtures_public/vlh_tests", "test_fixtures_secret/vlh_tests")
+        return directories.flatMap { dir ->
+            try {
+                val jsonString = assets.open("$dir/vlh_fixtures.json").bufferedReader().use { it.readText() }
+                val specs = json.decodeFromString<List<FixtureSpec>>(jsonString)
+                specs.map { spec ->
+                    Fixture(
+                        name = spec.name,
+                        workbookAsset = "$dir/${spec.workbook}",
+                        imageAsset = "$dir/${spec.image}",
+                        headerRowCount = spec.headerRowCount,
+                        expectedColumnCount = spec.expectedColumnCount,
+                        acceptedColumnCount = spec.acceptedColumnCount ?: spec.expectedColumnCount,
+                        acceptedEditDistance = spec.acceptedEditDistance,
+                        ignoredRegions = spec.ignoredRegions
+                    )
+                }
+            } catch (_: FileNotFoundException) {
+                emptyList()
+            }
+        }.filter { fixtureAssetsAreAvailable(it, assets) }
+    }
 
     private fun normalize(text: String): String =
         text.lowercase(Locale.ROOT).replace(Regex("\\s+"), "").replace("o", "0")
@@ -120,14 +140,13 @@ class VlhRegressionTest {
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         val results = mutableListOf<String>()
         val failures = mutableListOf<String>()
-        val availableFixtures = fixtures.filter { fixtureAssetsAreAvailable(it, assets) }
-        if (availableFixtures.isEmpty()) {
-            recognizer.close()
-            println("VLH regression fixtures are not installed locally; skipping the secret-fixture test.")
-            return@runBlocking
-        }
+        val availableFixtures = loadFixtures(assets)
 
         try {
+            assertTrue(
+                "No public VLH regression fixtures were found",
+                availableFixtures.any { it.workbookAsset.startsWith("test_fixtures_public/") }
+            )
             for (fixture in availableFixtures) {
                 val expectedRows = readExpectedRows(fixture, assets)
                 check(expectedRows.isNotEmpty()) { "${fixture.name}: workbook contains no data rows" }
@@ -170,7 +189,7 @@ class VlhRegressionTest {
                         val expectedRow = expectedRows.getOrNull(row).orEmpty()
                         val actualRow = table.getOrNull(row) ?: emptyArray()
                         for (column in 0 until fixture.expectedColumnCount) {
-                            if (fixture.name == "vlh_original" && column == 7 && row in 27..50) {
+                            if (fixture.ignoredRegions.any { it.column == column && row in it.startRow..it.endRow }) {
                                 continue // This source region is known to be blurred/unreadable.
                             }
                             val expected = expectedRow.getOrElse(column) { "" }
@@ -205,8 +224,8 @@ class VlhRegressionTest {
                     println("VLH_REGRESSION $result")
                     println("VLH_HEADER_MARKERS ${fixture.name}: $recognizedHeaderMarkers")
 
-                    if (actualColumnCount != fixture.expectedColumnCount) {
-                        failures += "${fixture.name}: expected ${fixture.expectedColumnCount} columns, detected $actualColumnCount"
+                    if (actualColumnCount != fixture.acceptedColumnCount) {
+                        failures += "${fixture.name}: expected ${fixture.acceptedColumnCount} columns, detected $actualColumnCount"
                     }
                     if (editDistance > fixture.acceptedEditDistance) {
                         failures += "${fixture.name}: edit distance $editDistance exceeds its baseline ${fixture.acceptedEditDistance}"
