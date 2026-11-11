@@ -215,7 +215,7 @@ object VlhTableExtractor {
         val imageWidth = boxes.maxOfOrNull { it.right } ?: throw IllegalStateException("Cannot determine image width")
 
         val preliminaryNumbers = parsePreliminaryNumbers(boxes, maxSearchRows)
-        val headers = detectHeaders(boxes)
+        val headers = completeRepeatedIndexHeaders(detectHeaders(boxes))
         val usesHeaderDrivenLayout = headers.indexHeaders.size > 1 &&
             headers.positionHeaders.isNotEmpty() && headers.gcMarkerHeaders.isNotEmpty()
         // When OCR misses the LP labels, the legacy (vertical-only) layout remains the baseline,
@@ -245,8 +245,8 @@ object VlhTableExtractor {
         if (canRetryWithTilt && hasEmptyGcAfterInitialRows(rawGrid, columns, finalRowCount)) {
             val tiltedColumns = buildHeaderDrivenLayout(boxes, tiltHeaders, allowTilt = true)
             val sameStructure = usesHeaderDrivenLayout || (
-                tiltedColumns.size == columns.size &&
-                    tiltedColumns.map { it.kind == ColumnKind.GC } == columns.map { it.kind == ColumnKind.GC }
+                tiltedColumns.size >= columns.size &&
+                    tiltedColumns.count { it.kind == ColumnKind.GC } >= columns.count { it.kind == ColumnKind.GC }
                 )
             if (sameStructure) {
                 val tiltedGrid = populate(tiltedColumns)
@@ -386,6 +386,47 @@ object VlhTableExtractor {
     }
 
     /**
+     * In repeated 3-column layouts ([LP, STANOWISKO, GC] x N), OCR may miss one of the short "LP"
+     * headers while still recognizing all "STANOWISKO" headers. Infer any missing LP header from
+     * the median position-to-LP offset of the other groups so the group and its adjacent GC column
+     * are not dropped.
+     */
+    private fun completeRepeatedIndexHeaders(headers: HeaderInfo): HeaderInfo {
+        val posHeaders = headers.positionHeaders.sortedBy { it.centerX }
+        val lpHeaders = headers.indexHeaders.sortedBy { it.centerX }
+        val isRepeatedLpLayout = posHeaders.size >= 2 && lpHeaders.any { lp ->
+            posHeaders.any { it.centerX < lp.centerX } && posHeaders.any { it.centerX > lp.centerX }
+        }
+        if (!isRepeatedLpLayout || lpHeaders.size >= posHeaders.size) return headers
+
+        data class LpGroup(val position: TextBox, val lp: TextBox?)
+        val groups = posHeaders.mapIndexed { index, pos ->
+            val prevPosRight = if (index == 0) Double.NEGATIVE_INFINITY else posHeaders[index - 1].right
+            val lp = lpHeaders
+                .filter { it.centerX > prevPosRight && it.centerX < pos.left }
+                .maxByOrNull { it.centerX }
+            LpGroup(pos, lp)
+        }
+        val knownCenterOffsets = groups.mapNotNull { g -> g.lp?.let { g.position.centerX - it.centerX } }
+        if (knownCenterOffsets.isEmpty()) return headers
+
+        val typicalCenterOffset = median(knownCenterOffsets)
+        val typicalBottomOffset = median(groups.mapNotNull { g -> g.lp?.let { it.bottom - g.position.bottom } })
+        val typicalWidth = median(lpHeaders.map { it.right - it.left })
+        val typicalHeight = median(lpHeaders.map { it.bottom - it.top })
+
+        val inferred = groups.filter { it.lp == null }.map { g ->
+            val centerX = g.position.centerX - typicalCenterOffset
+            val bottom = (g.position.bottom + typicalBottomOffset).toFloat()
+            val top = (bottom - typicalHeight).toFloat()
+            val left = (centerX - typicalWidth / 2.0).toFloat()
+            val right = (centerX + typicalWidth / 2.0).toFloat()
+            TextBox("LP", arrayOf(PointF(left, top), PointF(right, top), PointF(right, bottom), PointF(left, bottom)))
+        }
+        return headers.copy(indexHeaders = (lpHeaders + inferred).sortedBy { it.centerX })
+    }
+
+    /**
      * OCR sometimes misses the short "LP" labels (e.g. on angled photos). Without them the
      * header-driven layout, which is the only one that supports slanted separators, cannot be
      * used. Infer an LP anchor from the first row-index numbers just below the header that lie
@@ -393,29 +434,43 @@ object VlhTableExtractor {
      */
     private fun synthesizeMissingIndexHeaders(headers: HeaderInfo, numbers: List<Pair<Int, TextBox>>): HeaderInfo {
         if (headers.indexHeaders.size > 1 || headers.positionHeaders.isEmpty() || headers.gcMarkerHeaders.isEmpty()) return headers
+        val completedGcAnchors = completeRepeatedGcHeaders(headers)
         val labelled = headers.positionHeaders + headers.gcMarkerHeaders
         val headerTop = labelled.minOf { it.top }
         val headerHeight = median(labelled.map { (it.bottom - it.top).coerceAtLeast(1.0) })
         val bandBottom = labelled.maxOf { it.bottom } + headerHeight * SYNTHETIC_INDEX_BAND_HEADER_HEIGHTS
-        val leftEdge = labelled.minOf { it.left }
-        val rightEdge = labelled.maxOf { it.right }
+        val leftEdge = minOf(labelled.minOf { it.left }, completedGcAnchors.minOfOrNull { it.left } ?: Double.POSITIVE_INFINITY)
+        val rightEdge = maxOf(labelled.maxOf { it.right }, completedGcAnchors.maxOfOrNull { it.right } ?: Double.NEGATIVE_INFINITY)
         val nearHeader = numbers.filter { (number, box) ->
             number <= SYNTHETIC_INDEX_MAX_ROW && box.top > headerTop && box.centerY < bandBottom
         }.map { it.second }
 
-        fun synthesize(candidates: List<TextBox>): TextBox? {
+        fun synthesize(candidates: List<TextBox>, referenceBottom: Double): TextBox? {
             if (candidates.isEmpty()) return null
             val left = candidates.minOf { it.left }.toFloat()
             val right = candidates.maxOf { it.right }.toFloat()
-            // Place the anchor just above its first number so that number stays in the body.
-            val bottom = (candidates.minOf { it.top } - 1.0).toFloat()
+            // Place the anchor just above its first number so that number stays in the body,
+            // while never pushing the header bottom below the adjacent header row if early index numbers were blurred.
+            val bottom = minOf(referenceBottom, candidates.minOf { it.top } - 1.0).toFloat()
             val top = (bottom - headerHeight).toFloat()
             return TextBox("LP", arrayOf(PointF(left, top), PointF(right, top), PointF(right, bottom), PointF(left, bottom)))
         }
 
+        val leftRefBottom = labelled.minByOrNull { it.left }?.bottom ?: labelled.maxOf { it.bottom }
+        val rightRefBottom = maxOf(
+            labelled.maxByOrNull { it.right }?.bottom ?: 0.0,
+            completedGcAnchors.maxByOrNull { it.right }?.bottom ?: 0.0
+        )
         val existing = headers.indexHeaders
-        val left = if (existing.none { it.centerX < leftEdge }) synthesize(nearHeader.filter { it.right < leftEdge }) else null
-        val right = if (existing.none { it.centerX > rightEdge }) synthesize(nearHeader.filter { it.left > rightEdge }) else null
+        val leftCandidates = nearHeader.filter { it.right < leftEdge }
+        val rightCandidates = nearHeader.filter { it.left > rightEdge }.ifEmpty {
+            val extendedBandBottom = labelled.maxOf { it.bottom } + headerHeight * 22.0
+            numbers.filter { (number, box) ->
+                number <= 15 && box.top > headerTop && box.centerY < extendedBandBottom && box.left > rightEdge
+            }.map { it.second }
+        }
+        val left = if (existing.none { it.centerX < leftEdge }) synthesize(leftCandidates, leftRefBottom) else null
+        val right = if (existing.none { it.centerX > rightEdge }) synthesize(rightCandidates, rightRefBottom) else null
         val merged = existing + listOfNotNull(left, right)
         return if (merged.size > 1) headers.copy(indexHeaders = merged) else headers
     }
@@ -425,11 +480,13 @@ object VlhTableExtractor {
     }
 
     private fun isGcHeader(box: TextBox): Boolean = "GC" in box.tokens
-    private fun isStartHeader(box: TextBox): Boolean = "START" in box.tokens
+    private fun isStartHeader(box: TextBox): Boolean = box.tokens.any { it == "START" || it == "STAR" }
 
-    /** LP is accepted only as a complete OCR element, not when embedded in other text. */
-    private fun isIndexHeader(box: TextBox): Boolean =
-        box.text.trim().uppercase(Locale.ROOT).removeSuffix(".").removeSuffix(",") == "LP"
+    /** LP (or common OCR misread LO) is accepted only as a complete OCR element, not when embedded in other text. */
+    private fun isIndexHeader(box: TextBox): Boolean {
+        val cleaned = box.text.trim().uppercase(Locale.ROOT).removeSuffix(".").removeSuffix(",")
+        return cleaned == "LP" || cleaned == "LO"
+    }
 
     private fun textAngle(box: TextBox): Double {
         val first = box.corners[0]
@@ -493,7 +550,11 @@ object VlhTableExtractor {
             ?: throw IllegalStateException("Cannot determine index column width because no GC headers were found.")
 
         val firstPosLeft = positionHeaders.firstOrNull()?.left ?: (leftMargin + fallbackIndexWidth)
-        val leftIndexRight = if (firstPosLeft > leftMargin + MIN_COLUMN_GAP_PX) firstPosLeft else (leftMargin + fallbackIndexWidth)
+        val leftIndexRight = if (firstPosLeft > leftMargin + MIN_COLUMN_GAP_PX && firstPosLeft <= leftMargin + fallbackIndexWidth * 2.0) {
+            firstPosLeft
+        } else {
+            leftMargin + fallbackIndexWidth
+        }
 
         columns += Column(0, ColumnBoundary(leftMargin), ColumnBoundary(leftIndexRight), null, ColumnKind.INDEX)
         var currentLeftX = leftIndexRight
@@ -563,7 +624,19 @@ object VlhTableExtractor {
         check(bodyBoxes.isNotEmpty()) { "No text boxes were found below the recognized header row." }
 
         val gaps = uniqueAnchors.zipWithNext().map { (left, right) ->
-            HeaderGap(left.right, right.left, (left.bottom + right.top) / 2.0, (left.centerX + right.centerX) / 2.0)
+            // When a shift-time prefix (e.g. "Breakfast (06:00-10:30)") precedes "Positions",
+            // right.left is far inside the first position column; cap the search range so the
+            // separator cannot jump across the position text into whitespace on its right side.
+            val effectiveRight = if (
+                left.kind == ColumnKind.INDEX &&
+                right.kind == ColumnKind.POSITION &&
+                right.left - left.right > 120.0
+            ) {
+                left.right + 90.0
+            } else {
+                right.left
+            }
+            HeaderGap(left.right, effectiveRight, (left.bottom + right.top) / 2.0, (left.centerX + right.centerX) / 2.0)
         }
         // A photo taken at an angle makes the vertical separators converge towards a vanishing
         // point; their slopes then change linearly across the page. Fit that model globally first,
@@ -590,8 +663,8 @@ object VlhTableExtractor {
             }
         }
 
-        val firstLeft = bodyBoxes.minOfOrNull { it.left } ?: uniqueAnchors.first().left
-        val lastRight = bodyBoxes.maxOfOrNull { it.right } ?: uniqueAnchors.last().right
+        val firstLeft = minOf(bodyBoxes.minOfOrNull { it.left } ?: uniqueAnchors.first().left, uniqueAnchors.first().left) - 5.0
+        val lastRight = maxOf(bodyBoxes.maxOfOrNull { it.right } ?: uniqueAnchors.last().right, uniqueAnchors.last().right) + 5.0
         val boundaries = listOf(ColumnBoundary(firstLeft)) + cuts + listOf(ColumnBoundary(lastRight))
 
         return uniqueAnchors.mapIndexed { index, anchor ->
@@ -615,6 +688,7 @@ object VlhTableExtractor {
         val preferredFraction = when {
             leftKind == ColumnKind.POSITION && rightKind == ColumnKind.GC -> 0.80
             leftKind == ColumnKind.GC && rightKind == ColumnKind.POSITION -> 0.20
+            leftKind == ColumnKind.INDEX && rightKind == ColumnKind.POSITION -> 0.08
             else -> 0.50
         }
         val preferredX = left + (right - left) * preferredFraction
@@ -782,22 +856,32 @@ object VlhTableExtractor {
         val indexHeaders = headers.indexHeaders.sortedBy { it.centerX }
         val positionHeaders = headers.positionHeaders.sortedBy { it.centerX }
         val detectedGcHeaders = headers.gcMarkerHeaders.sortedBy { it.centerX }
-        if (indexHeaders.size < 2 || positionHeaders.isEmpty() || detectedGcHeaders.isEmpty()) {
+        if (positionHeaders.isEmpty() || detectedGcHeaders.isEmpty()) {
             return detectedGcHeaders.map { HeaderAnchor(ColumnKind.GC, it.left, it.right, it.top, it.bottom) }
         }
 
         data class Group(val position: TextBox, val gc: TextBox?)
 
-        val groups = indexHeaders.mapIndexedNotNull { index, lpHeader ->
-            val nextLpX = indexHeaders.getOrNull(index + 1)?.centerX ?: Double.POSITIVE_INFINITY
-            val position = positionHeaders
-                .filter { it.centerX > lpHeader.centerX && it.centerX < nextLpX }
-                .minByOrNull { it.centerX }
-                ?: return@mapIndexedNotNull null
-            val gc = detectedGcHeaders
-                .filter { it.centerX > position.centerX && it.centerX < nextLpX }
-                .minByOrNull { it.centerX }
-            Group(position, gc)
+        val groups = if (indexHeaders.size >= positionHeaders.size) {
+            indexHeaders.mapIndexedNotNull { index, lpHeader ->
+                val nextLpX = indexHeaders.getOrNull(index + 1)?.centerX ?: Double.POSITIVE_INFINITY
+                val position = positionHeaders
+                    .filter { it.centerX > lpHeader.centerX && it.centerX < nextLpX }
+                    .minByOrNull { it.centerX }
+                    ?: return@mapIndexedNotNull null
+                val gc = detectedGcHeaders
+                    .filter { it.centerX > position.centerX && it.centerX < nextLpX }
+                    .minByOrNull { it.centerX }
+                Group(position, gc)
+            }
+        } else {
+            positionHeaders.mapIndexed { index, position ->
+                val nextPosX = positionHeaders.getOrNull(index + 1)?.left ?: Double.POSITIVE_INFINITY
+                val gc = detectedGcHeaders
+                    .filter { it.centerX > position.centerX && it.centerX < nextPosX }
+                    .minByOrNull { it.centerX }
+                Group(position, gc)
+            }
         }
         val knownOffsets = groups.mapNotNull { group ->
             group.gc?.let { it.centerX - group.position.centerX }
@@ -844,15 +928,18 @@ object VlhTableExtractor {
         maxSearchRows: Int
     ): RowTrajectory {
         val indexAnchors = columns.filter { it.kind == ColumnKind.INDEX }.associate { column ->
-            val anchors = preliminaryNumbers.filter { (_, box) ->
+            val candidates = preliminaryNumbers.filter { (_, box) ->
                 column.contains(box.centerX, box.centerY)
-            }.groupBy({ it.first }, { it.second.centerY }).mapValues { (_, ys) -> median(ys) }
-            column.index to anchors
+            }.map { it.first to it.second.centerY }
+            column.index to buildCleanIndexAnchors(candidates)
         }
         check(indexAnchors.isNotEmpty()) { "Could not find an index column to anchor row positions." }
 
-        // Prefer the rightmost readable index sequence to avoid the common left-margin noise.
-        val masterColumn = indexAnchors.entries.lastOrNull { it.value.size >= 25 }
+        // Prefer the rightmost readable index sequence to avoid the common left-margin noise,
+        // provided it is reasonably complete compared to the best index column.
+        val maxAnchors = indexAnchors.maxOf { it.value.size }
+        val masterThreshold = maxOf(25, maxAnchors - 8)
+        val masterColumn = indexAnchors.entries.lastOrNull { it.value.size >= masterThreshold }
             ?: indexAnchors.maxByOrNull { it.value.size }!!
         val rowAnchors = masterColumn.value
         val rowCenters = estimateLocalRowCenters(rowAnchors, maxSearchRows)
@@ -870,6 +957,43 @@ object VlhTableExtractor {
         val rowHeight = median(rowHeights.filter { it in (rawMedian * 0.5)..(rawMedian * 1.5) }.toList().ifEmpty { listOf(rawMedian) })
 
         return RowTrajectory(rowCenters, indexRowCenters, rowHeight)
+    }
+
+    /**
+     * Filters out misread 2-digit row numbers (e.g. "14" read as "1" near the bottom of the page)
+     * before building the row-number -> Y anchor map for an index column.
+     */
+    private fun buildCleanIndexAnchors(candidates: List<Pair<Int, Double>>): Map<Int, Double> {
+        if (candidates.size < 4) {
+            return candidates.groupBy({ it.first }, { it.second }).mapValues { (_, ys) -> median(ys) }
+        }
+        val sorted = candidates.sortedBy { it.second }
+        val steps = mutableListOf<Double>()
+        for (i in sorted.indices) {
+            for (j in (i + 1) until sorted.size) {
+                val dn = sorted[j].first - sorted[i].first
+                val dy = sorted[j].second - sorted[i].second
+                if (dn in 1..15 && dy > 10.0) {
+                    val step = dy / dn
+                    if (step in 18.0..90.0) {
+                        steps += step
+                    }
+                }
+            }
+        }
+        val approxRowH = if (steps.isNotEmpty()) median(steps) else 41.0
+        val consensusRowOneY = median(sorted.map { (n, y) -> y - (n - 1) * approxRowH })
+        val tolerance = approxRowH * 3.5
+        val inliers = sorted.filter { (n, y) ->
+            abs((y - (n - 1) * approxRowH) - consensusRowOneY) <= tolerance
+        }
+        if (inliers.size < 3) {
+            return candidates.groupBy({ it.first }, { it.second }).mapValues { (_, ys) -> median(ys) }
+        }
+        return inliers.groupBy { it.first }.mapValues { (n, pairs) ->
+            val expectedY = consensusRowOneY + (n - 1) * approxRowH
+            pairs.minByOrNull { abs(it.second - expectedY) }!!.second
+        }
     }
 
     /**
@@ -984,7 +1108,7 @@ object VlhTableExtractor {
         sorted.forEachIndexed { index, box ->
             if ("GC" !in box.tokens || index in used) return@forEachIndexed
             val startIndex = (index + 1 until sorted.size).firstOrNull { next ->
-                "START" in sorted[next].tokens &&
+                isStartHeader(sorted[next]) &&
                     sorted[next].left >= box.right - 5.0 &&
                     sorted[next].left - box.right < 140.0 &&
                     abs(sorted[next].centerY - box.centerY) < 90.0

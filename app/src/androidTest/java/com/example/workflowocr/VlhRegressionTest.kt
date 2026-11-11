@@ -1,6 +1,12 @@
 package com.example.workflowocr
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.workflowocr.processing.VlhTableExtractor
@@ -13,6 +19,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.WorkbookFactory
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,6 +61,16 @@ class VlhRegressionTest {
         val acceptedColumnCount: Int,
         val acceptedEditDistance: Int,
         val ignoredRegions: List<IgnoredRegion>
+    )
+
+    private data class ElementDiag(
+        val text: String,
+        val left: Int,
+        val right: Int,
+        val top: Int,
+        val bottom: Int,
+        val cx: Int,
+        val cy: Int
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -132,6 +149,143 @@ class VlhRegressionTest {
             false
         }
 
+    private fun writePublicFixtureDebugOutputs(
+        debugDir: File,
+        fixture: Fixture,
+        bitmap: Bitmap,
+        visionText: com.google.mlkit.vision.text.Text,
+        extracted: VlhTableExtractor.ExtractedTable,
+        diffs: List<String>
+    ) {
+        require(fixture.workbookAsset.startsWith("test_fixtures_public/") && !fixture.workbookAsset.contains("secret"))
+
+        // 1. <fixture.name>_debug.jpg
+        val debugBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(debugBitmap)
+        val polyPaint = Paint().apply {
+            color = Color.GREEN
+            strokeWidth = 3f
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+        val textPaint = Paint().apply {
+            color = Color.RED
+            textSize = 22f
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        for (element in visionText.textBlocks.flatMap { it.lines }.flatMap { it.elements }) {
+            val points = element.cornerPoints
+            if (points != null && points.size == 4) {
+                val path = Path().apply {
+                    moveTo(points[0].x.toFloat(), points[0].y.toFloat())
+                    lineTo(points[1].x.toFloat(), points[1].y.toFloat())
+                    lineTo(points[2].x.toFloat(), points[2].y.toFloat())
+                    lineTo(points[3].x.toFloat(), points[3].y.toFloat())
+                    close()
+                }
+                canvas.drawPath(path, polyPaint)
+                val minX = points.minOf { it.x }.toFloat()
+                val minY = points.minOf { it.y }.toFloat()
+                canvas.drawText(element.text, minX, (minY - 4f).coerceAtLeast(20f), textPaint)
+            } else if (element.boundingBox != null) {
+                val b = element.boundingBox!!
+                canvas.drawRect(
+                    b.left.toFloat(),
+                    b.top.toFloat(),
+                    b.right.toFloat(),
+                    b.bottom.toFloat(),
+                    polyPaint
+                )
+                canvas.drawText(element.text, b.left.toFloat(), (b.top.toFloat() - 4f).coerceAtLeast(20f), textPaint)
+            }
+        }
+
+        val sepPaint = Paint().apply {
+            color = Color.CYAN
+            strokeWidth = 5f
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+        for ((startX, startY, endX, endY) in extracted.columnSeparatorLines) {
+            canvas.drawLine(
+                startX.toFloat(),
+                startY.toFloat(),
+                endX.toFloat(),
+                endY.toFloat(),
+                sepPaint
+            )
+        }
+
+        File(debugDir, "${fixture.name}_debug.jpg").outputStream().use { out ->
+            debugBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+        }
+        debugBitmap.recycle()
+
+        // 2. <fixture.name>_extracted.xlsx
+        XSSFWorkbook().use { workbook ->
+            val sheet = workbook.createSheet("Extracted")
+            extracted.rows.forEachIndexed { rowIndex, rowData ->
+                val row = sheet.createRow(rowIndex)
+                rowData.forEachIndexed { colIndex, cellValue ->
+                    val cell = row.createCell(colIndex)
+                    cell.setCellValue(cellValue)
+                }
+            }
+            File(debugDir, "${fixture.name}_extracted.xlsx").outputStream().use { out ->
+                workbook.write(out)
+            }
+        }
+
+        // 3. <fixture.name>_diag.txt
+        val cutoffY = bitmap.height * 0.25
+        val headerElements = visionText.textBlocks
+            .asSequence()
+            .flatMap { it.lines }
+            .flatMap { it.elements }
+            .mapNotNull { element ->
+                val points = element.cornerPoints
+                if (!points.isNullOrEmpty()) {
+                    val left = points.minOf { it.x }
+                    val right = points.maxOf { it.x }
+                    val top = points.minOf { it.y }
+                    val bottom = points.maxOf { it.y }
+                    val cx = (left + right) / 2
+                    val cy = (top + bottom) / 2
+                    ElementDiag(element.text, left, right, top, bottom, cx, cy)
+                } else {
+                    val b = element.boundingBox
+                    if (b != null) {
+                        val cx = (b.left + b.right) / 2
+                        val cy = (b.top + b.bottom) / 2
+                        ElementDiag(element.text, b.left, b.right, b.top, b.bottom, cx, cy)
+                    } else null
+                }
+            }
+            .filter { it.cy < cutoffY }
+            .sortedWith(compareBy({ it.cy }, { it.cx }))
+            .toList()
+
+        val diagText = buildString {
+            appendLine("dimensions: ${bitmap.width}x${bitmap.height}")
+            appendLine("deskewDegrees: ${extracted.deskewAngleDegrees}")
+            appendLine("usedTiltedSeparators: ${extracted.usedTiltedSeparators}")
+            appendLine("gcColumnIndices: ${extracted.gcColumnIndices}")
+            appendLine("columnBounds: ${extracted.columnBounds}")
+            appendLine()
+            appendLine("--- Header OCR elements (centerY < ${bitmap.height * 0.25}) ---")
+            for ((text, left, right, top, bottom, cx, cy) in headerElements) {
+                appendLine("[$text] box=($left..$right, $top..$bottom) center=($cx, $cy)")
+            }
+            appendLine()
+            appendLine("--- Cell diffs (${diffs.size}) ---")
+            for (diff in diffs) {
+                appendLine(diff)
+            }
+        }
+        File(debugDir, "${fixture.name}_diag.txt").writeText(diagText)
+    }
+
     @Test
     fun testVlhDetectionRegression() = runBlocking {
         assertTrue("OpenCV initialization failed", OpenCVLoader.initLocal())
@@ -141,8 +295,12 @@ class VlhRegressionTest {
         val results = mutableListOf<String>()
         val failures = mutableListOf<String>()
         val availableFixtures = loadFixtures(assets)
+        val debugDir = File(instrumentation.targetContext.filesDir, "vlh_debug").apply { mkdirs() }
+        val externalDebugDir = instrumentation.targetContext.getExternalFilesDir(null)?.let {
+            File(it, "vlh_debug").apply { mkdirs() }
+        }
 
-        try {
+        recognizer.use {
             assertTrue(
                 "No public VLH regression fixtures were found",
                 availableFixtures.any { it.workbookAsset.startsWith("test_fixtures_public/") }
@@ -165,7 +323,8 @@ class VlhRegressionTest {
                     val actualColumnCount = table.firstOrNull()?.size
                         ?: (extracted.gcColumnIndices.maxOrNull()?.plus(1) ?: 0)
                     val actualRowCount = table.size
-                    val recognizedHeaderMarkers = visionText.textBlocks.flatMap { it.lines }
+                    val recognizedHeaderMarkers = visionText.textBlocks.asSequence()
+                        .flatMap { it.lines }
                         .flatMap { it.elements }
                         .filter { element ->
                             val normalized = element.text.uppercase(Locale.ROOT)
@@ -184,6 +343,7 @@ class VlhRegressionTest {
                     val differentCellsByColumn = IntArray(fixture.expectedColumnCount)
                     val nonemptyExpectedByColumn = IntArray(fixture.expectedColumnCount)
                     val nonemptyActualByColumn = IntArray(fixture.expectedColumnCount)
+                    val cellDiffs = mutableListOf<String>()
 
                     for (row in 0 until maxRows) {
                         val expectedRow = expectedRows.getOrNull(row).orEmpty()
@@ -197,6 +357,9 @@ class VlhRegressionTest {
                             val normalizedExpected = normalize(expected)
                             val normalizedActual = normalize(actual)
                             val distance = levenshtein(normalizedExpected, normalizedActual)
+                            if (normalizedExpected != normalizedActual) {
+                                cellDiffs += "r=$row c=$column exp=[$expected] act=[$actual]"
+                            }
                             editDistance += distance
                             distanceByColumn[column] += distance
                             expectedCharacterCount += normalizedExpected.length
@@ -206,6 +369,27 @@ class VlhRegressionTest {
                                 differentCellCount++
                                 differentCellsByColumn[column]++
                             }
+                        }
+                    }
+
+                    if (fixture.workbookAsset.startsWith("test_fixtures_public/")) {
+                        writePublicFixtureDebugOutputs(
+                            debugDir = debugDir,
+                            fixture = fixture,
+                            bitmap = bitmap,
+                            visionText = visionText,
+                            extracted = extracted,
+                            diffs = cellDiffs
+                        )
+                        if (externalDebugDir != null) {
+                            writePublicFixtureDebugOutputs(
+                                debugDir = externalDebugDir,
+                                fixture = fixture,
+                                bitmap = bitmap,
+                                visionText = visionText,
+                                extracted = extracted,
+                                diffs = cellDiffs
+                            )
                         }
                     }
 
@@ -221,6 +405,8 @@ class VlhRegressionTest {
                         "actualNonemptyByColumn=${nonemptyActualByColumn.toList()}, " +
                         "accepted=${fixture.acceptedEditDistance}"
                     results += result
+                    Log.i("VLH_REGRESSION", result)
+                    Log.i("VLH_HEADER_MARKERS", "${fixture.name}: $recognizedHeaderMarkers")
                     println("VLH_REGRESSION $result")
                     println("VLH_HEADER_MARKERS ${fixture.name}: $recognizedHeaderMarkers")
 
@@ -234,12 +420,12 @@ class VlhRegressionTest {
                     bitmap.recycle()
                 }
             }
-        } finally {
-            recognizer.close()
         }
 
         val summary = results.joinToString("\n")
         File(instrumentation.targetContext.filesDir, "vlh_regression_summary.txt").writeText(summary)
+        File(debugDir, "vlh_regression_summary.txt").writeText(summary)
+        externalDebugDir?.let { File(it, "vlh_regression_summary.txt").writeText(summary) }
         assertTrue(
             "VLH regression failures:\n${failures.joinToString("\n")}\nResults:\n$summary",
             failures.isEmpty()

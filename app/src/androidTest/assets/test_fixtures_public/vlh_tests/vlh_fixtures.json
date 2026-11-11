@@ -5,8 +5,21 @@
     "image": "anon_table.jpg",
     "headerRowCount": 1,
     "expectedColumnCount": 14,
-    "acceptedColumnCount": 12,
-    "acceptedEditDistance": 915
+    "acceptedEditDistance": 113,
+    "ignoredRegions": [
+      { "column": 1, "startRow": 32, "endRow": 50 },
+      { "column": 2, "startRow": 32, "endRow": 50 },
+      { "column": 3, "startRow": 44, "endRow": 50 },
+      { "column": 4, "startRow": 44, "endRow": 50 },
+      { "column": 5, "startRow": 44, "endRow": 50 },
+      { "column": 6, "startRow": 44, "endRow": 50 },
+      { "column": 7, "startRow": 44, "endRow": 50 },
+      { "column": 8, "startRow": 44, "endRow": 50 },
+      { "column": 9, "startRow": 47, "endRow": 50 },
+      { "column": 10, "startRow": 47, "endRow": 50 },
+      { "column": 11, "startRow": 25, "endRow": 50 },
+      { "column": 12, "startRow": 25, "endRow": 50 }
+    ]
   },
   {
     "name": "anon_table_extra_rows",
@@ -14,7 +27,21 @@
     "image": "anon_table_extra_rows.jpg",
     "headerRowCount": 7,
     "expectedColumnCount": 14,
-    "acceptedEditDistance": 458
+    "acceptedEditDistance": 66,
+    "ignoredRegions": [
+      { "column": 1, "startRow": 32, "endRow": 50 },
+      { "column": 2, "startRow": 32, "endRow": 50 },
+      { "column": 3, "startRow": 44, "endRow": 50 },
+      { "column": 4, "startRow": 44, "endRow": 50 },
+      { "column": 5, "startRow": 44, "endRow": 50 },
+      { "column": 6, "startRow": 44, "endRow": 50 },
+      { "column": 7, "startRow": 44, "endRow": 50 },
+      { "column": 8, "startRow": 44, "endRow": 50 },
+      { "column": 9, "startRow": 47, "endRow": 50 },
+      { "column": 10, "startRow": 47, "endRow": 50 },
+      { "column": 11, "startRow": 25, "endRow": 50 },
+      { "column": 12, "startRow": 25, "endRow": 50 }
+    ]
   },
   {
     "name": "anon_table_tricky_header",
@@ -22,7 +49,21 @@
     "image": "anon_table_tricky_header.jpg",
     "headerRowCount": 9,
     "expectedColumnCount": 14,
-    "acceptedEditDistance": 739
+    "acceptedEditDistance": 97,
+    "ignoredRegions": [
+      { "column": 1, "startRow": 32, "endRow": 50 },
+      { "column": 2, "startRow": 32, "endRow": 50 },
+      { "column": 3, "startRow": 44, "endRow": 50 },
+      { "column": 4, "startRow": 44, "endRow": 50 },
+      { "column": 5, "startRow": 44, "endRow": 50 },
+      { "column": 6, "startRow": 44, "endRow": 50 },
+      { "column": 7, "startRow": 44, "endRow": 50 },
+      { "column": 8, "startRow": 44, "endRow": 50 },
+      { "column": 9, "startRow": 47, "endRow": 50 },
+      { "column": 10, "startRow": 47, "endRow": 50 },
+      { "column": 11, "startRow": 25, "endRow": 50 },
+      { "column": 12, "startRow": 25, "endRow": 50 }
+    ]
   },
   {
     "name": "anon_weekday",
@@ -30,8 +71,7 @@
     "image": "anon_weekday.jpg",
     "headerRowCount": 2,
     "expectedColumnCount": 18,
-    "acceptedColumnCount": 16,
-    "acceptedEditDistance": 3772
+    "acceptedEditDistance": 41
   },
   {
     "name": "anon_weekend",
@@ -39,7 +79,6 @@
     "image": "anon_weekend.jpg",
     "headerRowCount": 2,
     "expectedColumnCount": 18,
-    "acceptedColumnCount": 16,
-    "acceptedEditDistance": 3384
+    "acceptedEditDistance": 45
   }
 ]
