@@ -437,9 +437,10 @@ class VlhWorkflowCoordinator(
                 val newColumns = List(VlhTableState.TOTAL_COLUMNS) { colIdx ->
                     val gcTableCol = extraction.gcColumnIndices.getOrNull(colIdx)
                     val scannedRows = if (gcTableCol != null) {
-                        (0 until table.size).mapNotNull { rowIdx ->
-                            table[rowIdx].getOrNull(gcTableCol)?.trim()?.toIntOrNull()
-                        }
+                        (0 until table.size)
+                            .map { rowIdx -> table[rowIdx].getOrNull(gcTableCol)?.trim()?.toIntOrNull() }
+                            .dropLastWhile { it == null }
+                            .map { it ?: 0 }
                     } else {
                         emptyList()
                     }
