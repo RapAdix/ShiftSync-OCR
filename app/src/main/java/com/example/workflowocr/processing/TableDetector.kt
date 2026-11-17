@@ -222,6 +222,7 @@ object TableDetector {
 
         // Track cumulative rotations
         var rotations = 0
+        var rotatedJunctions = physicalJunctions
 
         // 1. Orientation check (90° CCW rotation if lying on side)
         if (isLayingOnSide(filteredHorizontal, filteredVertical)) {
@@ -233,6 +234,7 @@ object TableDetector {
 
             extendedHorizontal = rotatedV // Vertical lines become new horizontal
             extendedVertical = rotatedH   // Horizontal lines become new vertical
+            rotatedJunctions = rotatedJunctions.map { Point(it.y, (imgWidth - 1).toDouble() - it.x) }
 
             rotateMatNSteps(gray, 1)
             rotations++
@@ -258,6 +260,7 @@ object TableDetector {
             // Rotate current polylines 180°
             extendedHorizontal = extendedHorizontal.map { it.rotate180(imgWidth, imgHeight) }
             extendedVertical = extendedVertical.map { it.rotate180(imgWidth, imgHeight) }
+            rotatedJunctions = rotatedJunctions.map { Point((imgWidth - 1).toDouble() - it.x, (imgHeight - 1).toDouble() - it.y) }
 
             validHorizontal = filterLinesByIntersections(extendedHorizontal, extendedVertical, targetCount = -1)
             validVertical = filterLinesByIntersections(extendedVertical, extendedHorizontal, targetCount = expectedVerticalLines)
@@ -294,7 +297,7 @@ object TableDetector {
             }
         }
         // Build spatial intersection grid directly from polylines
-        val propagatedGrid = TablePropagator.propagateRobustPolyLineGrid(validHorizontal, validVertical, physicalJunctions)
+        val propagatedGrid = TablePropagator.propagateRobustPolyLineGrid(validHorizontal, validVertical, rotatedJunctions)
 
         // Build TableCell matrix
         val cells = if (propagatedGrid.size <= 1 || propagatedGrid[0].size <= 1) {
