@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Paper-yellow 3x3 table base -->
+    <path
+        android:fillColor="#F5EECA"
+        android:pathData="M33,33 H75 A3,3 0 0 1 78,36 V75 A3,3 0 0 1 75,78 H33 A3,3 0 0 1 30,75 V36 A3,3 0 0 1 33,33 Z" />
+
+    <!-- Middle scanned row: soft sage-emerald vertical gradient -->
+    <path android:pathData="M30,48 H78 V63 H30 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="63"
+                android:endX="54"
+                android:endY="48"
+                android:type="linear">
+                <item
+                    android:color="#8057B85B"
+                    android:offset="0.0" />
+                <item
+                    android:color="#3057B85B"
+                    android:offset="0.55" />
+                <item
+                    android:color="#0057B85B"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Crisp, unblurred slightly wavy fanning scan lines inside the middle row -->
+    <group>
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M36,48 C35.2,51.2 32.0,53.2 30,56.5"
+            android:strokeColor="#D957B85B"
+            android:strokeLineCap="round"
+            android:strokeWidth="1.05" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M42.9,48 C41.2,52.8 34.8,57.5 32,63"
+            android:strokeColor="#D957B85B"
+            android:strokeLineCap="round"
+            android:strokeWidth="1.05" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M47.9,48 C46.8,52.8 41.8,57.8 40,63"
+            android:strokeColor="#D957B85B"
+            android:strokeLineCap="round"
+            android:strokeWidth="1.05" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M52.9,48 C52.4,53.0 49.0,58.0 48,63"
+            android:strokeColor="#D957B85B"
+            android:strokeLineCap="round"
+            android:strokeWidth="1.05" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M57.9,48 C58.6,53.0 55.8,58.0 56,63"
+            android:strokeColor="#D957B85B"
+            android:strokeLineCap="round"
+            android:strokeWidth="1.05" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M62.9,48 C64.4,53.0 62.6,58.0 64,63"
+            android:strokeColor="#D957B85B"
+            android:strokeLineCap="round"
+            android:strokeWidth="1.05" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M67.9,48 C70.0,52.8 69.8,58.0 72,63"
+            android:strokeColor="#D957B85B"
+            android:strokeLineCap="round"
+            android:strokeWidth="1.05" />
+    </group>
+
+    <!-- Soft-black (dark charcoal-grey) 3x3 grid lines and outer border -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M33,33 H75 A3,3 0 0 1 78,36 V75 A3,3 0 0 1 75,78 H33 A3,3 0 0 1 30,75 V36 A3,3 0 0 1 33,33 Z"
+        android:strokeColor="#2E2E2B"
+        android:strokeWidth="2.0" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M30,48 H78 M30,63 H78 M46,33 V78 M62,33 V78"
+        android:strokeColor="#2E2E2B"
+        android:strokeWidth="1.6" />
+
+    <!-- Whole scanned row edge-line highlight in a lighter green than the scanner laser -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M30,48 H78 V63 H30 Z"
+        android:strokeColor="#81C784"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.05" />
+
+    <!-- 2 scanning rays (slightly lighter green) from off-center point (61, 23) to upper corners of scanned row -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M61,23 L30,48 M61,23 L78,48"
+        android:strokeColor="#57B85B"
+        android:strokeLineCap="round"
+        android:strokeWidth="1.5" />
+
+    <!-- Off-center laser origin star: bright-center gradient core + radial radiance -->
+    <path android:pathData="M61,14.5 A8.5,8.5 0 1 1 60.99,14.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="61"
+                android:centerY="23"
+                android:gradientRadius="8.5"
+                android:type="radial">
+                <item
+                    android:color="#B357B85B"
+                    android:offset="0.0" />
+                <item
+                    android:color="#4057B85B"
+                    android:offset="0.45" />
+                <item
+                    android:color="#0057B85B"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M61,20.9 A2.1,2.1 0 1 1 60.99,20.9 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="61"
+                android:centerY="23"
+                android:gradientRadius="2.1"
+                android:type="radial">
+                <item
+                    android:color="#FFF4FFF4"
+                    android:offset="0.0" />
+                <item
+                    android:color="#FFE8F5E9"
+                    android:offset="0.35" />
+                <item
+                    android:color="#FF81C784"
+                    android:offset="0.72" />
+                <item
+                    android:color="#FF57B85B"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 4 QR-scanner-style camera viewfinder corner markings framing the table -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M25,36 V30.5 A2.5,2.5 0 0 1 27.5,28 H33 M75,28 H80.5 A2.5,2.5 0 0 1 83,30.5 V36 M25,75 V80.5 A2.5,2.5 0 0 0 27.5,83 H33 M75,83 H80.5 A2.5,2.5 0 0 0 83,80.5 V75"
+        android:strokeColor="#F5F5F0"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.0" />
+
+    <!-- INTERNAL flavor badge: dark olive pill with crisp amber "INT" in bottom-right corner -->
+    <path
+        android:fillColor="#5A5A40"
+        android:pathData="M67.5,73 H81.5 A2.5,2.5 0 0 1 84,75.5 V81.5 A2.5,2.5 0 0 1 81.5,84 H67.5 A2.5,2.5 0 0 1 65,81.5 V75.5 A2.5,2.5 0 0 1 67.5,73 Z"
+        android:strokeColor="#FFB300"
+        android:strokeWidth="0.9" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M69.2,76 V81 M72.2,81 V76 L75.6,81 V76 M77.6,76 H81.4 M79.5,76 V81"
+        android:strokeColor="#FFB300"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.25" />
+
+</vector>

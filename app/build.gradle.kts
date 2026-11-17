@@ -60,6 +60,12 @@ android {
         }
     }
 
+    sourceSets {
+        getByName("internal") {
+            res.srcDir("src/internalPublic/res")
+        }
+    }
+
     signingConfigs {
         create("releaseConfig") {
             // Read values from local.properties safely
