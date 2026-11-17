@@ -96,15 +96,24 @@ class CellAnalyzerDeskewPipelineInstrumentedTest {
                     prodThresh.release(); fileThresh.release()
                 }
                 val analysis = CellAnalyzer.analyzeCells(detection.gray, detection.thresh, detection.cells, layout)
-                report.appendLine("PEN_WRITING_COLS_6_11 (>0.05):")
-                for (r in 1 until analysis.size) {
-                    val flagged = layout.modificationColumns
-                        .map { c -> c to analysis[r].penCoverage[c] }
-                        .filter { (_, cov) -> cov > 0.05 }
-                    if (flagged.isNotEmpty()) {
-                        report.appendLine("  row=$r: " + flagged.joinToString { (c, cov) -> "col$c=${"%.3f".format(cov)}" })
+                val writingCells = fixture.cells.filter {
+                    it.row != 0 && it.column in layout.modificationColumns && it.expected in setOf("hasWritings", "noWritings")
+                }
+                var writingFp = 0; var writingFn = 0; var writingSkipped = 0
+                val writingDetails = StringBuilder()
+                writingCells.forEach { expected ->
+                    val cov = analysis.getOrNull(expected.row)?.penCoverage?.getOrNull(expected.column)
+                    if (cov == null) { writingSkipped++; return@forEach }
+                    val actualHasWritings = cov > 0.05
+                    val expectedHasWritings = expected.expected == "hasWritings"
+                    if (actualHasWritings != expectedHasWritings) {
+                        if (expectedHasWritings) writingFn++ else writingFp++
+                        writingDetails.appendLine("  PEN_WRITING row=${expected.row} col=${expected.column} expected=${expected.expected} actual=${if (actualHasWritings) "hasWritings" else "noWritings"} cov=${"%.3f".format(cov)}")
                     }
                 }
+                totalMismatches += writingFp + writingFn
+                report.appendLine("PEN_WRITING_PROD total=${writingCells.size} falsePositives=$writingFp falseNegatives=$writingFn skipped=$writingSkipped")
+                report.append(writingDetails)
             } finally {
                 releaseDetection(detection)
             }
@@ -130,7 +139,7 @@ class CellAnalyzerDeskewPipelineInstrumentedTest {
 
         val insetCells = Array(cells.size) { r ->
             Array(cells[r].size) { c ->
-                CellAnalyzer.borderInset(thresh, cells[r][c], minHorizontalFraction = 0.0, minVerticalFraction = 0.0)
+                CellAnalyzer.innerCell(thresh, cells[r][c])
             }
         }
         val detectedMat = TableDetector.drawCells(gray, cells, highlightedColumns)

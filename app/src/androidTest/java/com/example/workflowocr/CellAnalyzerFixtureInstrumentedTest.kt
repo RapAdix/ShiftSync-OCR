@@ -97,6 +97,71 @@ class CellAnalyzerFixtureInstrumentedTest {
         assertTrue("$summary\n${mismatches.joinToString("\n")}", mismatches.isEmpty())
     }
 
+    @Test
+    fun allAvailableCellAnalyzerFixturesMatchExpectedPenWriting() {
+        assert(OpenCVLoader.initDebug())
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val paths = listOf("test_fixtures_public", "test_fixtures_secret")
+            .flatMap { findFiles(assets, it, "cells.json") }
+        assertFalse("No public cell fixtures were found", paths.none { it.startsWith("test_fixtures_public/") })
+        var falsePositives = 0
+        var falseNegatives = 0
+        val mismatches = mutableListOf<String>()
+        paths.forEach { path ->
+            val fixture = assets.open(path).use {
+                fixtureJson.decodeFromString<Fixture>(it.reader().readText())
+            }
+            val layout = when (fixture.layout) {
+                "12" -> PresetDefaults.layout12Col
+                "13" -> PresetDefaults.layout13Col
+                else -> error("Unsupported fixture layout: ${fixture.layout}")
+            }
+            val labeledCells = fixture.cells.filter {
+                it.row != 0 && it.column in layout.modificationColumns &&
+                    it.expected !in setOf("", "ambiguous")
+            }
+            if (labeledCells.isEmpty()) return@forEach
+
+            val directory = path.substringBeforeLast('/')
+            val bitmap = assets.open("$directory/${fixture.image}").use(BitmapFactory::decodeStream)
+            val gray = ImageProcessor.bitmapToGrayMat(bitmap)
+            val thresh = ImageProcessor.createThresh(gray)
+            val cleanedThresh = org.opencv.core.Mat()
+            val kernel = org.opencv.imgproc.Imgproc.getStructuringElement(org.opencv.imgproc.Imgproc.MORPH_RECT, org.opencv.core.Size(2.0, 2.0))
+            org.opencv.imgproc.Imgproc.erode(thresh, cleanedThresh, kernel)
+            org.opencv.imgproc.Imgproc.dilate(cleanedThresh, cleanedThresh, kernel)
+            try {
+                labeledCells.forEach { expected ->
+                    assertTrue(
+                        "$path row=${expected.row} col=${expected.column} invalid penWriting expected='${expected.expected}'",
+                        expected.expected in setOf("hasWritings", "noWritings")
+                    )
+                    val p = expected.corners.map { Point(it[0], it[1]) }
+                    require(p.size == 4) { "$path row ${expected.row} col ${expected.column} must have four corners" }
+                    val cell = TableDetector.TableCell(p[0], p[1], p[3], p[2])
+                    val coverage = CellAnalyzer.detectPenWriting(cleanedThresh, cell)
+                    val hasWritings = coverage > 0.05
+                    val expectedHasWritings = expected.expected == "hasWritings"
+                    if (hasWritings != expectedHasWritings) {
+                        if (expectedHasWritings) falseNegatives++ else falsePositives++
+                        val mismatch = "$path row=${expected.row}, column=${expected.column}, expected=${expected.expected}, actual=${if (hasWritings) "hasWritings" else "noWritings"} (cov=${"%.3f".format(coverage)})"
+                        mismatches += mismatch
+                        println("PEN_WRITING_MISMATCH $mismatch")
+                    }
+                }
+            } finally {
+                kernel.release()
+                cleanedThresh.release()
+                thresh.release()
+                gray.release()
+                bitmap.recycle()
+            }
+        }
+        val summary = "CellAnalyzer penWriting mismatches: total=${mismatches.size}, falsePositives=$falsePositives, falseNegatives=$falseNegatives"
+        println("PEN_WRITING_SUMMARY $summary")
+        assertTrue("$summary\n${mismatches.joinToString("\n")}", mismatches.isEmpty())
+    }
+
     private fun findFiles(assets: android.content.res.AssetManager, path: String, fileName: String): List<String> =
         assets.list(path).orEmpty().flatMap { entry ->
             val child = "$path/$entry"
