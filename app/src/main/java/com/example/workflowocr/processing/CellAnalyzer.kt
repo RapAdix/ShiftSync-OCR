@@ -17,6 +17,9 @@ import kotlin.math.hypot
 object CellAnalyzer {
     private const val CROSSING_LENGTH_FRACTION = 0.70
     private const val LEGACY_CROSSING_AREA_FRACTION = 0.03
+    private const val BORDER_INSET_MAX_SCAN_PX = 12
+    private const val BORDER_INSET_MAX_VERT_FRACTION = 0.16
+    private const val BORDER_INSET_MAX_HORIZ_FRACTION = 0.06
     @Serializable
     data class RowAnalysis (
         val penCoverage: Array<Double>,
@@ -30,7 +33,7 @@ object CellAnalyzer {
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
         Imgproc.erode(thresh, cleanedThresh, kernel)
         Imgproc.dilate(cleanedThresh, cleanedThresh, kernel)
-        val penCoverage = detectPenStrokes(cleanedThresh, cells, settings.modificationColumns + listOf(settings.timeStartCol, settings.timeEndCol))
+        val penCoverage = detectPenStrokes(cleanedThresh, cells, settings.modificationColumns)
         val crossingThresh = ImageProcessor.createCrossingThresh(gray)
 
         val startTimeCrossed = Array(cells.size) {false}
@@ -84,37 +87,30 @@ object CellAnalyzer {
         crossingThresh: Mat,
         cell: TableCell
     ): Pair<Boolean, Array<Point>> {
-        val sourceCorners = listOf(cell.topLeft, cell.topRight, cell.bottomRight, cell.bottomLeft)
-        val warped = warpCell(crossingThresh, sourceCorners)
-        val innerMask = Mat.zeros(warped.size(), CvType.CV_8UC1)
-        val margin = 0.04
-        val xInset = warped.width() * margin
-        val yInset = warped.height() * margin
-        Imgproc.rectangle(
-            innerMask,
-            Point(xInset, yInset),
-            Point(warped.width() - xInset, warped.height() - yInset),
-            Scalar(255.0),
-            -1
+        val originalHeight = maxOf(
+            hypot(cell.bottomLeft.x - cell.topLeft.x, cell.bottomLeft.y - cell.topLeft.y),
+            hypot(cell.bottomRight.x - cell.topRight.x, cell.bottomRight.y - cell.topRight.y)
         )
-        Core.bitwise_and(warped, innerMask, warped)
-        innerMask.release()
+        val inner = innerCell(crossingThresh, cell)
+        val insetCell = shrinkCell(inner, horizontalPx = 2.0, verticalPx = 2.0)
+        val sourceCorners = listOf(insetCell.topLeft, insetCell.topRight, insetCell.bottomRight, insetCell.bottomLeft)
+        val warped = warpCell(crossingThresh, sourceCorners)
 
         val dp = directionalDp(warped)
         val longestLine = (1..9).maxOf { direction ->
             dp.maxOf { row -> row.maxOf { values -> values[direction] } }
         }
-        val dpCrossed = longestLine >= warped.height() * CROSSING_LENGTH_FRACTION
+        val dpCrossed = longestLine >= originalHeight * CROSSING_LENGTH_FRACTION
         warped.release()
         // The DP detector is optimized for the common bottom-left to top-right
         // stroke. Use the older strip-area detector only as a fallback for the
         // opposite stroke direction; this avoids running another DP pass.
-        val crossed = dpCrossed || detectPenCrossingFast(crossingThresh, cell)
+        val crossed = dpCrossed || detectPenCrossingFast(crossingThresh, cell, insetCell)
         val innerPoints = arrayOf(
-            getPointInCell(cell, margin, margin),
-            getPointInCell(cell, 1.0 - margin, margin),
-            getPointInCell(cell, 1.0 - margin, 1.0 - margin),
-            getPointInCell(cell, margin, 1.0 - margin)
+            insetCell.topLeft,
+            insetCell.topRight,
+            insetCell.bottomRight,
+            insetCell.bottomLeft
         )
         return Pair(crossed, innerPoints)
     }
@@ -124,42 +120,48 @@ object CellAnalyzer {
      * It reuses the original legacy top and bottom strip-area test instead of
      * running a second directional DP pass.
      */
-    private fun detectPenCrossingFast(thresh: Mat, cell: TableCell): Boolean {
+    private fun detectPenCrossingFast(thresh: Mat, originalCell: TableCell, insetCell: TableCell): Boolean {
         val hExclusionPct = 0.14
         val topStripHeightPct = 0.19
         val btmStripHeightPct = 0.24
         val mask = Mat.zeros(thresh.size(), CvType.CV_8UC1)
-        val borderInset = (cell.bottomRight.y - cell.topLeft.y) * 0.1
-        val topQuad = getSubQuad(
-            cell,
-            yStart = 0.0, yEnd = topStripHeightPct,
-            xStart = hExclusionPct, xEnd = 1.0 - hExclusionPct,
-            inset = borderInset, insetTop = true, insetBtm = false
+        // Use insetCell for the outer cell edges (already cleared past any printed grid border),
+        // while keeping the inner text-exclusion boundaries (topStripHeightPct / btmStripHeightPct
+        // and horizontal margins) anchored to originalCell so border shifting never pushes the
+        // strips into the printed time digits in the middle of the cell.
+        val topQuad = arrayOf(
+            getPointInCell(insetCell, hExclusionPct, 0.0),
+            getPointInCell(insetCell, 1.0 - hExclusionPct, 0.0),
+            getPointInCell(originalCell, 1.0 - hExclusionPct, topStripHeightPct),
+            getPointInCell(originalCell, hExclusionPct, topStripHeightPct)
         )
-        val bottomQuad = getSubQuad(
-            cell,
-            yStart = 1.0 - btmStripHeightPct, yEnd = 1.0,
-            xStart = hExclusionPct, xEnd = 1.0 - hExclusionPct,
-            inset = borderInset, insetTop = false, insetBtm = true
+        val bottomQuad = arrayOf(
+            getPointInCell(originalCell, hExclusionPct, 1.0 - btmStripHeightPct),
+            getPointInCell(originalCell, 1.0 - hExclusionPct, 1.0 - btmStripHeightPct),
+            getPointInCell(insetCell, 1.0 - hExclusionPct, 1.0),
+            getPointInCell(insetCell, hExclusionPct, 1.0)
         )
 
-        val topMaskPoints = MatOfPoint(*topQuad)
-        val bottomMaskPoints = MatOfPoint(*bottomQuad)
-        Imgproc.fillPoly(mask, listOf(topMaskPoints, bottomMaskPoints), Scalar(255.0))
+        val validQuads = listOf(topQuad, bottomQuad).filter { q ->
+            q[0].y < q[3].y && q[1].y < q[2].y
+        }
+        if (validQuads.isEmpty()) {
+            mask.release()
+            return false
+        }
+        val matPolys = validQuads.map { MatOfPoint(*it) }
+        Imgproc.fillPoly(mask, matPolys, Scalar(255.0))
 
         val evidence = Mat()
         Core.bitwise_and(thresh, mask, evidence)
         val inkPixelCount = Core.countNonZero(evidence)
-        val topQuadPoints = MatOfPoint2f(*topQuad)
-        val bottomQuadPoints = MatOfPoint2f(*bottomQuad)
-        val area = Imgproc.contourArea(topQuadPoints) + Imgproc.contourArea(bottomQuadPoints)
+        val quad2fs = validQuads.map { MatOfPoint2f(*it) }
+        val area = quad2fs.sumOf { Imgproc.contourArea(it) }
 
         evidence.release()
         mask.release()
-        topMaskPoints.release()
-        bottomMaskPoints.release()
-        topQuadPoints.release()
-        bottomQuadPoints.release()
+        matPolys.forEach { it.release() }
+        quad2fs.forEach { it.release() }
 
         return area > 0.0 && inkPixelCount > area * LEGACY_CROSSING_AREA_FRACTION
     }
@@ -236,6 +238,17 @@ object CellAnalyzer {
         return dp
     }
 
+    /**
+     * Traces a discrete line segment from (row, col) to (endRow, endCol) in the binary [pixels]
+     * image (where 255 = foreground ink/line and 0 = background) and measures how far it continues
+     * without breaking.
+     *
+     * At each step along the segment, it checks the 3x3 neighborhood around (r, c) for any white
+     * pixel (255). This 1-pixel tolerance prevents thin, anti-aliased, or slightly jagged strokes
+     * from breaking mid-run. As soon as a step has no white neighbor, tracing stops.
+     *
+     * @return Pair of (consecutive white steps from start, covered Euclidean length in pixels).
+     */
     private fun whiteRun(pixels: ByteArray, rows: Int, cols: Int, row: Int, col: Int, endRow: Int, endCol: Int): Pair<Int, Double> {
         val steps = maxOf(kotlin.math.abs(endRow - row), kotlin.math.abs(endCol - col))
         var count = 0
@@ -258,19 +271,18 @@ object CellAnalyzer {
         thresh: Mat,
         cell: TableCell,
     ): Double {
-        val mask = Mat.zeros(thresh.size(), CvType.CV_8UC1)
-
-        // 1. Inset to definitively avoid the black physical cell borders (in pixels)
-        val borderInset = (cell.bottomRight.y - cell.topLeft.y) * 0.1
-
-        // Start at top (0.0), go down to strip height (vStripHeightPct)
-        // Exclude horizontal margins (hExclusionPct to 1.0 - hExclusionPct)
-        val quad = getSubQuad(
-            cell,
-            yStart = 0.0, yEnd = 1.0,
-            xStart = 0.0, xEnd = 1.0,
-            inset = borderInset, insetTop = true, insetBtm = true
+        val inner = innerCell(thresh, cell)
+        val w = maxOf(
+            hypot(inner.topRight.x - inner.topLeft.x, inner.topRight.y - inner.topLeft.y),
+            hypot(inner.bottomRight.x - inner.bottomLeft.x, inner.bottomRight.y - inner.bottomLeft.y)
         )
+        val h = maxOf(
+            hypot(inner.bottomLeft.x - inner.topLeft.x, inner.bottomLeft.y - inner.topLeft.y),
+            hypot(inner.bottomRight.x - inner.topRight.x, inner.bottomRight.y - inner.topRight.y)
+        )
+        val insetCell = shrinkCell(inner, horizontalPx = w * 0.03, verticalPx = h * 0.03)
+        val mask = Mat.zeros(thresh.size(), CvType.CV_8UC1)
+        val quad = arrayOf(insetCell.topLeft, insetCell.topRight, insetCell.bottomRight, insetCell.bottomLeft)
 
         // 4. Draw Polygons on Mask
         val matOfPoint = MatOfPoint(*quad)
@@ -291,6 +303,117 @@ object CellAnalyzer {
         matOfPoint.release()
 
         return if (area > 0) (inkPixelCount / area) else 0.0
+    }
+
+    /**
+     * Dynamically moves each corner of [cell] inward until it clears any printed table border lines
+     * present in the binary [thresh] image (where 255 = ink/border, 0 = paper), without applying any
+     * caller-specific minimum margin.
+     *
+     * For each half-edge (e.g. top-left, top-right, left-top, etc.), we scan inward up to a bounded
+     * pixel depth and measure how many points along that half-edge are ink pixels. A printed table
+     * border spans most of the half-edge at a consistent depth, whereas diagonal crossings or
+     * handwriting only cross it at isolated points. Each corner is pushed inward past the deepest
+     * detected border line on its two adjacent half-edges (or stays at 0 if no border is present).
+     */
+    fun innerCell(
+        thresh: Mat,
+        cell: TableCell
+    ): TableCell {
+        val cellWidth = maxOf(
+            hypot(cell.topRight.x - cell.topLeft.x, cell.topRight.y - cell.topLeft.y),
+            hypot(cell.bottomRight.x - cell.bottomLeft.x, cell.bottomRight.y - cell.bottomLeft.y)
+        )
+        val cellHeight = maxOf(
+            hypot(cell.bottomLeft.x - cell.topLeft.x, cell.bottomLeft.y - cell.topLeft.y),
+            hypot(cell.bottomRight.x - cell.topRight.x, cell.bottomRight.y - cell.topRight.y)
+        )
+        if (cellWidth < 10.0 || cellHeight < 10.0 || thresh.empty()) return cell
+
+        val corners = listOf(cell.topLeft, cell.topRight, cell.bottomRight, cell.bottomLeft)
+        val minX = corners.minOf { it.x }.toInt().coerceIn(0, thresh.cols() - 1)
+        val maxX = corners.maxOf { it.x }.toInt().coerceIn(minX, thresh.cols() - 1)
+        val minY = corners.minOf { it.y }.toInt().coerceIn(0, thresh.rows() - 1)
+        val maxY = corners.maxOf { it.y }.toInt().coerceIn(minY, thresh.rows() - 1)
+        val roiW = maxX - minX + 1
+        val roiH = maxY - minY + 1
+        val roi = thresh.submat(minY, maxY + 1, minX, maxX + 1)
+        val pixels = ByteArray(roiW * roiH)
+        roi.get(0, 0, pixels)
+        roi.release()
+
+        fun isInk(px: Double, py: Double): Boolean {
+            val ix = px.toInt().coerceIn(minX, maxX) - minX
+            val iy = py.toInt().coerceIn(minY, maxY) - minY
+            return (pixels[iy * roiW + ix].toInt() and 0xFF) != 0
+        }
+
+        fun edgeClearance(
+            u0: Double, v0: Double, u1: Double, v1: Double,
+            inU: Double, inV: Double,
+            maxScanPx: Int
+        ): Double {
+            val samples = 20
+            var deepestBorderDepth = -1
+            for (d in 0..maxScanPx) {
+                var hits = 0
+                for (i in 0 until samples) {
+                    val t = i.toDouble() / (samples - 1)
+                    val u = u0 + (u1 - u0) * t
+                    val v = v0 + (v1 - v0) * t
+                    val pt0 = getPointInCell(cell, u + d * inU, v + d * inV)
+                    val pt1 = getPointInCell(cell, u + (d + 1) * inU, v + (d + 1) * inV)
+                    if (isInk(pt0.x, pt0.y) || isInk(pt1.x, pt1.y)) hits++
+                }
+                if (hits >= samples * 0.45) {
+                    deepestBorderDepth = d
+                }
+            }
+            return if (deepestBorderDepth >= 0) deepestBorderDepth + 2.0 else 0.0
+        }
+
+        val maxVertScan = minOf(BORDER_INSET_MAX_SCAN_PX, (cellHeight * BORDER_INSET_MAX_VERT_FRACTION).toInt())
+        val maxHorizScan = minOf(BORDER_INSET_MAX_SCAN_PX, (cellWidth * BORDER_INSET_MAX_HORIZ_FRACTION).toInt())
+        val invW = 1.0 / cellWidth
+        val invH = 1.0 / cellHeight
+
+        val topLeftV = edgeClearance(0.12, 0.0, 0.50, 0.0, 0.0, invH, maxVertScan)
+        val topRightV = edgeClearance(0.50, 0.0, 0.88, 0.0, 0.0, invH, maxVertScan)
+        val botLeftV = edgeClearance(0.12, 1.0, 0.50, 1.0, 0.0, -invH, maxVertScan)
+        val botRightV = edgeClearance(0.50, 1.0, 0.88, 1.0, 0.0, -invH, maxVertScan)
+
+        val leftTopU = edgeClearance(0.0, 0.12, 0.0, 0.50, invW, 0.0, maxHorizScan)
+        val leftBotU = edgeClearance(0.0, 0.50, 0.0, 0.88, invW, 0.0, maxHorizScan)
+        val rightTopU = edgeClearance(1.0, 0.12, 1.0, 0.50, -invW, 0.0, maxHorizScan)
+        val rightBotU = edgeClearance(1.0, 0.50, 1.0, 0.88, -invW, 0.0, maxHorizScan)
+
+        return TableCell(
+            topLeft = getPointInCell(cell, (leftTopU * invW).coerceAtMost(0.4), (topLeftV * invH).coerceAtMost(0.4)),
+            topRight = getPointInCell(cell, (1.0 - rightTopU * invW).coerceAtLeast(0.6), (topRightV * invH).coerceAtMost(0.4)),
+            bottomLeft = getPointInCell(cell, (leftBotU * invW).coerceAtMost(0.4), (1.0 - botLeftV * invH).coerceAtLeast(0.6)),
+            bottomRight = getPointInCell(cell, (1.0 - rightBotU * invW).coerceAtLeast(0.6), (1.0 - botRightV * invH).coerceAtLeast(0.6))
+        )
+    }
+
+    /** Moves all four corners of [cell] inward by [horizontalPx] and [verticalPx]. */
+    private fun shrinkCell(cell: TableCell, horizontalPx: Double, verticalPx: Double): TableCell {
+        val cellWidth = maxOf(
+            hypot(cell.topRight.x - cell.topLeft.x, cell.topRight.y - cell.topLeft.y),
+            hypot(cell.bottomRight.x - cell.bottomLeft.x, cell.bottomRight.y - cell.bottomLeft.y)
+        )
+        val cellHeight = maxOf(
+            hypot(cell.bottomLeft.x - cell.topLeft.x, cell.bottomLeft.y - cell.topLeft.y),
+            hypot(cell.bottomRight.x - cell.topRight.x, cell.bottomRight.y - cell.topRight.y)
+        )
+        if (cellWidth <= 0.0 || cellHeight <= 0.0) return cell
+        val uInset = (horizontalPx / cellWidth).coerceIn(0.0, 0.4)
+        val vInset = (verticalPx / cellHeight).coerceIn(0.0, 0.4)
+        return TableCell(
+            topLeft = getPointInCell(cell, uInset, vInset),
+            topRight = getPointInCell(cell, 1.0 - uInset, vInset),
+            bottomLeft = getPointInCell(cell, uInset, 1.0 - vInset),
+            bottomRight = getPointInCell(cell, 1.0 - uInset, 1.0 - vInset)
+        )
     }
 
     /**
@@ -320,42 +443,5 @@ object CellAnalyzer {
         val finalY = topY + (botY - topY) * v
 
         return Point(finalX, finalY)
-    }
-
-    /**
-     * Creates 4 points defining a specific percentage window within the cell.
-     */
-    private fun getSubQuad(
-        cell: TableCell,
-        yStart: Double, yEnd: Double,
-        xStart: Double, xEnd: Double,
-        inset: Double, insetTop: Boolean, insetBtm: Boolean
-    ): Array<Point> {
-        // Target 4 corners of our inner window
-        val p1 = getPointInCell(cell, xStart, yStart)
-        val p2 = getPointInCell(cell, xEnd, yStart)
-        val p3 = getPointInCell(cell, xEnd, yEnd)
-        val p4 = getPointInCell(cell, xStart, yEnd)
-
-        // Apply safety insets towards the center of the cell to avoid border lines
-        return arrayOf( // only do so from the side that is close to cell edge
-            if (insetTop) p1.applyInset(direction = 1, amount = inset) else p1, // Push Down-Right
-            if (insetTop) p2.applyInset(direction = 2, amount = inset) else p2, // Push Down-Left
-            if (insetBtm) p3.applyInset(direction = 3, amount = inset) else p3, // Push Up-Left
-            if (insetBtm) p4.applyInset(direction = 4, amount = inset) else p4  // Push Up-Right
-        )
-    }
-
-    /**
-     * Helper to push a point inward based on which corner of a quad it represents.
-     */
-    private fun Point.applyInset(direction: Int, amount: Double): Point {
-        return when(direction) {
-            1 -> Point(x + amount, y + amount) // Top-Left corner moves in
-            2 -> Point(x - amount, y + amount) // Top-Right corner moves in
-            3 -> Point(x - amount, y - amount) // Bottom-Right corner moves in
-            4 -> Point(x + amount, y - amount) // Bottom-Left corner moves in
-            else -> this
-        }
     }
 }
